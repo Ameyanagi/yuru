@@ -178,9 +178,12 @@ jobs:
                 printf 'version = "0.0.0"\n'
                 printf 'edition = "2021"\n'
                 printf 'publish = false\n\n'
+                printf '[lib]\n'
+                printf 'path = "lib.rs"\n\n'
                 printf '[dependencies]\n'
                 printf '%s = "=%s"\n' "$crate" "$VERSION"
               } >"$tmpdir/Cargo.toml"
+              touch "$tmpdir/lib.rs"
 
               if cargo generate-lockfile --manifest-path "$tmpdir/Cargo.toml" >"$log_file" 2>&1; then
                 rm -rf "$tmpdir" "$log_file"
