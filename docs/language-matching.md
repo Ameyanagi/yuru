@@ -6,11 +6,19 @@ Yuru always keeps direct fuzzy matching enabled. Japanese and Chinese modes add 
 
 `--lang ja` adds kana and romaji keys. Kanji readings come from Lindera when `--ja-reading lindera` is enabled. Use `--ja-reading none` to disable generated kanji readings.
 
+Width-compatible forms are normalized before matching: full-width ASCII, half-width katakana, full-width spaces, dash variants, and Japanese prolonged sound marks are comparable. For example, ASCII `-` can match `ー` in `ハッピー` or `コード`.
+
+Romaji query expansion accepts common IME-style aliases in addition to canonical reading keys. For example, `zyu` can match `じゅ`, `nn`/`xn` can match `ん`, and small-kana inputs such as `ltsu`/`xtsu` and `lyu`/`xyu` can match `っ` and `ゅ`.
+
+Native kana queries also search generated kana reading keys. Numeric Japanese context keeps the original text for output while adding reading-oriented tokenizer inputs for Arabic numerals, so `8月` can match `8`, `はち`, `hachi`, `8gatsu`, and `gatu`/`gatsu`. For dates, both fully read forms such as `2025nen8gatsu` and compact mixed forms such as `20258gatsu` can match `2025年8月`; standalone `月` remains `tsuki`.
+
 Examples:
 
 ```sh
 printf "カメラ.txt\n" | yuru --lang ja --filter kamera
 printf "tests/日本語.txt\n" | yuru --lang ja --filter ni
+printf "重要事項\n" | yuru --lang ja --filter zyu
+printf "2025年8月.pdf\n" | yuru --lang ja --filter gatu
 ```
 
 Generated reading keys carry source spans. A romaji match can highlight the original Japanese surface text instead of the whole CJK run.

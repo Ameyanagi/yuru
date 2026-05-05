@@ -37,7 +37,7 @@ Yuru installs into user space by default. It does not require `sudo`.
 macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4
 ```
 
 This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
@@ -48,14 +48,14 @@ shell. The installer asks for a default language and writes it to
 To set the default language without a prompt:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3 --default-lang ja
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja
 ```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.3"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
@@ -63,19 +63,19 @@ the user PATH, adds PowerShell integration to your user profile, and can write
 the default language to `%APPDATA%\yuru\config.toml`.
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.3 -DefaultLang ja"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.4 -DefaultLang ja"
 ```
 
 To install only the binary:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --version v0.1.3
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --version v0.1.4
 ```
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
-Invoke-Expression "& { $script } -Version v0.1.3"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
+Invoke-Expression "& { $script } -Version v0.1.4"
 ```
 
 Crates.io:
@@ -129,8 +129,12 @@ printf "README.md\nsrc/lib.rs\ntests/日本語.txt\n" | yuru --lang ja --filter 
 Open the interactive finder:
 
 ```sh
-yuru --walker file,dir,follow,hidden --scheme path
+fd --hidden --exclude .git . | yuru --scheme path
 ```
+
+Interactive mode streams stdin and default commands, so large generators such as
+`fd` can keep producing candidates while the UI is already open. Use `--sync` if
+you want fzf-style synchronous startup.
 
 Chinese pinyin initials:
 
@@ -260,8 +264,8 @@ Create a version tag to publish a release and crates.io packages. The release
 workflow only runs on tags, and the tag must match the crate version.
 
 ```sh
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 Release notes are tracked in [CHANGELOG.md](CHANGELOG.md). Contributor and

@@ -60,6 +60,173 @@ fn cli_ja_query_ni_matches_lindera_kanji_reading() {
 }
 
 #[test]
+fn cli_ja_query_zyu_matches_kunrei_romaji() {
+    command()
+        .args(["--lang", "ja", "--filter", "zyu"])
+        .write_stdin("重要事項\nju.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("重要事項\n"));
+}
+
+#[test]
+fn cli_ja_query_zi_matches_ji_kana() {
+    command()
+        .args(["--lang", "ja", "--filter", "zi"])
+        .write_stdin("じ.txt\nジ.txt\nji.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("じ.txt"))
+        .stdout(predicate::str::contains("ジ.txt"))
+        .stdout(predicate::str::contains("ji.txt").not());
+}
+
+#[test]
+fn cli_ja_query_nn_matches_nasal_kana() {
+    command()
+        .args(["--lang", "ja", "--filter", "nn"])
+        .write_stdin("ん.txt\nn.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("ん.txt\n"));
+}
+
+#[test]
+fn cli_ja_query_small_kana_ime_aliases_match_kana() {
+    command()
+        .args(["--lang", "ja", "--filter", "ltsu"])
+        .write_stdin("っ.txt\nつ.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("っ.txt\n"));
+
+    command()
+        .args(["--lang", "ja", "--filter", "lyu"])
+        .write_stdin("ゅ.txt\nゆ.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("ゅ.txt\n"));
+}
+
+#[test]
+fn cli_dash_query_matches_japanese_prolonged_sound_mark_in_plain_mode() {
+    command()
+        .args(["--lang", "plain", "--filter", "-"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq(
+            "2025年8月　ハッピースマイル写真展示室コード.pdf\n",
+        ));
+}
+
+#[test]
+fn cli_japanese_query_with_prolonged_sound_mark_does_not_panic() {
+    command()
+        .args(["--lang", "ja", "--filter", "ハッピー"])
+        .write_stdin("2025年8月　ﾊｯﾋﾟｰｽﾏｲﾙ写真展示室ｺｰﾄﾞ.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("2025年8月　ﾊｯﾋﾟｰｽﾏｲﾙ写真展示室ｺｰﾄﾞ.pdf\n"));
+}
+
+#[test]
+fn cli_ja_fuzzy_romaji_matches_japanese_filename() {
+    command()
+        .args(["--lang", "ja", "--filter", "hapsu"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq(
+            "2025年8月　ハッピースマイル写真展示室コード.pdf\n",
+        ));
+}
+
+#[test]
+fn cli_ja_ime_romaji_matches_mixed_kana_and_kanji_filename() {
+    command()
+        .args(["--lang", "ja", "--filter", "happi-sumairushasinntennzi"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq(
+            "2025年8月　ハッピースマイル写真展示室コード.pdf\n",
+        ));
+}
+
+#[test]
+fn cli_ja_ime_romaji_matches_contextual_date_readings() {
+    command()
+        .args(["--lang", "ja", "--filter", "gatu"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq(
+            "2025年8月　ハッピースマイル写真展示室コード.pdf\n",
+        ));
+
+    command()
+        .args(["--lang", "ja", "--filter", "nen", "--explain"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source span: 4..5 \"年\""));
+}
+
+#[test]
+fn cli_ja_native_kana_and_digits_match_numeric_date_context() {
+    command()
+        .args(["--lang", "ja", "--filter", "はち", "--explain"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source span: 5..7 \"8月\""));
+
+    command()
+        .args(["--lang", "ja", "--filter", "8"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq(
+            "2025年8月　ハッピースマイル写真展示室コード.pdf\n",
+        ));
+
+    command()
+        .args(["--lang", "ja", "--filter", "8gatsu", "--explain"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source span: 5..7 \"8月\""));
+
+    command()
+        .args(["--lang", "ja", "--filter", "2025nen8gatsu", "--explain"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source span: 0..7 \"2025年8月\""));
+
+    command()
+        .args(["--lang", "ja", "--filter", "20258gatsu", "--explain"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source span: 0..7 \"2025年8月\""));
+}
+
+#[test]
+fn cli_lang_auto_selects_japanese_for_kana_candidates_without_japanese_locale() {
+    command()
+        .env("LC_ALL", "C")
+        .args(["--lang", "auto", "--filter", "hapsu"])
+        .write_stdin("2025年8月　ハッピースマイル写真展示室コード.pdf\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq(
+            "2025年8月　ハッピースマイル写真展示室コード.pdf\n",
+        ));
+}
+
+#[test]
 fn cli_reads_default_language_from_yuru_config_file() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("config");
@@ -208,9 +375,7 @@ fn cli_can_load_all_fzf_default_opts() {
         .assert()
         .success()
         .stdout(predicate::eq("alpha\n"))
-        .stderr(predicate::str::contains(
-            "ignoring unsupported fzf option --preview",
-        ));
+        .stderr(predicate::eq(""));
 }
 
 #[test]
@@ -605,6 +770,22 @@ fn cli_walker_skips_broken_symlinks_when_following_links() {
         .stdout(predicate::eq("alpha.txt\n"));
 }
 
+#[cfg(unix)]
+#[test]
+fn cli_walker_skips_symlink_loops_when_following_links() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("loop").join("nested")).unwrap();
+    std::os::unix::fs::symlink("..", dir.path().join("loop").join("nested").join("back")).unwrap();
+    fs::write(dir.path().join("alpha.txt"), "").unwrap();
+
+    command()
+        .current_dir(dir.path())
+        .args(["--filter", "alpha", "--walker", "file,follow,hidden"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha.txt\n"));
+}
+
 #[test]
 fn cli_walker_respects_gitignore() {
     let dir = tempfile::tempdir().unwrap();
@@ -681,9 +862,14 @@ fn cli_prints_bash_shell_integration_without_reading_fzf_opts() {
         .stdout(predicate::str::contains("__yuru_ctrl_t__"))
         .stdout(predicate::str::contains("FZF_CTRL_T_COMMAND"))
         .stdout(predicate::str::contains("--input"))
+        .stdout(predicate::str::contains("command -v fd"))
+        .stdout(predicate::str::contains("command -v fdfind"))
+        .stdout(predicate::str::contains("command find"))
+        .stdout(predicate::str::contains("--fzf-compat ignore"))
         .stdout(predicate::str::contains("__yuru_setup_completion__"))
         .stdout(predicate::str::contains("complete -D"))
-        .stdout(predicate::str::contains("**<TAB>"));
+        .stdout(predicate::str::contains("**<TAB>"))
+        .stdout(predicate::str::contains("file,dir,follow,hidden").not());
 }
 
 #[test]
@@ -702,15 +888,12 @@ fn cli_warns_for_parsed_but_unsupported_fzf_options_by_default() {
         .success()
         .stdout(predicate::eq("alpha\n"))
         .stderr(predicate::str::contains(
-            "ignoring unsupported fzf option --preview",
-        ))
-        .stderr(predicate::str::contains(
             "ignoring unsupported fzf option --bind",
         ));
 }
 
 #[test]
-fn cli_rejects_unsupported_fzf_options_in_strict_mode() {
+fn cli_accepts_preview_in_strict_mode() {
     command()
         .args([
             "--filter",
@@ -722,14 +905,32 @@ fn cli_rejects_unsupported_fzf_options_in_strict_mode() {
         ])
         .write_stdin("alpha\n")
         .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
+fn cli_rejects_unsupported_fzf_options_in_strict_mode() {
+    command()
+        .args([
+            "--filter",
+            "alpha",
+            "--preview-window",
+            "right:50%",
+            "--fzf-compat",
+            "strict",
+        ])
+        .write_stdin("alpha\n")
+        .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "unsupported fzf option(s): --preview",
+            "unsupported fzf option(s): --preview-window",
         ));
 }
 
 #[test]
-fn cli_can_ignore_unsupported_fzf_options() {
+fn cli_accepts_preview_in_ignore_mode() {
     command()
         .args([
             "--filter",
@@ -738,6 +939,24 @@ fn cli_can_ignore_unsupported_fzf_options() {
             "cat {}",
             "--fzf-compat",
             "ignore",
+        ])
+        .write_stdin("alpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
+fn cli_can_ignore_later_unsupported_fzf_options() {
+    command()
+        .args([
+            "--filter",
+            "alpha",
+            "--fzf-compat",
+            "ignore",
+            "--preview",
+            "cat {}",
         ])
         .write_stdin("alpha\n")
         .assert()
@@ -934,7 +1153,7 @@ print -r -- "$LBUFFER""#,
 
 #[cfg(unix)]
 #[test]
-fn zsh_ctrl_t_uses_input_file_for_command_candidates() {
+fn zsh_ctrl_t_streams_command_candidates() {
     if StdCommand::new("zsh").arg("--version").output().is_err() {
         eprintln!("skipping zsh ctrl-t smoke because zsh is not installed");
         return;
@@ -946,14 +1165,7 @@ fn zsh_ctrl_t_uses_input_file_for_command_candidates() {
         dir.path(),
         "fake-yuru",
         r#"printf '%s\n' "$@" > "$YURU_FAKE_ARGS"
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--input" ]; then
-    shift
-    cat "$1" > "$YURU_FAKE_INPUT"
-    break
-  fi
-  shift
-done
+cat > "$YURU_FAKE_INPUT"
 printf 'src/main.rs\n'
 "#,
     );
@@ -966,8 +1178,9 @@ printf 'src/main.rs\n'
             r#"source "$YURU_SCRIPT"
 YURU_BIN="$YURU_FAKE"
 FZF_CTRL_T_COMMAND="printf 'src/main.rs\n'"
+FZF_CTRL_T_OPTS="--preview 'fzf-preview.sh {}'"
 LBUFFER=""
-__yuru_ctrl_t__ 2>/dev/null
+__yuru_ctrl_t__
 print -r -- "$LBUFFER"
 cat "$YURU_FAKE_ARGS"
 printf '%s\n' "---"
@@ -987,7 +1200,12 @@ cat "$YURU_FAKE_INPUT""#,
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.starts_with("src/main.rs \n"), "stdout={stdout}");
-    assert!(stdout.contains("--input\n"), "stdout={stdout}");
+    assert!(stdout.contains("--fzf-compat\nignore\n"), "stdout={stdout}");
+    assert!(
+        stdout.contains("--preview\nfzf-preview.sh {}\n"),
+        "stdout={stdout}"
+    );
+    assert!(!stdout.contains("--input\n"), "stdout={stdout}");
     assert!(stdout.ends_with("---\nsrc/main.rs\n"), "stdout={stdout}");
 }
 

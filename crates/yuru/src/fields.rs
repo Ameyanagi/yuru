@@ -53,48 +53,55 @@ pub fn prepare_items(
     raw_items
         .into_iter()
         .enumerate()
-        .map(|(index, record)| {
-            let original = record.display;
-            let searchable_original = if ansi {
-                strip_ansi_codes(&original)
-            } else {
-                original.clone()
-            };
-            let display = if let Some(spec) = &config.with_nth {
-                transform_line(
-                    &searchable_original,
-                    spec,
-                    config.delimiter.as_deref(),
-                    index,
-                )
-                .with_context(|| format!("invalid --with-nth expression: {spec}"))?
-            } else {
-                original.clone()
-            };
-            let search_base = if config.with_nth.is_some() {
-                if ansi {
-                    strip_ansi_codes(&display)
-                } else {
-                    display.clone()
-                }
-            } else {
-                searchable_original
-            };
-            let search_text = if let Some(spec) = &config.nth {
-                transform_line(&search_base, spec, config.delimiter.as_deref(), index)
-                    .with_context(|| format!("invalid --nth expression: {spec}"))?
-            } else {
-                search_base
-            };
-
-            Ok(InputItem {
-                raw: record.raw,
-                original,
-                display,
-                search_text,
-            })
-        })
+        .map(|(index, record)| prepare_item(record, config, ansi, index))
         .collect()
+}
+
+pub fn prepare_item(
+    record: InputRecord,
+    config: &FieldConfig,
+    ansi: bool,
+    index: usize,
+) -> Result<InputItem> {
+    let original = record.display;
+    let searchable_original = if ansi {
+        strip_ansi_codes(&original)
+    } else {
+        original.clone()
+    };
+    let display = if let Some(spec) = &config.with_nth {
+        transform_line(
+            &searchable_original,
+            spec,
+            config.delimiter.as_deref(),
+            index,
+        )
+        .with_context(|| format!("invalid --with-nth expression: {spec}"))?
+    } else {
+        original.clone()
+    };
+    let search_base = if config.with_nth.is_some() {
+        if ansi {
+            strip_ansi_codes(&display)
+        } else {
+            display.clone()
+        }
+    } else {
+        searchable_original
+    };
+    let search_text = if let Some(spec) = &config.nth {
+        transform_line(&search_base, spec, config.delimiter.as_deref(), index)
+            .with_context(|| format!("invalid --nth expression: {spec}"))?
+    } else {
+        search_base
+    };
+
+    Ok(InputItem {
+        raw: record.raw,
+        original,
+        display,
+        search_text,
+    })
 }
 
 pub fn accept_output(

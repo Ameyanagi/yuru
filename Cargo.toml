@@ -1,6 +1,6 @@
 [package]
 name = "yuru-workspace"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -25,7 +25,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.88"
 repository = "https://github.com/Ameyanagi/yuru"
@@ -49,10 +49,10 @@ shlex = "1"
 tempfile = "3"
 toml = "0.8"
 unicode-normalization = "0.1"
-yuru-core = { path = "crates/yuru-core", version = "0.1.3" }
-yuru-ja = { path = "crates/yuru-ja", version = "0.1.3" }
-yuru-tui = { path = "crates/yuru-tui", version = "0.1.3" }
-yuru-zh = { path = "crates/yuru-zh", version = "0.1.3" }
+yuru-core = { path = "crates/yuru-core", version = "0.1.4" }
+yuru-ja = { path = "crates/yuru-ja", version = "0.1.4" }
+yuru-tui = { path = "crates/yuru-tui", version = "0.1.4" }
+yuru-zh = { path = "crates/yuru-zh", version = "0.1.4" }
 
 [dev-dependencies]
 assert_cmd.workspace = true

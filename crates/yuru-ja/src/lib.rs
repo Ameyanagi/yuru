@@ -4,6 +4,7 @@
 //! keeps source spans so matches in generated readings can highlight the
 //! original display text.
 
+mod numeric;
 pub mod reading;
 pub mod romaji;
 
@@ -63,6 +64,15 @@ impl LanguageBackend for JapaneseBackend {
 
     fn expand_query(&self, query: &str) -> Vec<QueryVariant> {
         let mut variants = base_query_variants(query);
+        let normalized = normalize::normalize(query);
+        if contains_kana(&normalized) {
+            variants.push(QueryVariant::kana(katakana_to_hiragana(&normalized)));
+        }
+        if let Some(numeric_romaji) = numeric::numeric_romaji_query(query) {
+            for kana in romaji::romaji_to_kana_candidates(&numeric_romaji, 16) {
+                variants.push(QueryVariant::romaji_to_kana(kana));
+            }
+        }
         for kana in romaji::romaji_to_kana_candidates(query, 16) {
             variants.push(QueryVariant::romaji_to_kana(kana));
         }
@@ -96,7 +106,8 @@ fn katakana_to_hiragana_with_source_map(
     let mut out_map = Vec::new();
 
     for (index, ch) in text.chars().enumerate() {
-        let hira = katakana_to_hiragana(&ch.to_string());
+        let normalized = normalize::normalize(&ch.to_string());
+        let hira = katakana_to_hiragana(&normalized);
         let source = source_map.get(index).copied().flatten();
         out.push_str(&hira);
         out_map.extend(hira.chars().map(|_| source));
@@ -168,6 +179,41 @@ mod tests {
             .keys
             .iter()
             .any(|k| k.kind == KeyKind::RomajiReading && k.text.contains("nihongo")));
+    }
+
+    #[test]
+    fn japanese_mode_folds_prolonged_sound_in_lindera_reading_keys() {
+        let cand = build_candidate(
+            0,
+            "2025年8月　ハッピースマイル写真展示室コード.pdf",
+            &JapaneseBackend::default(),
+            &SearchConfig::default(),
+        );
+
+        assert!(cand.keys.iter().any(|key| {
+            key.kind == KeyKind::KanaReading && key.text.contains("はっぴ-すまいるしゃしんてんじ")
+        }));
+    }
+
+    #[test]
+    fn japanese_mode_uses_numeric_context_for_date_reading_keys() {
+        let cand = build_candidate(
+            0,
+            "2025年8月　ハッピースマイル写真展示室コード.pdf",
+            &JapaneseBackend::default(),
+            &SearchConfig::default(),
+        );
+
+        assert!(cand.keys.iter().any(|key| {
+            key.kind == KeyKind::RomajiReading
+                && key.text.contains("nisennijuugonenhachigatsu")
+                && key.text.contains("happi-sumairu")
+        }));
+        assert!(cand.keys.iter().any(|key| {
+            key.kind == KeyKind::RomajiReading
+                && key.text.contains("2025nen8gatsu")
+                && key.text.contains("happi-sumairu")
+        }));
     }
 
     #[test]

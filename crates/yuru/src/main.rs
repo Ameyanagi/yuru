@@ -3,13 +3,17 @@ mod shell;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, IsTerminal, Read, Write};
+use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{ExitCode, Stdio};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use fields::{accept_output, prepare_items, FieldConfig, InputItem, InputRecord, OutputRecord};
+use fields::{
+    accept_output, prepare_item, prepare_items, FieldConfig, InputItem, InputRecord, OutputRecord,
+};
 use ignore::{DirEntry, WalkBuilder};
 use shell::ShellKind;
 use yuru_core::{
@@ -24,6 +28,9 @@ const DEFAULT_WALKER: &str = "file,follow,hidden";
 const DEFAULT_WALKER_ROOT: &str = ".";
 const DEFAULT_WALKER_SKIP: &str = ".git,node_modules";
 const DEFAULT_INTERACTIVE_LIMIT: usize = 1000;
+
+type SharedInputItems = Arc<Mutex<Vec<InputItem>>>;
+type CandidateStreamReceiver = mpsc::Receiver<yuru_tui::CandidateStreamMessage>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum LangArg {
@@ -184,6 +191,9 @@ struct Args {
     read0: bool,
 
     #[arg(long)]
+    sync: bool,
+
+    #[arg(long)]
     print0: bool,
 
     #[arg(long, hide = true)]
@@ -248,6 +258,9 @@ struct Args {
 
     #[arg(long)]
     layout: Option<String>,
+
+    #[arg(long)]
+    reverse: bool,
 
     #[arg(long)]
     border: Option<String>,
@@ -348,6 +361,27 @@ fn run() -> Result<ExitCode> {
         tiebreaks,
     };
 
+    let field_config = FieldConfig {
+        delimiter: args.delimiter.clone(),
+        nth: args.nth.clone(),
+        with_nth: args.with_nth.clone(),
+        accept_nth: args.accept_nth.clone(),
+    };
+    if interactive && should_stream_interactive(&args, walker_requested) {
+        let backend = create_backend(&args, &query, &[]);
+        let (items, receiver) =
+            spawn_streaming_candidates(&args, &field_config, backend.clone(), config.clone())?;
+        return run_interactive_streaming_mode(
+            &args,
+            items,
+            &field_config,
+            receiver,
+            backend.as_ref(),
+            config,
+            query,
+        );
+    }
+
     let mut raw_items =
         read_input_candidates(&args, walker_requested).context("failed to load candidates")?;
     if let Some(tail) = args.tail {
@@ -358,12 +392,6 @@ fn run() -> Result<ExitCode> {
         raw_items.reverse();
     }
 
-    let field_config = FieldConfig {
-        delimiter: args.delimiter.clone(),
-        nth: args.nth.clone(),
-        with_nth: args.with_nth.clone(),
-        accept_nth: args.accept_nth.clone(),
-    };
     let items = prepare_items(raw_items, &field_config, args.ansi)?;
     let backend = create_backend(&args, &query, &items);
     if args.debug_query_variants {
@@ -432,16 +460,16 @@ fn run() -> Result<ExitCode> {
     }
 }
 
-fn create_backend(args: &Args, query: &str, items: &[InputItem]) -> Box<dyn LanguageBackend> {
+fn create_backend(args: &Args, query: &str, items: &[InputItem]) -> Arc<dyn LanguageBackend> {
     let lang = match args.lang {
         LangArg::Auto => detect_auto_lang(query, items),
         lang => lang,
     };
 
     match lang {
-        LangArg::Plain => Box::new(PlainBackend),
-        LangArg::Ja => Box::new(JapaneseBackend::new(japanese_reading_mode(args.ja_reading))),
-        LangArg::Zh => Box::new(ChineseBackend::new(
+        LangArg::Plain => Arc::new(PlainBackend),
+        LangArg::Ja => Arc::new(JapaneseBackend::new(japanese_reading_mode(args.ja_reading))),
+        LangArg::Zh => Arc::new(ChineseBackend::new(
             args.zh_pinyin && !args.no_zh_pinyin,
             args.zh_initials && !args.no_zh_initials,
             chinese_polyphone_mode(args.zh_polyphone),
@@ -506,7 +534,7 @@ fn detect_auto_lang(query: &str, items: &[InputItem]) -> LangArg {
         }
     }
 
-    if locale.starts_with("ja") && (sample_has_kana || sample_has_han) {
+    if sample_has_kana || locale.starts_with("ja") && sample_has_han {
         LangArg::Ja
     } else if locale.starts_with("zh") && sample_has_han {
         LangArg::Zh
@@ -545,6 +573,9 @@ fn run_interactive_mode(
         expect_keys: parse_expect_keys(args.expect.as_deref()),
         bindings: parse_bindings(&args.bind),
         height: parse_tui_height(args),
+        layout: parse_tui_layout(args)?,
+        preview: args.preview.clone(),
+        style: parse_tui_style(&args.color),
         cycle: args.cycle,
         multi: args.multi && !args.no_multi,
     };
@@ -573,6 +604,248 @@ fn run_interactive_mode(
         }
         yuru_tui::TuiOutcome::Aborted => Ok(ExitCode::from(130)),
     }
+}
+
+fn run_interactive_streaming_mode(
+    args: &Args,
+    items: SharedInputItems,
+    field_config: &FieldConfig,
+    receiver: CandidateStreamReceiver,
+    backend: &dyn LanguageBackend,
+    config: SearchConfig,
+    query: String,
+) -> Result<ExitCode> {
+    let options = yuru_tui::TuiOptions {
+        initial_query: query,
+        prompt: args.prompt.clone().unwrap_or_else(|| "> ".to_string()),
+        header: args.header.clone(),
+        expect_keys: parse_expect_keys(args.expect.as_deref()),
+        bindings: parse_bindings(&args.bind),
+        height: parse_tui_height(args),
+        layout: parse_tui_layout(args)?,
+        preview: args.preview.clone(),
+        style: parse_tui_style(&args.color),
+        cycle: args.cycle,
+        multi: args.multi && !args.no_multi,
+    };
+
+    match yuru_tui::run_interactive_streaming(receiver, backend, config, options)? {
+        yuru_tui::TuiOutcome::Accepted { ids, query, expect } => {
+            let items = items
+                .lock()
+                .map_err(|_| anyhow::anyhow!("streamed candidate store is unavailable"))?;
+            let mut output = Vec::new();
+            if args.expect.is_some() {
+                output.push(OutputRecord::Text(expect.unwrap_or_default()));
+            }
+            if args.print_query {
+                output.push(OutputRecord::Text(query));
+            }
+            for id in ids {
+                let Some(item) = items.get(id) else {
+                    bail!("selected streamed candidate disappeared: {id}");
+                };
+                output.push(accept_output(item, field_config, id)?);
+            }
+            write_records(&output, args.print0)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        yuru_tui::TuiOutcome::NoSelection => {
+            if args.exit_0 {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::from(1))
+            }
+        }
+        yuru_tui::TuiOutcome::Aborted => Ok(ExitCode::from(130)),
+    }
+}
+
+fn should_stream_interactive(args: &Args, walker_requested: bool) -> bool {
+    if args.sync
+        || args.input.is_some()
+        || args.tac
+        || args.tail.is_some()
+        || args.select_1
+        || args.exit_0
+        || walker_requested
+    {
+        return false;
+    }
+
+    !io::stdin().is_terminal() || non_empty_default_source_command().is_some()
+}
+
+fn spawn_streaming_candidates(
+    args: &Args,
+    field_config: &FieldConfig,
+    backend: Arc<dyn LanguageBackend>,
+    config: SearchConfig,
+) -> Result<(SharedInputItems, CandidateStreamReceiver)> {
+    let (sender, receiver) = mpsc::channel();
+    let items = Arc::new(Mutex::new(Vec::new()));
+    let worker_items = items.clone();
+    let worker_field_config = field_config.clone();
+    let read0 = args.read0;
+    let ansi = args.ansi;
+    let aliases = args.aliases.clone();
+    let source = if io::stdin().is_terminal() {
+        non_empty_default_source_command()
+            .map(|(env_name, command)| StreamingSource::Command { env_name, command })
+    } else {
+        Some(StreamingSource::Stdin)
+    };
+
+    let Some(source) = source else {
+        bail!("no streaming source available");
+    };
+
+    thread::spawn(move || {
+        let result = match source {
+            StreamingSource::Stdin => {
+                let stdin = io::stdin();
+                let reader = stdin.lock();
+                stream_records_from_reader(
+                    reader,
+                    read0,
+                    worker_items,
+                    sender.clone(),
+                    worker_field_config,
+                    backend,
+                    config,
+                    aliases,
+                    ansi,
+                )
+            }
+            StreamingSource::Command { env_name, command } => stream_records_from_command(
+                env_name,
+                &command,
+                read0,
+                worker_items,
+                sender.clone(),
+                worker_field_config,
+                backend,
+                config,
+                aliases,
+                ansi,
+            ),
+        };
+
+        match result {
+            Ok(()) => {
+                let _ = sender.send(yuru_tui::CandidateStreamMessage::Finished);
+            }
+            Err(error) => {
+                let _ = sender.send(yuru_tui::CandidateStreamMessage::Error(format!(
+                    "{error:#}"
+                )));
+            }
+        }
+    });
+
+    Ok((items, receiver))
+}
+
+enum StreamingSource {
+    Stdin,
+    Command {
+        env_name: &'static str,
+        command: String,
+    },
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_records_from_command(
+    env_name: &'static str,
+    command: &str,
+    read0: bool,
+    items: Arc<Mutex<Vec<InputItem>>>,
+    sender: mpsc::Sender<yuru_tui::CandidateStreamMessage>,
+    field_config: FieldConfig,
+    backend: Arc<dyn LanguageBackend>,
+    config: SearchConfig,
+    aliases: Vec<String>,
+    ansi: bool,
+) -> Result<()> {
+    let mut child = default_command_process(command)
+        .stdout(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to run {env_name}: {command}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("failed to capture default command stdout")?;
+    stream_records_from_reader(
+        BufReader::new(stdout),
+        read0,
+        items,
+        sender,
+        field_config,
+        backend,
+        config,
+        aliases,
+        ansi,
+    )?;
+    let status = child
+        .wait()
+        .with_context(|| format!("failed to wait for {env_name}: {command}"))?;
+    if !status.success() {
+        bail!("{env_name} exited with {status}");
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_records_from_reader<R: BufRead>(
+    mut reader: R,
+    read0: bool,
+    items: Arc<Mutex<Vec<InputItem>>>,
+    sender: mpsc::Sender<yuru_tui::CandidateStreamMessage>,
+    field_config: FieldConfig,
+    backend: Arc<dyn LanguageBackend>,
+    config: SearchConfig,
+    aliases: Vec<String>,
+    ansi: bool,
+) -> Result<()> {
+    let delimiter = if read0 { b'\0' } else { b'\n' };
+    let mut raw = Vec::new();
+    loop {
+        raw.clear();
+        let read = reader.read_until(delimiter, &mut raw)?;
+        if read == 0 {
+            break;
+        }
+        if raw.ends_with(&[delimiter]) {
+            raw.pop();
+        }
+        if !read0 && raw.ends_with(b"\r") {
+            raw.pop();
+        }
+        if read0 && raw.is_empty() {
+            continue;
+        }
+
+        let record = InputRecord::from_raw(raw.clone());
+        let mut locked = items
+            .lock()
+            .map_err(|_| anyhow::anyhow!("streamed candidate store is unavailable"))?;
+        let id = locked.len();
+        let item = prepare_item(record, &field_config, ansi, id)?;
+        let mut candidate =
+            yuru_core::build_candidate(id, item.search_text.clone(), backend.as_ref(), &config);
+        apply_aliases_to_candidate(&mut candidate, &item, &aliases, &config)?;
+        locked.push(item);
+        drop(locked);
+
+        if sender
+            .send(yuru_tui::CandidateStreamMessage::Candidate(candidate))
+            .is_err()
+        {
+            break;
+        }
+    }
+
+    Ok(())
 }
 
 fn should_run_interactive(args: &Args) -> bool {
@@ -643,6 +916,50 @@ mod tests {
     }
 
     #[test]
+    fn streaming_reader_builds_candidates_without_waiting_for_eof_batch() {
+        let (sender, receiver) = mpsc::channel();
+        let items = Arc::new(Mutex::new(Vec::new()));
+        stream_records_from_reader(
+            io::Cursor::new(b"alpha\nbeta\n".to_vec()),
+            false,
+            items.clone(),
+            sender,
+            FieldConfig {
+                delimiter: None,
+                nth: None,
+                with_nth: None,
+                accept_nth: None,
+            },
+            Arc::new(PlainBackend),
+            SearchConfig::default(),
+            Vec::new(),
+            false,
+        )
+        .unwrap();
+
+        let messages: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(messages.len(), 2);
+        match &messages[0] {
+            yuru_tui::CandidateStreamMessage::Candidate(candidate) => {
+                assert_eq!(candidate.id, 0);
+                assert_eq!(candidate.display, "alpha");
+            }
+            other => panic!("unexpected stream message: {other:?}"),
+        }
+        match &messages[1] {
+            yuru_tui::CandidateStreamMessage::Candidate(candidate) => {
+                assert_eq!(candidate.id, 1);
+                assert_eq!(candidate.display, "beta");
+            }
+            other => panic!("unexpected stream message: {other:?}"),
+        }
+        let items = items.lock().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].original, "alpha");
+        assert_eq!(items[1].original, "beta");
+    }
+
+    #[test]
     fn doctor_preparse_only_matches_leading_subcommand() {
         assert!(doctor_command_present(&[OsString::from("doctor")]));
         assert!(!doctor_command_present(&[
@@ -660,6 +977,51 @@ fn parse_tui_height(args: &Args) -> Option<usize> {
         .as_deref()
         .and_then(|height| height.parse().ok())
         .filter(|height| *height > 0)
+}
+
+fn parse_tui_layout(args: &Args) -> Result<yuru_tui::TuiLayout> {
+    if args.reverse {
+        return Ok(yuru_tui::TuiLayout::Reverse);
+    }
+
+    match args.layout.as_deref().unwrap_or("default") {
+        "default" => Ok(yuru_tui::TuiLayout::Default),
+        "reverse" => Ok(yuru_tui::TuiLayout::Reverse),
+        "reverse-list" => Ok(yuru_tui::TuiLayout::ReverseList),
+        other => bail!("unsupported --layout value: {other}"),
+    }
+}
+
+fn parse_tui_style(raw: &[String]) -> yuru_tui::TuiStyle {
+    let mut style = yuru_tui::TuiStyle::default();
+    for color_set in raw {
+        for entry in color_set.split(',') {
+            let Some((name, value)) = entry.split_once(':') else {
+                continue;
+            };
+            let Some(color) = parse_hex_color(value) else {
+                continue;
+            };
+            match name {
+                "pointer" => style.pointer = Some(color),
+                "hl" => style.highlight = Some(color),
+                "hl+" => style.highlight_selected = Some(color),
+                _ => {}
+            }
+        }
+    }
+    style
+}
+
+fn parse_hex_color(value: &str) -> Option<yuru_tui::TuiRgb> {
+    let value = value.strip_prefix('#')?;
+    if value.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&value[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&value[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&value[4..6], 16).ok()?;
+    Some(yuru_tui::TuiRgb { r, g, b })
 }
 
 fn parse_expect_keys(raw: Option<&str>) -> Vec<String> {
@@ -753,23 +1115,14 @@ fn ignored_fzf_options(args: &Args) -> Vec<&'static str> {
     if has_unsupported_bindings(&args.bind) {
         out.push("--bind");
     }
-    if args.preview.is_some() {
-        out.push("--preview");
-    }
     if args.preview_window.is_some() {
         out.push("--preview-window");
-    }
-    if args.layout.is_some() {
-        out.push("--layout");
     }
     if args.border.is_some() {
         out.push("--border");
     }
     if args.header_lines.is_some() {
         out.push("--header-lines");
-    }
-    if !args.color.is_empty() {
-        out.push("--color");
     }
     out
 }
@@ -867,6 +1220,10 @@ fn default_source_command() -> Option<(&'static str, String)> {
     None
 }
 
+fn non_empty_default_source_command() -> Option<(&'static str, String)> {
+    default_source_command().filter(|(_, command)| !command.trim().is_empty())
+}
+
 fn run_default_command(env_name: &str, command: &str) -> Result<Vec<InputRecord>> {
     let output = default_command_process(command)
         .output()
@@ -953,12 +1310,27 @@ fn run_walker(args: &Args) -> Result<Vec<InputRecord>> {
 }
 
 fn walker_error_is_skippable(error: &ignore::Error) -> bool {
+    if ignore_error_is_loop(error) {
+        return true;
+    }
+
     error.io_error().is_some_and(|io_error| {
         matches!(
             io_error.kind(),
             io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
         )
     })
+}
+
+fn ignore_error_is_loop(error: &ignore::Error) -> bool {
+    match error {
+        ignore::Error::Loop { .. } => true,
+        ignore::Error::Partial(errors) => errors.iter().any(ignore_error_is_loop),
+        ignore::Error::WithLineNumber { err, .. }
+        | ignore::Error::WithPath { err, .. }
+        | ignore::Error::WithDepth { err, .. } => ignore_error_is_loop(err),
+        _ => false,
+    }
 }
 
 fn parse_walker_options(raw: &str) -> Result<WalkerOptions> {
@@ -1033,6 +1405,24 @@ fn apply_aliases(
             candidate.keys = dedup_and_limit_keys(std::mem::take(&mut candidate.keys), config);
         }
     }
+    Ok(())
+}
+
+fn apply_aliases_to_candidate(
+    candidate: &mut yuru_core::Candidate,
+    item: &InputItem,
+    aliases: &[String],
+    config: &SearchConfig,
+) -> Result<()> {
+    for alias in aliases {
+        let Some((query, display)) = alias.split_once('=') else {
+            bail!("alias must use query=display format: {alias}");
+        };
+        if item.original == display || item.display == display || candidate.display == display {
+            candidate.keys.push(SearchKey::learned_alias(query));
+        }
+    }
+    candidate.keys = dedup_and_limit_keys(std::mem::take(&mut candidate.keys), config);
     Ok(())
 }
 
@@ -1932,6 +2322,7 @@ fn safe_fzf_flag(word: &str) -> bool {
             | "--no-sort"
             | "--disabled"
             | "--tac"
+            | "--sync"
             | "--read0"
             | "--print0"
             | "--ansi"
@@ -1947,6 +2338,7 @@ fn safe_fzf_flag(word: &str) -> bool {
             | "--cycle"
             | "--no-height"
             | "--extended"
+            | "--reverse"
     )
 }
 
@@ -1970,6 +2362,8 @@ fn safe_fzf_value_option(word: &str) -> bool {
             | "--walker-root"
             | "--walker-skip"
             | "--height"
+            | "--layout"
+            | "--color"
             | "--prompt"
     )
 }
@@ -1983,7 +2377,6 @@ fn unsafe_fzf_value_option(word: &str) -> bool {
             | "--expect"
             | "--header"
             | "--header-lines"
-            | "--layout"
             | "--border"
             | "--color"
             | "--style"

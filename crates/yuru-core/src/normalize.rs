@@ -1,7 +1,19 @@
 use unicode_normalization::UnicodeNormalization;
 
 pub fn normalize(text: &str) -> String {
-    text.nfkc().flat_map(char::to_lowercase).collect()
+    text.nfkc()
+        .flat_map(char::to_lowercase)
+        .map(fold_width_compatible_char)
+        .collect()
+}
+
+pub fn fold_width_compatible_char(ch: char) -> char {
+    match ch {
+        '-' | '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+        | '\u{2212}' | '\u{30a0}' | '\u{30fc}' | '\u{fe58}' | '\u{fe63}' | '\u{ff0d}'
+        | '\u{ff70}' => '-',
+        _ => ch,
+    }
 }
 
 pub fn katakana_to_hiragana(text: &str) -> String {
@@ -50,6 +62,16 @@ mod tests {
     #[test]
     fn normalize_halfwidth_katakana() {
         assert_eq!(normalize("ｶﾒﾗ"), "カメラ");
+    }
+
+    #[test]
+    fn normalize_folds_dash_and_prolonged_sound_width_variants() {
+        assert_eq!(normalize("ハッピー-ｰ－―−゠"), "ハッピ-------");
+    }
+
+    #[test]
+    fn normalize_folds_fullwidth_space() {
+        assert_eq!(normalize("2025年8月　PDF"), "2025年8月 pdf");
     }
 
     #[test]

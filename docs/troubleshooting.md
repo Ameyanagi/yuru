@@ -12,7 +12,7 @@ It reports the binary path, version, PATH visibility, config source, default lan
 
 ## `fdfind: command not found`
 
-Yuru's built-in walker does not require `fd` or `fdfind`. The error usually comes from `FZF_DEFAULT_COMMAND`, `YURU_DEFAULT_COMMAND`, or a shell integration command copied from an fzf setup.
+Yuru's shell integration now checks `fd`, then `fdfind`, then falls back to `find`. The built-in walker also does not require `fd` or `fdfind`. If you still see this error, it usually comes from `FZF_DEFAULT_COMMAND`, `YURU_DEFAULT_COMMAND`, or a custom `YURU_CTRL_T_COMMAND` / `FZF_CTRL_T_COMMAND`.
 
 Either install `fd`, change the command, or let Yuru use the built-in walker:
 
@@ -22,6 +22,16 @@ unset YURU_DEFAULT_COMMAND
 yuru --walker file,dir,follow,hidden
 ```
 
+## `CTRL-T` is slow in `$HOME`
+
+The shell integration streams candidates from `fd` / `fdfind` / `find` into Yuru and does not follow symlinks by default. If traversal is still too broad, set a narrower command:
+
+```sh
+export YURU_CTRL_T_COMMAND='fd --hidden --exclude .git --exclude Library . ~/dev'
+```
+
+For exact fzf-style synchronous startup, use `--sync`; otherwise interactive mode opens while candidates are still being read.
+
 ## Existing fzf options behave differently
 
 Use:
@@ -30,11 +40,21 @@ Use:
 yuru --fzf-compat strict
 ```
 
-Then move unsupported UI-heavy options such as `--preview` into fzf-only config, or set:
+Then move unsupported UI-heavy options into fzf-only config, or set:
 
 ```sh
 yuru --load-fzf-default-opts never
 ```
+
+## zsh says `read-only variable: status`
+
+Install the current shell integration and reload zsh:
+
+```sh
+eval "$(yuru --zsh)"
+```
+
+Older Yuru zsh integration declared `status`, which is a zsh read-only special parameter.
 
 ## Japanese or Chinese does not match
 

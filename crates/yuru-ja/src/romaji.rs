@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
-use yuru_core::SourceSpan;
+use yuru_core::{normalize::fold_width_compatible_char, SourceSpan};
 
 pub fn romaji_to_kana_candidates(input: &str, max: usize) -> Vec<String> {
     if max == 0 {
@@ -9,6 +9,9 @@ pub fn romaji_to_kana_candidates(input: &str, max: usize) -> Vec<String> {
 
     let input = input.trim().to_ascii_lowercase();
     if input.is_empty() {
+        return Vec::new();
+    }
+    if !input.is_ascii() {
         return Vec::new();
     }
 
@@ -70,8 +73,11 @@ pub fn kana_to_romaji(input: &str) -> String {
             }
         }
 
+        let folded = fold_width_compatible_char(chars[index]);
         if chars[index] == 'ん' {
             out.push('n');
+        } else if folded != chars[index] {
+            out.push(folded);
         } else if let Some(romaji) = romaji_for_kana(chars[index]) {
             out.push_str(romaji);
         } else {
@@ -120,8 +126,12 @@ pub fn kana_to_romaji_with_source_map(
         }
 
         let source = source_map.get(index).copied().flatten();
+        let folded = fold_width_compatible_char(chars[index]);
         if chars[index] == 'ん' {
             out.push('n');
+            out_map.push(source);
+        } else if folded != chars[index] {
+            out.push(folded);
             out_map.push(source);
         } else if let Some(romaji) = romaji_for_kana(chars[index]) {
             out.push_str(romaji);
@@ -171,6 +181,11 @@ fn expand_one(input: &str, index: usize, built: &str) -> Vec<(usize, String)> {
 
     if let Some((next, kana)) = expand_n(input, index, built) {
         expanded.push((next, kana));
+        if rest.starts_with("nn") {
+            let mut direct = built.to_owned();
+            direct.push('ん');
+            expanded.push((index + 2, direct));
+        }
         if rest.as_bytes().get(1) != Some(&b'y') {
             return expanded;
         }
@@ -181,7 +196,7 @@ fn expand_one(input: &str, index: usize, built: &str) -> Vec<(usize, String)> {
         return expanded;
     }
 
-    for len in [3usize, 2, 1] {
+    for len in [4usize, 3, 2, 1] {
         if rest.len() >= len {
             let token = &rest[..len];
             if let Some(kana) = kana_for_token(token) {
@@ -261,7 +276,7 @@ fn is_consonant(ch: char) -> bool {
 }
 
 fn starts_with_kana_token(rest: &str) -> bool {
-    [3usize, 2, 1]
+    [4usize, 3, 2, 1]
         .into_iter()
         .any(|len| rest.len() >= len && kana_for_token(&rest[..len]).is_some())
 }
@@ -292,6 +307,13 @@ fn kana_for_token(token: &str) -> Option<&'static str> {
         "u" => "う",
         "e" => "え",
         "o" => "お",
+        "la" | "xa" => "ぁ",
+        "li" | "xi" => "ぃ",
+        "lu" | "xu" => "ぅ",
+        "le" | "xe" | "lye" | "xye" => "ぇ",
+        "lo" | "xo" => "ぉ",
+        "lka" | "xka" => "ゕ",
+        "lke" | "xke" => "ゖ",
         "ka" | "ca" => "か",
         "ki" => "き",
         "ku" | "cu" => "く",
@@ -305,17 +327,18 @@ fn kana_for_token(token: &str) -> Option<&'static str> {
         "su" => "す",
         "se" | "ce" => "せ",
         "so" => "そ",
-        "sha" => "しゃ",
-        "shu" => "しゅ",
-        "sho" => "しょ",
+        "sha" | "sya" => "しゃ",
+        "shu" | "syu" => "しゅ",
+        "sho" | "syo" => "しょ",
         "ta" => "た",
         "chi" | "ti" => "ち",
         "tsu" | "tu" => "つ",
+        "ltsu" | "xtsu" | "ltu" | "xtu" => "っ",
         "te" => "て",
         "to" => "と",
-        "cha" => "ちゃ",
-        "chu" => "ちゅ",
-        "cho" => "ちょ",
+        "cha" | "cya" | "tya" => "ちゃ",
+        "chu" | "cyu" | "tyu" => "ちゅ",
+        "cho" | "cyo" | "tyo" => "ちょ",
         "na" => "な",
         "ni" => "に",
         "nu" => "ぬ",
@@ -343,6 +366,9 @@ fn kana_for_token(token: &str) -> Option<&'static str> {
         "ya" => "や",
         "yu" => "ゆ",
         "yo" => "よ",
+        "lya" | "xya" => "ゃ",
+        "lyu" | "xyu" => "ゅ",
+        "lyo" | "xyo" => "ょ",
         "ra" => "ら",
         "ri" => "り",
         "ru" => "る",
@@ -353,6 +379,8 @@ fn kana_for_token(token: &str) -> Option<&'static str> {
         "ryo" => "りょ",
         "wa" => "わ",
         "wo" => "を",
+        "lwa" | "xwa" => "ゎ",
+        "xn" => "ん",
         "ga" => "が",
         "gi" => "ぎ",
         "gu" => "ぐ",
@@ -366,14 +394,17 @@ fn kana_for_token(token: &str) -> Option<&'static str> {
         "zu" => "ず",
         "ze" => "ぜ",
         "zo" => "ぞ",
-        "ja" | "jya" => "じゃ",
-        "ju" | "jyu" => "じゅ",
-        "jo" | "jyo" => "じょ",
+        "ja" | "jya" | "zya" => "じゃ",
+        "ju" | "jyu" | "zyu" => "じゅ",
+        "jo" | "jyo" | "zyo" => "じょ",
         "da" => "だ",
         "di" => "ぢ",
         "du" => "づ",
         "de" => "で",
         "do" => "ど",
+        "dya" => "ぢゃ",
+        "dyu" => "ぢゅ",
+        "dyo" => "ぢょ",
         "ba" => "ば",
         "bi" => "び",
         "bu" => "ぶ",
@@ -559,12 +590,62 @@ mod tests {
     }
 
     #[test]
+    fn romaji_nn_can_mean_single_nasal() {
+        let out = romaji_to_kana_candidates("nn", 8);
+        let xn = romaji_to_kana_candidates("xn", 8);
+
+        assert!(out.contains(&"ん".to_string()));
+        assert!(xn.contains(&"ん".to_string()));
+    }
+
+    #[test]
+    fn romaji_zyu_maps_to_ju_kana() {
+        let out = romaji_to_kana_candidates("zyu", 8);
+        assert!(out.contains(&"じゅ".to_string()));
+    }
+
+    #[test]
+    fn romaji_small_tsu_aliases_map_to_small_tsu() {
+        let ltsu = romaji_to_kana_candidates("ltsu", 8);
+        let xtu = romaji_to_kana_candidates("xtu", 8);
+
+        assert!(ltsu.contains(&"っ".to_string()));
+        assert!(xtu.contains(&"っ".to_string()));
+    }
+
+    #[test]
+    fn romaji_small_yoon_aliases_map_to_small_kana() {
+        let lyu = romaji_to_kana_candidates("lyu", 8);
+        let xya = romaji_to_kana_candidates("xya", 8);
+        let xye = romaji_to_kana_candidates("xye", 8);
+
+        assert!(lyu.contains(&"ゅ".to_string()));
+        assert!(xya.contains(&"ゃ".to_string()));
+        assert!(xye.contains(&"ぇ".to_string()));
+    }
+
+    #[test]
+    fn romaji_small_wa_and_ka_aliases_map_to_small_kana() {
+        let xwa = romaji_to_kana_candidates("xwa", 8);
+        let lka = romaji_to_kana_candidates("lka", 8);
+
+        assert!(xwa.contains(&"ゎ".to_string()));
+        assert!(lka.contains(&"ゕ".to_string()));
+    }
+
+    #[test]
     fn romaji_variants_are_deduped_and_capped() {
         let out = romaji_to_kana_candidates("oooooooooooooooo", 4);
         let unique = out.iter().collect::<HashSet<_>>();
 
         assert!(out.len() <= 4);
         assert_eq!(out.len(), unique.len());
+    }
+
+    #[test]
+    fn non_ascii_query_does_not_enter_romaji_parser() {
+        assert!(romaji_to_kana_candidates("ハッピー", 8).is_empty());
+        assert!(romaji_to_kana_candidates("ー", 8).is_empty());
     }
 
     #[test]
@@ -575,6 +656,11 @@ mod tests {
     #[test]
     fn kana_to_romaji_basic() {
         assert_eq!(kana_to_romaji("かめら.txt"), "kamera.txt");
+    }
+
+    #[test]
+    fn kana_to_romaji_folds_prolonged_sound_mark_to_hyphen() {
+        assert_eq!(kana_to_romaji("こーど"), "ko-do");
     }
 
     #[test]

@@ -76,6 +76,7 @@ pub enum KeyKind {
 pub enum QueryVariantKind {
     Original,
     Normalized,
+    Kana,
     RomajiToKana,
     Pinyin,
     Initials,

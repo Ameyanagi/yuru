@@ -10,7 +10,7 @@ Yuru는 기본적으로 사용자 영역에 설치됩니다. `sudo`가 필요하
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4
 ```
 
 기본 설치 위치는 `~/.local/bin`입니다. `XDG_BIN_HOME` 또는 `YURU_INSTALL_BIN_DIR`로 변경할 수 있습니다.
@@ -20,14 +20,14 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh 
 프롬프트 없이 기본 언어를 지정하려면:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3 --default-lang ja
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja
 ```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.3"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin`에 `yuru.exe`를 설치하고, 사용자 PATH와 PowerShell profile을 업데이트합니다.
@@ -36,7 +36,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.3"
 바이너리만 설치:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --version v0.1.3
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --version v0.1.4
 ```
 
 crates.io에서 설치:
@@ -87,7 +87,7 @@ printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamer
 파일 검색:
 
 ```sh
-yuru --walker file,dir,follow,hidden --scheme path
+fd --hidden --exclude .git . | yuru --scheme path
 ```
 
 ## fzf 호환성과 설정
@@ -122,8 +122,8 @@ version tag 를 push 하면 GitHub Actions 가 macOS, Linux, Windows용 release 
 release workflow 는 tag push 에서만 실행되며, tag 는 crate version 과 일치해야 합니다.
 
 ```sh
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 ## 라이선스

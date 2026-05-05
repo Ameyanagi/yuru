@@ -26,6 +26,14 @@ impl QueryVariant {
         }
     }
 
+    pub fn kana(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: QueryVariantKind::Kana,
+            weight: 350,
+        }
+    }
+
     pub fn romaji_to_kana(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -115,7 +123,7 @@ fn key_kind_coverage(kind: QueryVariantKind) -> u16 {
         QueryVariantKind::Original | QueryVariantKind::Normalized => {
             ORIGINAL | NORMALIZED | ROMAJI_READING | PINYIN_FULL | PINYIN_JOINED | LEARNED_ALIAS
         }
-        QueryVariantKind::RomajiToKana => KANA_READING,
+        QueryVariantKind::Kana | QueryVariantKind::RomajiToKana => KANA_READING,
         QueryVariantKind::Pinyin => PINYIN_FULL | PINYIN_JOINED,
         QueryVariantKind::Initials => PINYIN_INITIALS | LEARNED_ALIAS,
     }
@@ -132,7 +140,9 @@ pub fn key_kind_allowed(variant: &QueryVariant, kind: KeyKind) -> bool {
                 | KeyKind::PinyinJoined
                 | KeyKind::LearnedAlias
         ),
-        QueryVariantKind::RomajiToKana => matches!(kind, KeyKind::KanaReading),
+        QueryVariantKind::Kana | QueryVariantKind::RomajiToKana => {
+            matches!(kind, KeyKind::KanaReading)
+        }
         QueryVariantKind::Pinyin => matches!(kind, KeyKind::PinyinFull | KeyKind::PinyinJoined),
         QueryVariantKind::Initials => {
             matches!(kind, KeyKind::PinyinInitials | KeyKind::LearnedAlias)
@@ -165,6 +175,13 @@ mod tests {
         let variant = QueryVariant::romaji_to_kana("とうきょう");
         assert!(key_kind_allowed(&variant, KeyKind::KanaReading));
         assert!(!key_kind_allowed(&variant, KeyKind::PinyinJoined));
+    }
+
+    #[test]
+    fn kana_variant_only_targets_kana_keys() {
+        let variant = QueryVariant::kana("はち");
+        assert!(key_kind_allowed(&variant, KeyKind::KanaReading));
+        assert!(!key_kind_allowed(&variant, KeyKind::RomajiReading));
     }
 
     #[test]

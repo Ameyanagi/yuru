@@ -33,22 +33,36 @@ __yuru_join_bash__() {
 }
 
 __yuru_run_with_optional_command__() {
-  local command_set="$1" command_text="$2" tmp status
+  local command_set="$1" command_text="$2" status
   shift 2
   if [ "$command_set" = 1 ]; then
-    tmp="${TMPDIR:-/tmp}/yuru-command.$$"
-    rm -f "$tmp"
-    if eval "$command_text" >"$tmp" 2>/dev/null; then
-      if [ -s "$tmp" ]; then
-        "${YURU_BIN:-yuru}" "$@" --input "$tmp"
-        status=$?
-        rm -f "$tmp"
-        return $status
-      fi
-    fi
-    rm -f "$tmp"
+    eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}" "$@"
+    status=${PIPESTATUS[1]}
+    return $status
   fi
   "${YURU_BIN:-yuru}" "$@"
+}
+
+__yuru_compgen_path__() {
+  local root="${1:-.}"
+  if command -v fd >/dev/null 2>&1; then
+    command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif command -v fdfind >/dev/null 2>&1; then
+    command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  else
+    command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o \( -type f -o -type d -o -type l \) -print 2>/dev/null | command sed 's#^\./##'
+  fi
+}
+
+__yuru_compgen_dir__() {
+  local root="${1:-.}"
+  if command -v fd >/dev/null 2>&1; then
+    command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif command -v fdfind >/dev/null 2>&1; then
+    command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  else
+    command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o -type d -print 2>/dev/null | command sed 's#^\./##'
+  fi
 }
 
 __yuru_completion_trigger__() {
@@ -75,18 +89,16 @@ __yuru_completion_dirs_only__() {
 }
 
 __yuru_ctrl_t__() {
-  local command_set=0 command_text selected insert opts
+  local command_set=1 command_text='__yuru_compgen_path__ .' selected insert opts
   if [ "${YURU_CTRL_T_COMMAND+x}" ]; then
-    command_set=1
     command_text=$YURU_CTRL_T_COMMAND
   elif [ "${FZF_CTRL_T_COMMAND+x}" ]; then
-    command_set=1
     command_text=$FZF_CTRL_T_COMMAND
   fi
   [ "$command_set" = 1 ] && [ -z "$command_text" ] && return
 
   opts=${YURU_CTRL_T_OPTS:-${FZF_CTRL_T_OPTS:-}}
-  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --walker file,dir,follow,hidden $opts)
+  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore $opts)
   [ -n "$selected" ] || return
   insert=$(__yuru_join_bash__ "$selected")
   [ -n "$insert" ] || return
@@ -101,7 +113,7 @@ __yuru_ctrl_r__() {
   tmp="${TMPDIR:-/tmp}/yuru-history.$$"
   rm -f "$tmp"
   HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return; }
-  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" --input "$tmp" $opts)
+  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore $opts)
   status=$?
   rm -f "$tmp"
   [ "$status" -eq 0 ] || return
@@ -111,18 +123,16 @@ __yuru_ctrl_r__() {
 }
 
 __yuru_alt_c__() {
-  local command_set=0 command_text selected opts
+  local command_set=1 command_text='__yuru_compgen_dir__ .' selected opts
   if [ "${YURU_ALT_C_COMMAND+x}" ]; then
-    command_set=1
     command_text=$YURU_ALT_C_COMMAND
   elif [ "${FZF_ALT_C_COMMAND+x}" ]; then
-    command_set=1
     command_text=$FZF_ALT_C_COMMAND
   fi
   [ "$command_set" = 1 ] && [ -z "$command_text" ] && return
 
   opts=${YURU_ALT_C_OPTS:-${FZF_ALT_C_OPTS:-}}
-  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --walker dir,follow,hidden $opts)
+  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore $opts)
   [ -n "$selected" ] || return
   builtin cd -- "$selected" || return
   READLINE_LINE=
@@ -159,14 +169,18 @@ __yuru_completion__() {
   query=${query#/}
   opts=$(__yuru_completion_opts__)
   if __yuru_completion_dirs_only__; then
-    walker=dir,follow,hidden
+    walker=dir,hidden
     multi=--no-multi
   else
-    walker=file,dir,follow,hidden
+    walker=file,dir,hidden
     multi=-m
   fi
 
-  selected=$("${YURU_BIN:-yuru}" --scheme path $multi --walker "$walker" --walker-root "$root" --query "$query" $opts)
+  if __yuru_completion_dirs_only__; then
+    selected=$(__yuru_compgen_dir__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore $opts)
+  else
+    selected=$(__yuru_compgen_path__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore $opts)
+  fi
   [ -n "$selected" ] || { COMPREPLY=("$token"); return 0; }
   insert=$(__yuru_join_bash__ "$selected")
   [ -n "$insert" ] || { COMPREPLY=("$token"); return 0; }
@@ -210,22 +224,38 @@ __yuru_join_zsh__() {
 
 __yuru_run_with_optional_command__() {
   emulate -L zsh
-  local command_set="$1" command_text="$2" tmp status
+  local command_set="$1" command_text="$2" yuru_status
   shift 2
   if [[ "$command_set" == 1 ]]; then
-    tmp="${TMPDIR:-/tmp}/yuru-command.$$"
-    rm -f "$tmp"
-    if eval "$command_text" >"$tmp" 2>/dev/null; then
-      if [[ -s "$tmp" ]]; then
-        "${YURU_BIN:-yuru}" "$@" --input "$tmp"
-        status=$?
-        rm -f "$tmp"
-        return $status
-      fi
-    fi
-    rm -f "$tmp"
+    eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}" "$@"
+    yuru_status=${pipestatus[2]}
+    return $yuru_status
   fi
   "${YURU_BIN:-yuru}" "$@"
+}
+
+__yuru_compgen_path__() {
+  emulate -L zsh
+  local root="${1:-.}"
+  if command -v fd >/dev/null 2>&1; then
+    command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif command -v fdfind >/dev/null 2>&1; then
+    command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  else
+    command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o \( -type f -o -type d -o -type l \) -print 2>/dev/null | command sed 's#^\./##'
+  fi
+}
+
+__yuru_compgen_dir__() {
+  emulate -L zsh
+  local root="${1:-.}"
+  if command -v fd >/dev/null 2>&1; then
+    command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif command -v fdfind >/dev/null 2>&1; then
+    command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  else
+    command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o -type d -print 2>/dev/null | command sed 's#^\./##'
+  fi
 }
 
 __yuru_completion_trigger__() {
@@ -260,18 +290,16 @@ __yuru_fallback_completion__() {
 
 __yuru_ctrl_t__() {
   emulate -L zsh
-  local command_set=0 command_text selected insert opts
+  local command_set=1 command_text='__yuru_compgen_path__ .' selected insert opts
   if (( ${+YURU_CTRL_T_COMMAND} )); then
-    command_set=1
     command_text=$YURU_CTRL_T_COMMAND
   elif (( ${+FZF_CTRL_T_COMMAND} )); then
-    command_set=1
     command_text=$FZF_CTRL_T_COMMAND
   fi
   [[ "$command_set" == 1 && -z "$command_text" ]] && return
 
   opts=${YURU_CTRL_T_OPTS:-${FZF_CTRL_T_OPTS:-}}
-  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --walker file,dir,follow,hidden ${(z)opts})
+  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore ${(@Q)${(z)opts}})
   [[ -n "$selected" ]] || return
   insert=$(__yuru_join_zsh__ "$selected")
   [[ -n "$insert" ]] || return
@@ -281,15 +309,15 @@ __yuru_ctrl_t__() {
 
 __yuru_ctrl_r__() {
   emulate -L zsh
-  local selected opts tmp status
+  local selected opts tmp yuru_status
   opts=${YURU_CTRL_R_OPTS:-${FZF_CTRL_R_OPTS:-}}
   tmp="${TMPDIR:-/tmp}/yuru-history.$$"
   rm -f "$tmp"
   fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return }
-  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$LBUFFER" --input "$tmp" ${(z)opts})
-  status=$?
+  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$LBUFFER" --input "$tmp" --fzf-compat ignore ${(@Q)${(z)opts}})
+  yuru_status=$?
   rm -f "$tmp"
-  (( status == 0 )) || return
+  (( yuru_status == 0 )) || return
   [[ -n "$selected" ]] || return
   BUFFER=$selected
   CURSOR=${#BUFFER}
@@ -298,18 +326,16 @@ __yuru_ctrl_r__() {
 
 __yuru_alt_c__() {
   emulate -L zsh
-  local command_set=0 command_text selected opts
+  local command_set=1 command_text='__yuru_compgen_dir__ .' selected opts
   if (( ${+YURU_ALT_C_COMMAND} )); then
-    command_set=1
     command_text=$YURU_ALT_C_COMMAND
   elif (( ${+FZF_ALT_C_COMMAND} )); then
-    command_set=1
     command_text=$FZF_ALT_C_COMMAND
   fi
   [[ "$command_set" == 1 && -z "$command_text" ]] && return
 
   opts=${YURU_ALT_C_OPTS:-${FZF_ALT_C_OPTS:-}}
-  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --walker dir,follow,hidden ${(z)opts})
+  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore ${(@Q)${(z)opts}})
   [[ -n "$selected" ]] || return
   builtin cd -- "$selected" || return
   zle reset-prompt
@@ -346,14 +372,18 @@ __yuru_completion__() {
   query=${query#/}
   opts=$(__yuru_completion_opts__)
   if __yuru_completion_dirs_only__; then
-    walker=dir,follow,hidden
+    walker=dir,hidden
     multi=--no-multi
   else
-    walker=file,dir,follow,hidden
+    walker=file,dir,hidden
     multi=-m
   fi
 
-  selected=$("${YURU_BIN:-yuru}" --scheme path $multi --walker "$walker" --walker-root "$root" --query "$query" ${(z)opts})
+  if __yuru_completion_dirs_only__; then
+    selected=$(__yuru_compgen_dir__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore ${(@Q)${(z)opts}})
+  else
+    selected=$(__yuru_compgen_path__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore ${(@Q)${(z)opts}})
+  fi
   [[ -n "$selected" ]] || return
   insert=$(__yuru_join_zsh__ "$selected")
   [[ -n "$insert" ]] || return
@@ -427,6 +457,34 @@ function __yuru_completion_dirs_only__
     end
 end
 
+function __yuru_compgen_path__
+    set -l root .
+    if test (count $argv) -gt 0; and test -n "$argv[1]"
+        set root $argv[1]
+    end
+    if command -q fd
+        command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else if command -q fdfind
+        command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else
+        command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o \( -type f -o -type d -o -type l \) -print 2>/dev/null | command sed 's#^\./##'
+    end
+end
+
+function __yuru_compgen_dir__
+    set -l root .
+    if test (count $argv) -gt 0; and test -n "$argv[1]"
+        set root $argv[1]
+    end
+    if command -q fd
+        command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else if command -q fdfind
+        command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else
+        command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o -type d -print 2>/dev/null | command sed 's#^\./##'
+    end
+end
+
 function __yuru_run_with_optional_command__
     set -l yuru_bin (set -q YURU_BIN; and echo $YURU_BIN; or echo yuru)
     set -l command_set $argv[1]
@@ -435,18 +493,9 @@ function __yuru_run_with_optional_command__
     set -e argv[1]
 
     if test "$command_set" = 1
-        set -l tmpdir /tmp
-        if set -q TMPDIR; and test -n "$TMPDIR"
-            set tmpdir $TMPDIR
-        end
-        set -l tmp (mktemp "$tmpdir/yuru-command.XXXXXX")
-        if eval $command_text >$tmp 2>/dev/null; and test -s "$tmp"
-            $yuru_bin $argv --input "$tmp"
-            set -l status_code $status
-            rm -f "$tmp"
-            return $status_code
-        end
-        rm -f "$tmp"
+        eval $command_text 2>/dev/null | $yuru_bin $argv
+        set -l pipe_status $pipestatus
+        return $pipe_status[2]
     end
 
     $yuru_bin $argv
@@ -454,8 +503,8 @@ end
 
 function __yuru_ctrl_t__
     set -l yuru_bin (set -q YURU_BIN; and echo $YURU_BIN; or echo yuru)
-    set -l command_set 0
-    set -l command_text
+    set -l command_set 1
+    set -l command_text "__yuru_compgen_path__ ."
     if set -q YURU_CTRL_T_COMMAND
         set command_set 1
         set command_text $YURU_CTRL_T_COMMAND
@@ -473,7 +522,7 @@ function __yuru_ctrl_t__
     else if set -q FZF_CTRL_T_OPTS
         set opts (string split ' ' -- $FZF_CTRL_T_OPTS)
     end
-    set selected (__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --walker file,dir,follow,hidden $opts)
+    set selected (__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore $opts)
     set -q selected[1]; or return
     set -l insert (__yuru_join_fish__ (string join \n -- $selected))
     commandline -i "$insert "
@@ -494,7 +543,7 @@ function __yuru_ctrl_r__
     end
     set -l tmp (mktemp "$tmpdir/yuru-history.XXXXXX")
     history >$tmp
-    set -l selected ($yuru_bin --scheme history --tac --no-sort --no-multi --query (commandline) --input "$tmp" $opts)
+    set -l selected ($yuru_bin --scheme history --tac --no-sort --no-multi --query (commandline) --input "$tmp" --fzf-compat ignore $opts)
     set -l status_code $status
     rm -f "$tmp"
     test $status_code -eq 0; or return
@@ -506,8 +555,8 @@ end
 
 function __yuru_alt_c__
     set -l yuru_bin (set -q YURU_BIN; and echo $YURU_BIN; or echo yuru)
-    set -l command_set 0
-    set -l command_text
+    set -l command_set 1
+    set -l command_text "__yuru_compgen_dir__ ."
     if set -q YURU_ALT_C_COMMAND
         set command_set 1
         set command_text $YURU_ALT_C_COMMAND
@@ -525,7 +574,7 @@ function __yuru_alt_c__
     else if set -q FZF_ALT_C_OPTS
         set opts (string split ' ' -- $FZF_ALT_C_OPTS)
     end
-    set selected (__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --walker dir,follow,hidden $opts)
+    set selected (__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore $opts)
     set -q selected[1]; or return
     cd -- "$selected"; or return
     commandline --replace ''
@@ -569,9 +618,9 @@ function __yuru_completion__
     set -l opts (__yuru_completion_opts__)
     set -l selected
     if __yuru_completion_dirs_only__
-        set selected ($yuru_bin --scheme path --no-multi --walker dir,follow,hidden --walker-root "$root" --query "$query" $opts)
+        set selected (__yuru_compgen_dir__ "$root" | $yuru_bin --scheme path --no-multi --query "$query" --fzf-compat ignore $opts)
     else
-        set selected ($yuru_bin --scheme path -m --walker file,dir,follow,hidden --walker-root "$root" --query "$query" $opts)
+        set selected (__yuru_compgen_path__ "$root" | $yuru_bin --scheme path -m --query "$query" --fzf-compat ignore $opts)
     end
     set -q selected[1]; or return
     set -l insert (__yuru_join_fish__ (string join \n -- $selected))
@@ -637,6 +686,38 @@ function Test-YuruDirectoryCompletion {
     return $trimmed -match '^(cd|pushd|rmdir)(\s|$)'
 }
 
+function Get-YuruPathItems {
+    param([string]$Root = ".")
+    $fd = Get-Command fd -ErrorAction SilentlyContinue
+    if (-not $fd) { $fd = Get-Command fdfind -ErrorAction SilentlyContinue }
+    if ($fd) {
+        & $fd.Source --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . $Root
+        return
+    }
+    Get-ChildItem -LiteralPath $Root -Force -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notin @(".git", "node_modules", "target", "Library", ".rustup", ".bun", ".cache", ".cargo", ".npm", ".vscode", ".Trash") } |
+        ForEach-Object {
+            $relative = Resolve-Path -LiteralPath $_.FullName -Relative -ErrorAction SilentlyContinue
+            if ($relative) { $relative -replace '^\.[\\/]', '' }
+        }
+}
+
+function Get-YuruDirItems {
+    param([string]$Root = ".")
+    $fd = Get-Command fd -ErrorAction SilentlyContinue
+    if (-not $fd) { $fd = Get-Command fdfind -ErrorAction SilentlyContinue }
+    if ($fd) {
+        & $fd.Source --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . $Root
+        return
+    }
+    Get-ChildItem -LiteralPath $Root -Force -Directory -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notin @(".git", "node_modules", "target", "Library", ".rustup", ".bun", ".cache", ".cargo", ".npm", ".vscode", ".Trash") } |
+        ForEach-Object {
+            $relative = Resolve-Path -LiteralPath $_.FullName -Relative -ErrorAction SilentlyContinue
+            if ($relative) { $relative -replace '^\.[\\/]', '' }
+        }
+}
+
 function Get-YuruHistoryLines {
     $items = New-Object System.Collections.Generic.List[string]
     try {
@@ -682,21 +763,17 @@ function Invoke-YuruWithOptionalCommand {
     $yuru = Get-YuruCommand
     if ($null -ne $CommandText) {
         if ($CommandText.Trim().Length -eq 0) { return @() }
-        $items = @()
         try {
-            $items = @(Invoke-Expression $CommandText 2>$null)
+            return @(Invoke-Expression $CommandText 2>$null | & $yuru @YuruArgs)
         } catch {
-            $items = @()
-        }
-        if ($items.Count -gt 0) {
-            return Invoke-YuruWithItems -Items $items -YuruArgs $YuruArgs
+            return @()
         }
     }
     & $yuru @YuruArgs
 }
 
 function Invoke-YuruCtrlT {
-    $commandText = $null
+    $commandText = "Get-YuruPathItems ."
     if (Test-Path Env:YURU_CTRL_T_COMMAND) {
         $commandText = $env:YURU_CTRL_T_COMMAND
     } elseif (Test-Path Env:FZF_CTRL_T_COMMAND) {
@@ -705,7 +782,7 @@ function Invoke-YuruCtrlT {
     $opts = @()
     if ($env:YURU_CTRL_T_OPTS) { $opts += @(Split-YuruOptions $env:YURU_CTRL_T_OPTS) }
     elseif ($env:FZF_CTRL_T_OPTS) { $opts += @(Split-YuruOptions $env:FZF_CTRL_T_OPTS) }
-    $yuruArgs = @("--scheme", "path", "-m", "--walker", "file,dir,follow,hidden") + $opts
+    $yuruArgs = @("--scheme", "path", "-m", "--fzf-compat", "ignore") + $opts
     $selected = @(Invoke-YuruWithOptionalCommand -CommandText $commandText -YuruArgs $yuruArgs)
     if ($selected.Count -eq 0) { return }
     $insert = Join-YuruSelection $selected
@@ -721,7 +798,7 @@ function Invoke-YuruCtrlR {
     $line = $null
     $cursor = $null
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-    $yuruArgs = @("--scheme", "history", "--tac", "--no-sort", "--no-multi", "--query", $line) + $opts
+    $yuruArgs = @("--scheme", "history", "--tac", "--no-sort", "--no-multi", "--query", $line, "--fzf-compat", "ignore") + $opts
     $selected = @(Invoke-YuruWithItems -Items @(Get-YuruHistoryLines) -YuruArgs $yuruArgs | Select-Object -First 1)
     if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
     [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
@@ -729,7 +806,7 @@ function Invoke-YuruCtrlR {
 }
 
 function Invoke-YuruAltC {
-    $commandText = $null
+    $commandText = "Get-YuruDirItems ."
     if (Test-Path Env:YURU_ALT_C_COMMAND) {
         $commandText = $env:YURU_ALT_C_COMMAND
     } elseif (Test-Path Env:FZF_ALT_C_COMMAND) {
@@ -738,7 +815,7 @@ function Invoke-YuruAltC {
     $opts = @()
     if ($env:YURU_ALT_C_OPTS) { $opts += @(Split-YuruOptions $env:YURU_ALT_C_OPTS) }
     elseif ($env:FZF_ALT_C_OPTS) { $opts += @(Split-YuruOptions $env:FZF_ALT_C_OPTS) }
-    $yuruArgs = @("--scheme", "path", "--no-multi", "--walker", "dir,follow,hidden") + $opts
+    $yuruArgs = @("--scheme", "path", "--no-multi", "--fzf-compat", "ignore") + $opts
     $selected = @(Invoke-YuruWithOptionalCommand -CommandText $commandText -YuruArgs $yuruArgs | Select-Object -First 1)
     if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
     Set-Location -LiteralPath $selected[0]
@@ -784,9 +861,9 @@ function Invoke-YuruCompletion {
     $yuru = Get-YuruCommand
     $opts = @(Get-YuruCompletionOptions)
     if (Test-YuruDirectoryCompletion $left) {
-        $selected = @(& $yuru --scheme path --no-multi --walker dir,follow,hidden --walker-root $root --query $query @opts)
+        $selected = @(Get-YuruDirItems $root | & $yuru --scheme path --no-multi --query $query --fzf-compat ignore @opts)
     } else {
-        $selected = @(& $yuru --scheme path -m --walker file,dir,follow,hidden --walker-root $root --query $query @opts)
+        $selected = @(Get-YuruPathItems $root | & $yuru --scheme path -m --query $query --fzf-compat ignore @opts)
     }
     if ($selected.Count -eq 0) { return }
     $insert = Join-YuruSelection $selected

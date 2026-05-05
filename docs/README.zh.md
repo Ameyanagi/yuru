@@ -10,7 +10,7 @@ Yuru 默认安装到用户目录，不需要 `sudo`。
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4
 ```
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
@@ -20,14 +20,14 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh 
 无需提示直接指定默认语言:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3 --default-lang zh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang zh
 ```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.3"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
@@ -36,7 +36,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.3"
 只安装二进制文件:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --version v0.1.3
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --version v0.1.4
 ```
 
 从 crates.io 安装:
@@ -87,7 +87,7 @@ printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamer
 文件搜索:
 
 ```sh
-yuru --walker file,dir,follow,hidden --scheme path
+fd --hidden --exclude .git . | yuru --scheme path
 ```
 
 ## fzf 兼容和配置
@@ -122,8 +122,8 @@ push version tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的 rele
 release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 ## 许可证

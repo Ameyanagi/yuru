@@ -1,5 +1,18 @@
 use crate::{query::key_kind_allowed, QueryVariant, SearchKey};
 use nucleo_matcher::{Matcher, Utf32Str};
+use unicode_normalization::UnicodeNormalization;
+
+const SCORE_MATCH: i64 = 160;
+const SCORE_GAP_START: i64 = -30;
+const SCORE_GAP_EXTENSION: i64 = -10;
+const BONUS_BOUNDARY: i64 = 80;
+const BONUS_BOUNDARY_WHITE: i64 = 100;
+const BONUS_BOUNDARY_DELIMITER: i64 = 90;
+const BONUS_CAMEL_OR_NUMBER: i64 = 70;
+const BONUS_CONSECUTIVE: i64 = 40;
+const BONUS_FIRST_CHAR_MULTIPLIER: i64 = 2;
+const START_POSITION_PENALTY: i64 = 2;
+const TEXT_LENGTH_PENALTY_DIVISOR: i64 = 8;
 
 pub trait MatcherBackend {
     fn score(&mut self, pattern: &str, text: &str) -> Option<i64>;
@@ -71,44 +84,8 @@ pub fn score_text(pattern: &str, text: &str) -> Option<i64> {
 
 fn score_unicode_text(pattern: &str, text: &str) -> Option<i64> {
     let pattern_chars: Vec<char> = pattern.chars().collect();
-    let pattern_len = pattern_chars.len();
-    let mut pattern_index = 0usize;
-    let mut first = None;
-    let mut last = 0usize;
-    let mut previous_match = None;
-    let mut previous_char = None;
-    let mut consecutive = 0i64;
-    let mut boundaries = 0i64;
-    let mut text_len = 0usize;
-    let mut chars = text.chars().enumerate();
-
-    for (text_index, text_ch) in chars.by_ref() {
-        text_len = text_index + 1;
-        if pattern_chars.get(pattern_index) == Some(&text_ch) {
-            if first.is_none() {
-                first = Some(text_index);
-            }
-            if previous_match.is_some_and(|previous| text_index == previous + 1) {
-                consecutive += 1;
-            }
-            if is_boundary_after(previous_char) {
-                boundaries += 1;
-            }
-
-            previous_match = Some(text_index);
-            last = text_index;
-            pattern_index += 1;
-            if pattern_index == pattern_len {
-                break;
-            }
-        }
-        previous_char = Some(text_ch);
-    }
-
-    if pattern_index != pattern_len {
-        return None;
-    }
-    text_len += chars.count();
+    let text_chars: Vec<char> = text.chars().collect();
+    let compact_score = compact_char_match_score(&pattern_chars, &text_chars)?;
 
     let exact_bonus = if pattern == text {
         10_000
@@ -120,12 +97,96 @@ fn score_unicode_text(pattern: &str, text: &str) -> Option<i64> {
         0
     };
 
-    let first = first.unwrap_or(0);
-    let span = (last - first + 1) as i64;
-    let gaps = span - pattern_len as i64;
-    let text_len = text_len as i64;
+    Some(exact_bonus + compact_score)
+}
 
-    Some(1000 + exact_bonus + consecutive * 75 + boundaries * 150 - gaps * 12 - span * 3 - text_len)
+fn compact_char_match_score(pattern: &[char], text: &[char]) -> Option<i64> {
+    if pattern.is_empty() {
+        return Some(0);
+    }
+    if pattern.len() > text.len() {
+        return None;
+    }
+
+    let mut pattern_index = 0usize;
+    let mut end = None;
+    for (text_index, text_ch) in text.iter().enumerate() {
+        if pattern.get(pattern_index) == Some(text_ch) {
+            pattern_index += 1;
+            if pattern_index == pattern.len() {
+                end = Some(text_index);
+                break;
+            }
+        }
+    }
+
+    let mut text_index = end?;
+    let mut score = 1000;
+    let mut right_match: Option<usize> = None;
+    let mut first = 0usize;
+    for pattern_index in (0..pattern.len()).rev() {
+        while text.get(text_index) != pattern.get(pattern_index) {
+            if text_index == 0 {
+                return None;
+            }
+            text_index -= 1;
+        }
+        let position = text_index;
+        first = position;
+
+        score += SCORE_MATCH;
+        let bonus = char_bonus_at(text, position);
+        if pattern_index == 0 {
+            score += bonus * BONUS_FIRST_CHAR_MULTIPLIER;
+        } else {
+            score += bonus;
+        }
+
+        if let Some(right_match) = right_match {
+            if right_match == position + 1 {
+                score += BONUS_CONSECUTIVE;
+            } else {
+                let gap = right_match.saturating_sub(position + 1) as i64;
+                score += SCORE_GAP_START + SCORE_GAP_EXTENSION * gap.saturating_sub(1);
+            }
+        }
+        right_match = Some(position);
+
+        if pattern_index > 0 {
+            if text_index == 0 {
+                return None;
+            }
+            text_index -= 1;
+        }
+    }
+
+    Some(
+        score
+            - first as i64 * START_POSITION_PENALTY
+            - text.len() as i64 / TEXT_LENGTH_PENALTY_DIVISOR,
+    )
+}
+
+fn char_bonus_at(text: &[char], position: usize) -> i64 {
+    if position == 0 {
+        return BONUS_BOUNDARY_WHITE;
+    }
+
+    let previous = text[position - 1];
+    let current = text[position];
+    if previous.is_whitespace() {
+        BONUS_BOUNDARY_WHITE
+    } else if is_path_or_field_delimiter(previous) {
+        BONUS_BOUNDARY_DELIMITER
+    } else if !previous.is_alphanumeric() {
+        BONUS_BOUNDARY
+    } else if previous.is_lowercase() && current.is_uppercase()
+        || !previous.is_numeric() && current.is_numeric()
+    {
+        BONUS_CAMEL_OR_NUMBER
+    } else {
+        0
+    }
 }
 
 pub fn match_positions(pattern: &str, text: &str, case_sensitive: bool) -> Option<MatchPositions> {
@@ -153,20 +214,26 @@ fn comparable_chars(text: &str, case_sensitive: bool) -> Vec<char> {
 fn comparable_indexed_chars(text: &str, case_sensitive: bool) -> Vec<(usize, char)> {
     let mut out = Vec::new();
     for (char_index, ch) in text.chars().enumerate() {
-        if case_sensitive {
-            out.push((char_index, comparable_char(ch)));
-        } else {
-            out.extend(
-                ch.to_lowercase()
-                    .map(|lower| (char_index, comparable_char(lower))),
-            );
+        for normalized in std::iter::once(ch).nfkc() {
+            if case_sensitive {
+                out.push((char_index, comparable_char(normalized)));
+            } else {
+                out.extend(
+                    normalized
+                        .to_lowercase()
+                        .map(|lower| (char_index, comparable_char(lower))),
+                );
+            }
         }
     }
     out
 }
 
 fn comparable_char(ch: char) -> char {
-    if ('ァ'..='ヶ').contains(&ch) {
+    let folded = crate::normalize::fold_width_compatible_char(ch);
+    if folded != ch {
+        folded
+    } else if ('ァ'..='ヶ').contains(&ch) {
         char::from_u32(ch as u32 - 0x60).unwrap_or(ch)
     } else {
         ch
@@ -298,41 +365,7 @@ fn score_ascii_text(pattern: &str, text: &str) -> Option<i64> {
     let pattern_bytes = pattern.as_bytes();
     let text_bytes = text.as_bytes();
 
-    if pattern_bytes.len() > text_bytes.len() {
-        return None;
-    }
-
-    let mut pattern_index = 0usize;
-    let mut first = usize::MAX;
-    let mut last = 0usize;
-    let mut previous = None;
-    let mut consecutive = 0i64;
-    let mut boundaries = 0i64;
-
-    for (text_index, &text_byte) in text_bytes.iter().enumerate() {
-        if pattern_bytes.get(pattern_index) == Some(&text_byte) {
-            if first == usize::MAX {
-                first = text_index;
-            }
-            if previous.is_some_and(|previous| text_index == previous + 1) {
-                consecutive += 1;
-            }
-            if is_ascii_boundary(text_bytes, text_index) {
-                boundaries += 1;
-            }
-
-            previous = Some(text_index);
-            last = text_index;
-            pattern_index += 1;
-            if pattern_index == pattern_bytes.len() {
-                break;
-            }
-        }
-    }
-
-    if pattern_index != pattern_bytes.len() {
-        return None;
-    }
+    let compact_score = compact_ascii_match_score(pattern_bytes, text_bytes)?;
 
     let exact_bonus = if pattern_bytes == text_bytes {
         10_000
@@ -344,19 +377,96 @@ fn score_ascii_text(pattern: &str, text: &str) -> Option<i64> {
         0
     };
 
-    let span = (last - first + 1) as i64;
-    let gaps = span - pattern_bytes.len() as i64;
-    let text_len = text_bytes.len() as i64;
-
-    Some(1000 + exact_bonus + consecutive * 75 + boundaries * 150 - gaps * 12 - span * 3 - text_len)
+    Some(exact_bonus + compact_score)
 }
 
-fn is_ascii_boundary(text: &[u8], position: usize) -> bool {
-    position == 0 || matches!(text[position - 1], b'/' | b'\\' | b'_' | b'-' | b' ' | b'.')
+fn compact_ascii_match_score(pattern: &[u8], text: &[u8]) -> Option<i64> {
+    if pattern.is_empty() {
+        return Some(0);
+    }
+    if pattern.len() > text.len() {
+        return None;
+    }
+
+    let mut pattern_index = 0usize;
+    let mut end = None;
+    for (text_index, &text_byte) in text.iter().enumerate() {
+        if pattern.get(pattern_index) == Some(&text_byte) {
+            pattern_index += 1;
+            if pattern_index == pattern.len() {
+                end = Some(text_index);
+                break;
+            }
+        }
+    }
+
+    let mut text_index = end?;
+    let mut score = 1000;
+    let mut right_match: Option<usize> = None;
+    let mut first = 0usize;
+    for pattern_index in (0..pattern.len()).rev() {
+        while text.get(text_index) != pattern.get(pattern_index) {
+            if text_index == 0 {
+                return None;
+            }
+            text_index -= 1;
+        }
+        let position = text_index;
+        first = position;
+
+        score += SCORE_MATCH;
+        let bonus = ascii_bonus_at(text, position);
+        if pattern_index == 0 {
+            score += bonus * BONUS_FIRST_CHAR_MULTIPLIER;
+        } else {
+            score += bonus;
+        }
+
+        if let Some(right_match) = right_match {
+            if right_match == position + 1 {
+                score += BONUS_CONSECUTIVE;
+            } else {
+                let gap = right_match.saturating_sub(position + 1) as i64;
+                score += SCORE_GAP_START + SCORE_GAP_EXTENSION * gap.saturating_sub(1);
+            }
+        }
+        right_match = Some(position);
+
+        if pattern_index > 0 {
+            if text_index == 0 {
+                return None;
+            }
+            text_index -= 1;
+        }
+    }
+
+    Some(
+        score
+            - first as i64 * START_POSITION_PENALTY
+            - text.len() as i64 / TEXT_LENGTH_PENALTY_DIVISOR,
+    )
 }
 
-fn is_boundary_after(previous_char: Option<char>) -> bool {
-    previous_char.is_none_or(|ch| matches!(ch, '/' | '\\' | '_' | '-' | ' ' | '.'))
+fn ascii_bonus_at(text: &[u8], position: usize) -> i64 {
+    if position == 0 {
+        return BONUS_BOUNDARY_WHITE;
+    }
+
+    let previous = text[position - 1];
+    let current = text[position];
+    if previous.is_ascii_whitespace() {
+        BONUS_BOUNDARY_WHITE
+    } else if matches!(previous, b'/' | b'\\' | b',' | b':' | b';' | b'|') {
+        BONUS_BOUNDARY_DELIMITER
+    } else if !previous.is_ascii_alphanumeric() {
+        BONUS_BOUNDARY
+    } else if previous.is_ascii_lowercase() && current.is_ascii_uppercase()
+        || !previous.is_ascii_digit() && current.is_ascii_digit()
+    {
+        BONUS_CAMEL_OR_NUMBER
+    } else {
+        0
+    }
 }
 
 #[cfg(test)]
@@ -367,27 +477,7 @@ fn score_unicode_text_for_test(pattern: &str, text: &str) -> Option<i64> {
 
     let pattern_chars: Vec<char> = pattern.chars().collect();
     let text_chars: Vec<char> = text.chars().collect();
-
-    if pattern_chars.len() > text_chars.len() {
-        return None;
-    }
-
-    let mut matched_positions = Vec::with_capacity(pattern_chars.len());
-    let mut pattern_index = 0usize;
-
-    for (text_index, text_ch) in text_chars.iter().enumerate() {
-        if Some(text_ch) == pattern_chars.get(pattern_index) {
-            matched_positions.push(text_index);
-            pattern_index += 1;
-            if pattern_index == pattern_chars.len() {
-                break;
-            }
-        }
-    }
-
-    if pattern_index != pattern_chars.len() {
-        return None;
-    }
+    let compact_score = compact_char_match_score(&pattern_chars, &text_chars)?;
 
     let exact_bonus = if pattern == text {
         10_000
@@ -399,23 +489,7 @@ fn score_unicode_text_for_test(pattern: &str, text: &str) -> Option<i64> {
         0
     };
 
-    let consecutive_bonus = matched_positions
-        .windows(2)
-        .filter(|window| window[1] == window[0] + 1)
-        .count() as i64
-        * 75;
-    let boundary_bonus = matched_positions
-        .iter()
-        .filter(|&&position| is_boundary(&text_chars, position))
-        .count() as i64
-        * 150;
-    let first = *matched_positions.first().unwrap_or(&0);
-    let last = *matched_positions.last().unwrap_or(&first);
-    let span = (last - first + 1) as i64;
-    let gaps = span - pattern_chars.len() as i64;
-    let text_len = text_chars.len() as i64;
-
-    Some(1000 + exact_bonus + consecutive_bonus + boundary_bonus - gaps * 12 - span * 3 - text_len)
+    Some(exact_bonus + compact_score)
 }
 
 pub fn score_exact_text(pattern: &str, text: &str) -> Option<i64> {
@@ -436,6 +510,10 @@ pub fn score_exact_text(pattern: &str, text: &str) -> Option<i64> {
 
 fn is_boundary(text: &[char], position: usize) -> bool {
     position == 0 || matches!(text[position - 1], '/' | '\\' | '_' | '-' | ' ' | '.')
+}
+
+fn is_path_or_field_delimiter(ch: char) -> bool {
+    matches!(ch, '/' | '\\' | ',' | ':' | ';' | '|')
 }
 
 #[cfg(test)]
@@ -477,6 +555,24 @@ mod tests {
     fn match_positions_treats_hiragana_and_katakana_as_equivalent() {
         let positions = match_positions("かめら", "カメラ.txt", false).unwrap();
         assert_eq!(positions.char_indices, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn match_positions_treats_halfwidth_katakana_as_equivalent() {
+        let positions = match_positions("かめら", "ｶﾒﾗ.txt", false).unwrap();
+        assert_eq!(positions.char_indices, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn match_positions_treats_fullwidth_ascii_as_equivalent() {
+        let positions = match_positions("abc", "ＡＢＣ.txt", false).unwrap();
+        assert_eq!(positions.char_indices, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn match_positions_treats_dash_and_prolonged_sound_as_equivalent() {
+        let positions = match_positions("-", "ハッピー.pdf", false).unwrap();
+        assert_eq!(positions.char_indices, vec![3]);
     }
 
     #[test]

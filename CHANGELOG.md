@@ -2,6 +2,18 @@
 
 All notable user-facing changes are tracked here.
 
+## 0.1.4
+
+- Added streaming interactive input for stdin and default source commands, with `--sync` for fzf-style synchronous startup.
+- Updated shell integrations to stream `fd` / `fdfind` / `find` output into Yuru instead of preloading command output into temp files.
+- Made `CTRL-T`, `ALT-C`, and `**<TAB>` avoid following symlinks by default and skip macOS `Library` in generated shell candidates.
+- Suppressed fzf-only UI option warnings such as `--preview` inside shell key bindings.
+- Hardened the built-in walker to skip filesystem loop errors when following symlinks.
+- Added fzf-style bottom prompt layout support with bottom-up result painting for `--layout=default`, plus `--layout=reverse-list` and `--reverse`.
+- Added text preview support for `--preview`, including stderr/failure text, and partial `--color` support for `pointer`, `hl`, and `hl+`.
+- Fixed zsh shell integration by avoiding the read-only `status` parameter.
+- Improved Japanese numeric date matching so `2025年8月` can match `20258gatsu`, `2025nen8gatsu`, `8gatsu`, `はち`, and literal `2025`.
+
 ## 0.1.3
 
 - Added `yuru doctor` for local setup diagnostics.

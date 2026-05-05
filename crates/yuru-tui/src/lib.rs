@@ -5,6 +5,9 @@
 
 use std::collections::HashSet;
 use std::io::{self, Write};
+use std::process::Command;
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
@@ -22,6 +25,8 @@ use yuru_core::{
     SearchKey,
 };
 
+const STREAM_DRAIN_BATCH: usize = 2048;
+
 #[derive(Clone, Debug)]
 pub struct TuiOptions {
     pub initial_query: String,
@@ -30,6 +35,9 @@ pub struct TuiOptions {
     pub expect_keys: Vec<String>,
     pub bindings: Vec<KeyBinding>,
     pub height: Option<usize>,
+    pub layout: TuiLayout,
+    pub preview: Option<String>,
+    pub style: TuiStyle,
     pub cycle: bool,
     pub multi: bool,
 }
@@ -43,8 +51,70 @@ impl Default for TuiOptions {
             expect_keys: Vec::new(),
             bindings: Vec::new(),
             height: None,
+            layout: TuiLayout::default(),
+            preview: None,
+            style: TuiStyle::default(),
             cycle: false,
             multi: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TuiLayout {
+    #[default]
+    Default,
+    Reverse,
+    ReverseList,
+}
+
+impl TuiLayout {
+    fn prompt_at_bottom(self) -> bool {
+        matches!(self, Self::Default | Self::ReverseList)
+    }
+
+    fn list_bottom_up(self) -> bool {
+        matches!(self, Self::Default)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TuiRgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl From<TuiRgb> for Color {
+    fn from(color: TuiRgb) -> Self {
+        Self::Rgb {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TuiStyle {
+    pub pointer: Option<TuiRgb>,
+    pub highlight: Option<TuiRgb>,
+    pub highlight_selected: Option<TuiRgb>,
+}
+
+impl TuiStyle {
+    fn pointer_color(&self) -> Option<Color> {
+        self.pointer.map(Color::from)
+    }
+
+    fn highlight_color(&self, selected: bool) -> Color {
+        if selected {
+            self.highlight_selected
+                .or(self.highlight)
+                .map(Color::from)
+                .unwrap_or(Color::Yellow)
+        } else {
+            self.highlight.map(Color::from).unwrap_or(Color::Yellow)
         }
     }
 }
@@ -71,6 +141,13 @@ pub enum TuiOutcome {
     },
     NoSelection,
     Aborted,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CandidateStreamMessage {
+    Candidate(Candidate),
+    Finished,
+    Error(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -291,15 +368,25 @@ pub fn run_interactive(
     let _guard = TerminalGuard;
 
     let mut state = TuiState::new(options.initial_query);
+    let mut preview_cache = PreviewCache::default();
     loop {
         let results = search(state.query(), candidates, backend, &config);
         state.clamp_selection(results.len());
         let viewport = Viewport::from_terminal(options.height);
+        let preview = preview_for_selection(
+            &mut preview_cache,
+            options.preview.as_deref(),
+            &results,
+            &state,
+        );
         let render_context = RenderContext {
             candidates,
             prompt: &options.prompt,
             header: options.header.as_deref(),
             viewport,
+            layout: options.layout,
+            preview,
+            style: &options.style,
             case_sensitive: config.case_sensitive,
             multi: options.multi,
         };
@@ -328,6 +415,203 @@ pub fn run_interactive(
             KeyDecision::Ignore => {}
         }
     }
+}
+
+pub fn run_interactive_streaming(
+    receiver: Receiver<CandidateStreamMessage>,
+    backend: &dyn LanguageBackend,
+    config: SearchConfig,
+    options: TuiOptions,
+) -> Result<TuiOutcome> {
+    enable_raw_mode()?;
+    let mut output = io::stderr();
+    execute!(output, EnterAlternateScreen, Hide)?;
+    let _guard = TerminalGuard;
+
+    let mut state = TuiState::new(options.initial_query);
+    let mut candidates = Vec::new();
+    let mut results = Vec::new();
+    let mut reading = true;
+    let mut dirty = true;
+    let mut preview_cache = PreviewCache::default();
+
+    loop {
+        if drain_stream(&receiver, &mut candidates, &mut reading)? {
+            dirty = true;
+        }
+
+        if dirty {
+            results = search(state.query(), &candidates, backend, &config);
+            state.clamp_selection(results.len());
+            let viewport = Viewport::from_terminal(options.height);
+            let preview = preview_for_selection(
+                &mut preview_cache,
+                options.preview.as_deref(),
+                &results,
+                &state,
+            );
+            let render_context = RenderContext {
+                candidates: &candidates,
+                prompt: &options.prompt,
+                header: options.header.as_deref(),
+                viewport,
+                layout: options.layout,
+                preview,
+                style: &options.style,
+                case_sensitive: config.case_sensitive,
+                multi: options.multi,
+            };
+            render(&mut output, &state, &results, render_context)?;
+            dirty = false;
+        }
+
+        let poll_interval = if reading {
+            Duration::from_millis(25)
+        } else {
+            Duration::from_millis(250)
+        };
+        if !event::poll(poll_interval)? {
+            continue;
+        }
+
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        let viewport = Viewport::from_terminal(options.height);
+        match classify_key(key, viewport.rows, &options.expect_keys, &options.bindings) {
+            KeyDecision::Accept(expect) => {
+                let ids = state.accepted_ids(&results, options.multi);
+                if ids.is_empty() {
+                    return Ok(TuiOutcome::NoSelection);
+                }
+                return Ok(TuiOutcome::Accepted {
+                    ids,
+                    query: state.query().to_string(),
+                    expect,
+                });
+            }
+            KeyDecision::Abort => return Ok(TuiOutcome::Aborted),
+            KeyDecision::Action(action) => {
+                state.apply_with_results(action, &results, options.cycle, options.multi);
+                dirty = true;
+            }
+            KeyDecision::Ignore => {}
+        }
+    }
+}
+
+fn drain_stream(
+    receiver: &Receiver<CandidateStreamMessage>,
+    candidates: &mut Vec<Candidate>,
+    reading: &mut bool,
+) -> Result<bool> {
+    let mut changed = false;
+    for _ in 0..STREAM_DRAIN_BATCH {
+        match receiver.try_recv() {
+            Ok(CandidateStreamMessage::Candidate(candidate)) => {
+                candidates.push(candidate);
+                changed = true;
+            }
+            Ok(CandidateStreamMessage::Finished) => {
+                *reading = false;
+                changed = true;
+            }
+            Ok(CandidateStreamMessage::Error(error)) => anyhow::bail!(error),
+            Err(TryRecvError::Empty) => return Ok(changed),
+            Err(TryRecvError::Disconnected) => {
+                *reading = false;
+                return Ok(changed);
+            }
+        }
+    }
+    Ok(changed)
+}
+
+#[derive(Default)]
+struct PreviewCache {
+    key: Option<(String, String)>,
+    text: Option<String>,
+}
+
+fn preview_for_selection<'a>(
+    cache: &'a mut PreviewCache,
+    command: Option<&str>,
+    results: &[ScoredCandidate],
+    state: &TuiState,
+) -> Option<&'a str> {
+    let command = command?;
+    let selected = results.get(state.selected())?;
+    let key = (command.to_string(), selected.display.clone());
+
+    if cache.key.as_ref() != Some(&key) {
+        cache.text = Some(run_preview_command(command, &selected.display));
+        cache.key = Some(key);
+    }
+
+    cache.text.as_deref()
+}
+
+fn run_preview_command(template: &str, item: &str) -> String {
+    let command = expand_preview_template(template, item);
+    let output = preview_shell_command(&command).output();
+
+    match output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if !stdout.is_empty() {
+                return stdout.into_owned();
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.is_empty() {
+                return stderr.into_owned();
+            }
+            if output.status.success() {
+                String::new()
+            } else {
+                format!("preview exited with {}", output.status)
+            }
+        }
+        Err(error) => format!("preview failed: {error}"),
+    }
+}
+
+fn expand_preview_template(template: &str, item: &str) -> String {
+    if template.contains("{}") {
+        template.replace("{}", &shell_quote(item))
+    } else {
+        template.to_string()
+    }
+}
+
+#[cfg(not(windows))]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(windows)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(not(windows))]
+fn preview_shell_command(command: &str) -> Command {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
+    let mut process = Command::new(shell);
+    process.arg("-c").arg(command);
+    process
+}
+
+#[cfg(windows)]
+fn preview_shell_command(command: &str) -> Command {
+    let shell =
+        std::env::var("YURU_WINDOWS_SHELL").unwrap_or_else(|_| "powershell.exe".to_string());
+    let mut process = Command::new(shell);
+    process
+        .arg("-NoLogo")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg(command);
+    process
 }
 
 fn classify_key(
@@ -414,8 +698,14 @@ fn render(
     context: RenderContext<'_>,
 ) -> Result<()> {
     queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
+    let prompt_row = if context.layout.prompt_at_bottom() {
+        context.viewport.rows
+    } else {
+        0
+    };
     queue!(
         output,
+        MoveTo(0, prompt_row as u16),
         Print(truncate_to_width(
             &format!("{}{}", context.prompt, state.query()),
             context.viewport.width
@@ -424,29 +714,53 @@ fn render(
 
     let header_rows = usize::from(context.header.is_some());
     if let Some(header) = context.header {
+        let header_row = if context.layout.prompt_at_bottom() {
+            0
+        } else {
+            1
+        };
         queue!(
             output,
-            MoveTo(0, 1),
+            MoveTo(0, header_row),
             Print(truncate_to_width(header, context.viewport.width))
         )?;
     }
 
+    let preview_width = preview_width(context.viewport.width, context.preview);
+    let list_width = if preview_width == 0 {
+        context.viewport.width
+    } else {
+        context
+            .viewport
+            .width
+            .saturating_sub(preview_width)
+            .saturating_sub(1)
+            .max(1)
+    };
     let result_rows = context.viewport.rows.saturating_sub(header_rows).max(1);
     let offset = scroll_offset(state.selected(), results.len(), result_rows);
     for (row, result) in results.iter().skip(offset).take(result_rows).enumerate() {
-        queue!(output, MoveTo(0, (row + 1 + header_rows) as u16))?;
+        let result_row = if context.layout.list_bottom_up() {
+            context.viewport.rows.saturating_sub(1 + row)
+        } else if context.layout.prompt_at_bottom() {
+            row + header_rows
+        } else {
+            row + 1 + header_rows
+        };
+        queue!(output, MoveTo(0, result_row as u16))?;
         let mark = if context.multi && state.marked.contains(&result.id) {
             "*"
         } else {
             " "
         };
-        if offset + row == state.selected() {
-            queue!(
-                output,
-                SetAttribute(Attribute::Reverse),
-                Print(">"),
-                Print(mark)
-            )?;
+        let selected = offset + row == state.selected();
+        if selected {
+            queue!(output, SetAttribute(Attribute::Reverse))?;
+            if let Some(color) = context.style.pointer_color() {
+                queue!(output, SetForegroundColor(color))?;
+            }
+            queue!(output, Print(">"), Print(mark))?;
+            queue!(output, ResetColor)?;
         } else {
             queue!(output, Print(" "), Print(mark))?;
         }
@@ -454,18 +768,23 @@ fn render(
             output,
             state.query(),
             result,
-            context.candidates,
-            context.case_sensitive,
-            context.viewport.width.saturating_sub(2),
+            context,
+            list_width.saturating_sub(2),
+            selected,
         )?;
         queue!(output, SetAttribute(Attribute::Reset))?;
     }
+
+    render_preview(output, context, preview_width)?;
 
     let cursor_column =
         context.prompt.chars().count() + state.query()[..state.cursor()].chars().count();
     queue!(
         output,
-        MoveTo(cursor_column.min(context.viewport.width - 1) as u16, 0)
+        MoveTo(
+            cursor_column.min(context.viewport.width - 1) as u16,
+            prompt_row as u16
+        )
     )?;
     output.flush()?;
     Ok(())
@@ -477,8 +796,58 @@ struct RenderContext<'a> {
     prompt: &'a str,
     header: Option<&'a str>,
     viewport: Viewport,
+    layout: TuiLayout,
+    preview: Option<&'a str>,
+    style: &'a TuiStyle,
     case_sensitive: bool,
     multi: bool,
+}
+
+fn preview_width(total_width: usize, preview: Option<&str>) -> usize {
+    if preview.is_none() || total_width < 30 {
+        0
+    } else {
+        (total_width / 2).clamp(12, total_width.saturating_sub(12))
+    }
+}
+
+fn render_preview(
+    output: &mut impl Write,
+    context: RenderContext<'_>,
+    preview_width: usize,
+) -> Result<()> {
+    let Some(preview) = context.preview else {
+        return Ok(());
+    };
+    if preview_width == 0 {
+        return Ok(());
+    }
+
+    let x = context.viewport.width.saturating_sub(preview_width);
+    let start_row = if context.layout.prompt_at_bottom() {
+        0
+    } else {
+        1
+    };
+    let max_rows = context.viewport.rows;
+
+    for row in 0..max_rows {
+        queue!(
+            output,
+            MoveTo(x.saturating_sub(1) as u16, (start_row + row) as u16),
+            Print("|")
+        )?;
+    }
+
+    for (row, line) in preview.lines().take(max_rows).enumerate() {
+        queue!(
+            output,
+            MoveTo(x as u16, (start_row + row) as u16),
+            Print(truncate_to_width(line, preview_width))
+        )?;
+    }
+
+    Ok(())
 }
 
 fn key_name(key: KeyEvent) -> Option<String> {
@@ -517,15 +886,21 @@ fn render_highlighted_result(
     output: &mut impl Write,
     query: &str,
     result: &ScoredCandidate,
-    candidates: &[Candidate],
-    case_sensitive: bool,
+    context: RenderContext<'_>,
     width: usize,
+    selected: bool,
 ) -> Result<()> {
-    for segment in highlight_segments_for_result(query, result, candidates, case_sensitive, width) {
+    for segment in highlight_segments_for_result(
+        query,
+        result,
+        context.candidates,
+        context.case_sensitive,
+        width,
+    ) {
         if segment.highlighted {
             queue!(
                 output,
-                SetForegroundColor(Color::Yellow),
+                SetForegroundColor(context.style.highlight_color(selected)),
                 SetAttribute(Attribute::Bold)
             )?;
         }
@@ -866,6 +1241,136 @@ mod tests {
         );
 
         assert_eq!(decision, KeyDecision::Abort);
+    }
+
+    #[test]
+    fn render_default_layout_places_prompt_at_bottom() {
+        let mut output = Vec::new();
+        let state = TuiState::new("al");
+        let results = vec![scored("alpha", KeyKind::Original)];
+        render(
+            &mut output,
+            &state,
+            &results,
+            RenderContext {
+                candidates: &[],
+                prompt: "> ",
+                header: None,
+                viewport: Viewport { width: 40, rows: 3 },
+                layout: TuiLayout::Default,
+                preview: None,
+                style: &TuiStyle::default(),
+                case_sensitive: false,
+                multi: false,
+            },
+        )
+        .unwrap();
+
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(rendered.contains("\u{1b}[4;1H> al"), "{rendered:?}");
+        assert!(rendered.contains("\u{1b}[3;1H\u{1b}[7m> "), "{rendered:?}");
+    }
+
+    #[test]
+    fn render_default_layout_paints_results_bottom_up() {
+        let mut output = Vec::new();
+        let state = TuiState::new("");
+        let results = vec![
+            scored("alpha", KeyKind::Original),
+            scored_with_id(1, "beta", KeyKind::Original),
+            scored_with_id(2, "gamma", KeyKind::Original),
+        ];
+        render(
+            &mut output,
+            &state,
+            &results,
+            RenderContext {
+                candidates: &[],
+                prompt: "> ",
+                header: None,
+                viewport: Viewport { width: 40, rows: 3 },
+                layout: TuiLayout::Default,
+                preview: None,
+                style: &TuiStyle::default(),
+                case_sensitive: false,
+                multi: false,
+            },
+        )
+        .unwrap();
+
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(
+            rendered.contains("\u{1b}[3;1H\u{1b}[7m> \u{1b}[0malpha"),
+            "{rendered:?}"
+        );
+        assert!(rendered.contains("\u{1b}[2;1H  beta"), "{rendered:?}");
+        assert!(rendered.contains("\u{1b}[1;1H  gamma"), "{rendered:?}");
+    }
+
+    #[test]
+    fn render_reverse_layout_places_prompt_at_top() {
+        let mut output = Vec::new();
+        let state = TuiState::new("al");
+        let results = vec![scored("alpha", KeyKind::Original)];
+        render(
+            &mut output,
+            &state,
+            &results,
+            RenderContext {
+                candidates: &[],
+                prompt: "> ",
+                header: None,
+                viewport: Viewport { width: 40, rows: 3 },
+                layout: TuiLayout::Reverse,
+                preview: None,
+                style: &TuiStyle::default(),
+                case_sensitive: false,
+                multi: false,
+            },
+        )
+        .unwrap();
+
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(rendered.contains("\u{1b}[1;1H> al"), "{rendered:?}");
+    }
+
+    #[test]
+    fn render_preview_pane_prints_preview_text() {
+        let mut output = Vec::new();
+        let state = TuiState::new("");
+        let results = vec![scored("alpha", KeyKind::Original)];
+        render(
+            &mut output,
+            &state,
+            &results,
+            RenderContext {
+                candidates: &[],
+                prompt: "> ",
+                header: None,
+                viewport: Viewport { width: 80, rows: 3 },
+                layout: TuiLayout::Default,
+                preview: Some("preview alpha\nsecond line"),
+                style: &TuiStyle::default(),
+                case_sensitive: false,
+                multi: false,
+            },
+        )
+        .unwrap();
+
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(
+            rendered.contains("\u{1b}[1;41Hpreview alpha"),
+            "{rendered:?}"
+        );
+        assert!(rendered.contains("\u{1b}[2;41Hsecond line"), "{rendered:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_command_returns_stderr_when_stdout_is_empty() {
+        let preview = run_preview_command("printf preview-error >&2", "alpha");
+
+        assert_eq!(preview, "preview-error");
     }
 
     #[test]
