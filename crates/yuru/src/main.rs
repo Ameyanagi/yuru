@@ -2,6 +2,7 @@ mod fields;
 mod shell;
 
 use std::ffi::OsString;
+use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -110,6 +111,9 @@ struct Args {
 
     #[arg(long)]
     print0: bool,
+
+    #[arg(long, hide = true)]
+    input: Option<PathBuf>,
 
     #[arg(long)]
     ansi: bool,
@@ -441,6 +445,10 @@ fn parse_tui_height(args: &Args) -> Option<usize> {
 }
 
 fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<String>> {
+    if let Some(path) = &args.input {
+        return read_file_candidates(path, args.read0);
+    }
+
     let stdin_is_terminal = io::stdin().is_terminal();
     let stdin_items = if stdin_is_terminal {
         Vec::new()
@@ -471,16 +479,25 @@ fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<Stri
 fn read_stdin_candidates(read0: bool) -> Result<Vec<String>> {
     let mut input = Vec::new();
     io::stdin().read_to_end(&mut input)?;
-    let text = String::from_utf8_lossy(&input);
+    Ok(parse_candidate_bytes(&input, read0))
+}
+
+fn read_file_candidates(path: &Path, read0: bool) -> Result<Vec<String>> {
+    let input =
+        fs::read(path).with_context(|| format!("failed to read input file {}", path.display()))?;
+    Ok(parse_candidate_bytes(&input, read0))
+}
+
+fn parse_candidate_bytes(input: &[u8], read0: bool) -> Vec<String> {
+    let text = String::from_utf8_lossy(input);
 
     if read0 {
-        Ok(text
-            .split('\0')
+        text.split('\0')
             .filter(|item| !item.is_empty())
             .map(str::to_string)
-            .collect())
+            .collect()
     } else {
-        Ok(text.lines().map(str::to_owned).collect())
+        text.lines().map(str::to_owned).collect()
     }
 }
 

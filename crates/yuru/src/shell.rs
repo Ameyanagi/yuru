@@ -40,7 +40,7 @@ __yuru_run_with_optional_command__() {
     rm -f "$tmp"
     if eval "$command_text" >"$tmp" 2>/dev/null; then
       if [ -s "$tmp" ]; then
-        "${YURU_BIN:-yuru}" "$@" <"$tmp"
+        "${YURU_BIN:-yuru}" "$@" --input "$tmp"
         status=$?
         rm -f "$tmp"
         return $status
@@ -96,9 +96,15 @@ __yuru_ctrl_t__() {
 }
 
 __yuru_ctrl_r__() {
-  local selected opts
+  local selected opts tmp status
   opts=${YURU_CTRL_R_OPTS:-${FZF_CTRL_R_OPTS:-}}
-  selected=$(HISTTIMEFORMAT= history | "${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" $opts | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//')
+  tmp="${TMPDIR:-/tmp}/yuru-history.$$"
+  rm -f "$tmp"
+  HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return; }
+  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" --input "$tmp" $opts)
+  status=$?
+  rm -f "$tmp"
+  [ "$status" -eq 0 ] || return
   [ -n "$selected" ] || return
   READLINE_LINE=$selected
   READLINE_POINT=${#READLINE_LINE}
@@ -211,7 +217,7 @@ __yuru_run_with_optional_command__() {
     rm -f "$tmp"
     if eval "$command_text" >"$tmp" 2>/dev/null; then
       if [[ -s "$tmp" ]]; then
-        "${YURU_BIN:-yuru}" "$@" <"$tmp"
+        "${YURU_BIN:-yuru}" "$@" --input "$tmp"
         status=$?
         rm -f "$tmp"
         return $status
@@ -275,9 +281,15 @@ __yuru_ctrl_t__() {
 
 __yuru_ctrl_r__() {
   emulate -L zsh
-  local selected opts
+  local selected opts tmp status
   opts=${YURU_CTRL_R_OPTS:-${FZF_CTRL_R_OPTS:-}}
-  selected=$(fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' | "${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$LBUFFER" ${(z)opts})
+  tmp="${TMPDIR:-/tmp}/yuru-history.$$"
+  rm -f "$tmp"
+  fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return }
+  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$LBUFFER" --input "$tmp" ${(z)opts})
+  status=$?
+  rm -f "$tmp"
+  (( status == 0 )) || return
   [[ -n "$selected" ]] || return
   BUFFER=$selected
   CURSOR=${#BUFFER}
@@ -429,7 +441,7 @@ function __yuru_run_with_optional_command__
         end
         set -l tmp (mktemp "$tmpdir/yuru-command.XXXXXX")
         if eval $command_text >$tmp 2>/dev/null; and test -s "$tmp"
-            $yuru_bin $argv < "$tmp"
+            $yuru_bin $argv --input "$tmp"
             set -l status_code $status
             rm -f "$tmp"
             return $status_code
@@ -476,7 +488,16 @@ function __yuru_ctrl_r__
     else if set -q FZF_CTRL_R_OPTS
         set opts (string split ' ' -- $FZF_CTRL_R_OPTS)
     end
-    set -l selected (history | $yuru_bin --scheme history --tac --no-sort --no-multi --query (commandline) $opts)
+    set -l tmpdir /tmp
+    if set -q TMPDIR; and test -n "$TMPDIR"
+        set tmpdir $TMPDIR
+    end
+    set -l tmp (mktemp "$tmpdir/yuru-history.XXXXXX")
+    history >$tmp
+    set -l selected ($yuru_bin --scheme history --tac --no-sort --no-multi --query (commandline) --input "$tmp" $opts)
+    set -l status_code $status
+    rm -f "$tmp"
+    test $status_code -eq 0; or return
     set -q selected[1]; or return
     commandline --replace "$selected"
     commandline --cursor (string length -- "$selected")
@@ -634,6 +655,25 @@ function Get-YuruHistoryLines {
     $items | Select-Object -Unique
 }
 
+function Invoke-YuruWithItems {
+    param(
+        [string[]]$Items,
+        [string[]]$YuruArgs
+    )
+    $itemsArray = @($Items | Where-Object { $_ })
+    if ($itemsArray.Count -eq 0) { return @() }
+
+    $yuru = Get-YuruCommand
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllLines($tmp, [string[]]$itemsArray, $utf8NoBom)
+        & $yuru @($YuruArgs + @("--input", $tmp))
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-YuruWithOptionalCommand {
     param(
         [string]$CommandText,
@@ -649,7 +689,7 @@ function Invoke-YuruWithOptionalCommand {
             $items = @()
         }
         if ($items.Count -gt 0) {
-            return ($items | & $yuru @YuruArgs)
+            return Invoke-YuruWithItems -Items $items -YuruArgs $YuruArgs
         }
     }
     & $yuru @YuruArgs
@@ -681,7 +721,8 @@ function Invoke-YuruCtrlR {
     $line = $null
     $cursor = $null
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-    $selected = @(Get-YuruHistoryLines | & $yuru --scheme history --tac --no-sort --no-multi --query $line @opts | Select-Object -First 1)
+    $yuruArgs = @("--scheme", "history", "--tac", "--no-sort", "--no-multi", "--query", $line) + $opts
+    $selected = @(Invoke-YuruWithItems -Items @(Get-YuruHistoryLines) -YuruArgs $yuruArgs | Select-Object -First 1)
     if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
     [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
     [Microsoft.PowerShell.PSConsoleReadLine]::Insert($selected[0])

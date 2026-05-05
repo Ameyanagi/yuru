@@ -301,6 +301,19 @@ fn cli_walker_skips_broken_symlinks_when_following_links() {
 }
 
 #[test]
+fn cli_reads_candidates_from_input_file_without_stdin_pipe() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("candidates.txt");
+    fs::write(&input, "alpha\nbeta\n").unwrap();
+
+    command()
+        .args(["--filter", "beta", "--input", &input.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::eq("beta\n"));
+}
+
+#[test]
 fn cli_prints_version() {
     command()
         .arg("--version")
@@ -348,6 +361,7 @@ fn cli_prints_bash_shell_integration_without_reading_fzf_opts() {
         .success()
         .stdout(predicate::str::contains("__yuru_ctrl_t__"))
         .stdout(predicate::str::contains("FZF_CTRL_T_COMMAND"))
+        .stdout(predicate::str::contains("--input"))
         .stdout(predicate::str::contains("__yuru_setup_completion__"))
         .stdout(predicate::str::contains("complete -D"))
         .stdout(predicate::str::contains("**<TAB>"));
@@ -362,6 +376,7 @@ fn cli_prints_zsh_shell_integration() {
         .stdout(predicate::str::contains("zle -N __yuru_ctrl_r__"))
         .stdout(predicate::str::contains("__yuru_default_completion_widget"))
         .stdout(predicate::str::contains("bindkey -M emacs '^T'"))
+        .stdout(predicate::str::contains("--input"))
         .stdout(predicate::str::contains("**<TAB>"));
 }
 
@@ -376,6 +391,7 @@ fn cli_prints_fish_shell_integration() {
             "function __yuru_completion_trigger__",
         ))
         .stdout(predicate::str::contains("bind \\ct __yuru_ctrl_t__"))
+        .stdout(predicate::str::contains("--input"))
         .stdout(predicate::str::contains("**<TAB>"));
 }
 
@@ -387,6 +403,7 @@ fn cli_prints_powershell_shell_integration() {
         .success()
         .stdout(predicate::str::contains("Set-PSReadLineKeyHandler"))
         .stdout(predicate::str::contains("Invoke-YuruCtrlT"))
+        .stdout(predicate::str::contains("Invoke-YuruWithItems"))
         .stdout(predicate::str::contains("Get-YuruCompletionTrigger"))
         .stdout(predicate::str::contains("**<Tab>"));
 }
@@ -468,6 +485,7 @@ cat "$YURU_FAKE_ARGS""#,
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.starts_with("git status\n"));
     assert!(stdout.contains("--query\ngit\n"), "stdout={stdout}");
+    assert!(stdout.contains("--input\n"), "stdout={stdout}");
 }
 
 #[cfg(unix)]
@@ -509,6 +527,65 @@ print -r -- "$LBUFFER""#,
         String::from_utf8_lossy(&output.stdout),
         "vim src/main.rs src/lib.rs \n"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn zsh_ctrl_t_uses_input_file_for_command_candidates() {
+    if StdCommand::new("zsh").arg("--version").output().is_err() {
+        eprintln!("skipping zsh ctrl-t smoke because zsh is not installed");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let script = write_shell_script(dir.path(), "yuru.zsh", "--zsh");
+    let fake = write_fake_yuru(
+        dir.path(),
+        "fake-yuru",
+        r#"printf '%s\n' "$@" > "$YURU_FAKE_ARGS"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--input" ]; then
+    shift
+    cat "$1" > "$YURU_FAKE_INPUT"
+    break
+  fi
+  shift
+done
+printf 'src/main.rs\n'
+"#,
+    );
+    let args_file = dir.path().join("args.txt");
+    let input_file = dir.path().join("input.txt");
+
+    let output = StdCommand::new("zsh")
+        .args([
+            "-fc",
+            r#"source "$YURU_SCRIPT"
+YURU_BIN="$YURU_FAKE"
+FZF_CTRL_T_COMMAND="printf 'src/main.rs\n'"
+LBUFFER=""
+__yuru_ctrl_t__ 2>/dev/null
+print -r -- "$LBUFFER"
+cat "$YURU_FAKE_ARGS"
+printf '%s\n' "---"
+cat "$YURU_FAKE_INPUT""#,
+        ])
+        .env("YURU_SCRIPT", &script)
+        .env("YURU_FAKE", &fake)
+        .env("YURU_FAKE_ARGS", &args_file)
+        .env("YURU_FAKE_INPUT", &input_file)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("src/main.rs \n"), "stdout={stdout}");
+    assert!(stdout.contains("--input\n"), "stdout={stdout}");
+    assert!(stdout.ends_with("---\nsrc/main.rs\n"), "stdout={stdout}");
 }
 
 #[test]
