@@ -1,6 +1,6 @@
 [package]
 name = "yomi-workspace"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 publish = false
 
@@ -23,7 +23,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [workspace.dependencies]
@@ -31,7 +31,7 @@ anyhow = "1"
 assert_cmd = "2"
 clap = { version = "4.5", features = ["derive"] }
 criterion = { version = "0.5", features = ["html_reports"] }
-crossterm = "0.28"
+crossterm = { version = "0.28", features = ["use-dev-tty"] }
 pinyin = "0.10"
 predicates = "3"
 proptest = "1"

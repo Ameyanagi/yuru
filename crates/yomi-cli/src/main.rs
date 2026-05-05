@@ -366,10 +366,43 @@ fn run_interactive_mode(
 }
 
 fn should_run_interactive(args: &Args) -> bool {
-    args.filter.is_none()
-        && !args.debug_query_variants
-        && io::stdin().is_terminal()
-        && io::stdout().is_terminal()
+    should_run_interactive_with_tty(args, io::stderr().is_terminal())
+}
+
+fn should_run_interactive_with_tty(args: &Args, ui_tty_available: bool) -> bool {
+    args.filter.is_none() && !args.debug_query_variants && ui_tty_available
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_binding_invocations_can_run_interactive_with_captured_stdout() {
+        let args = Args::parse_from([
+            "yomi",
+            "--scheme",
+            "history",
+            "--tac",
+            "--no-sort",
+            "--no-multi",
+        ]);
+
+        assert!(should_run_interactive_with_tty(&args, true));
+    }
+
+    #[test]
+    fn filter_and_debug_modes_stay_non_interactive() {
+        let filter_args = Args::parse_from(["yomi", "--filter", "abc"]);
+        let debug_args = Args::parse_from(["yomi", "--debug-query-variants"]);
+
+        assert!(!should_run_interactive_with_tty(&filter_args, true));
+        assert!(!should_run_interactive_with_tty(&debug_args, true));
+        assert!(!should_run_interactive_with_tty(
+            &Args::parse_from(["yomi"]),
+            false
+        ));
+    }
 }
 
 fn parse_tui_height(args: &Args) -> Option<usize> {

@@ -258,8 +258,8 @@ pub fn run_interactive(
     options: TuiOptions,
 ) -> Result<TuiOutcome> {
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, Hide)?;
+    let mut output = io::stderr();
+    execute!(output, EnterAlternateScreen, Hide)?;
     let _guard = TerminalGuard;
 
     let mut state = TuiState::new(options.initial_query);
@@ -274,7 +274,7 @@ pub fn run_interactive(
             case_sensitive: config.case_sensitive,
             multi: options.multi,
         };
-        render(&mut stdout, &state, &results, render_context)?;
+        render(&mut output, &state, &results, render_context)?;
 
         let Event::Key(key) = event::read()? else {
             continue;
@@ -360,14 +360,14 @@ impl Viewport {
 }
 
 fn render(
-    stdout: &mut io::Stdout,
+    output: &mut impl Write,
     state: &TuiState,
     results: &[ScoredCandidate],
     context: RenderContext<'_>,
 ) -> Result<()> {
-    queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
+    queue!(output, MoveTo(0, 0), Clear(ClearType::All))?;
     queue!(
-        stdout,
+        output,
         Print(truncate_to_width(
             &format!("{}{}", context.prompt, state.query()),
             context.viewport.width
@@ -381,7 +381,7 @@ fn render(
         .take(context.viewport.rows)
         .enumerate()
     {
-        queue!(stdout, MoveTo(0, (row + 1) as u16))?;
+        queue!(output, MoveTo(0, (row + 1) as u16))?;
         let mark = if context.multi && state.marked.contains(&result.id) {
             "*"
         } else {
@@ -389,32 +389,32 @@ fn render(
         };
         if offset + row == state.selected() {
             queue!(
-                stdout,
+                output,
                 SetAttribute(Attribute::Reverse),
                 Print(">"),
                 Print(mark)
             )?;
         } else {
-            queue!(stdout, Print(" "), Print(mark))?;
+            queue!(output, Print(" "), Print(mark))?;
         }
         render_highlighted_result(
-            stdout,
+            output,
             state.query(),
             result,
             context.candidates,
             context.case_sensitive,
             context.viewport.width.saturating_sub(2),
         )?;
-        queue!(stdout, SetAttribute(Attribute::Reset))?;
+        queue!(output, SetAttribute(Attribute::Reset))?;
     }
 
     let cursor_column =
         context.prompt.chars().count() + state.query()[..state.cursor()].chars().count();
     queue!(
-        stdout,
+        output,
         MoveTo(cursor_column.min(context.viewport.width - 1) as u16, 0)
     )?;
-    stdout.flush()?;
+    output.flush()?;
     Ok(())
 }
 
@@ -440,7 +440,7 @@ fn truncate_to_width(text: &str, width: usize) -> String {
 }
 
 fn render_highlighted_result(
-    stdout: &mut io::Stdout,
+    output: &mut impl Write,
     query: &str,
     result: &ScoredCandidate,
     candidates: &[Candidate],
@@ -450,14 +450,14 @@ fn render_highlighted_result(
     for segment in highlight_segments_for_result(query, result, candidates, case_sensitive, width) {
         if segment.highlighted {
             queue!(
-                stdout,
+                output,
                 SetForegroundColor(Color::Yellow),
                 SetAttribute(Attribute::Bold)
             )?;
         }
-        queue!(stdout, Print(segment.text))?;
+        queue!(output, Print(segment.text))?;
         if segment.highlighted {
-            queue!(stdout, ResetColor, SetAttribute(Attribute::NormalIntensity))?;
+            queue!(output, ResetColor, SetAttribute(Attribute::NormalIntensity))?;
         }
     }
     Ok(())
@@ -663,7 +663,7 @@ struct TerminalGuard;
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), Show, LeaveAlternateScreen);
+        let _ = execute!(io::stderr(), Show, LeaveAlternateScreen);
     }
 }
 
