@@ -109,3 +109,56 @@ jobs:
           else
             gh release create "$tag" dist/* --title "Yomi $tag" --notes-file RELEASE_NOTES.md --latest
           fi
+
+  install-smoke:
+    name: install smoke ${{ matrix.name }}
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            shell: bash
+          - name: macos-x64
+            os: macos-13
+            shell: bash
+          - name: macos-arm64
+            os: macos-14
+            shell: bash
+          - name: windows-x64
+            os: windows-latest
+            shell: pwsh
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install from release asset
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bin_dir="$RUNNER_TEMP/yomi-bin"
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/install" |
+            sh -s -- --repo "$GITHUB_REPOSITORY" --version "$RELEASE_TAG" --bin-dir "$bin_dir" --no-shell
+          "$bin_dir/yomi" --help
+          printf 'tests/日本語.txt\nplan.md\n' | "$bin_dir/yomi" --lang ja --filter ni
+          "$bin_dir/yomi" --bash | bash -n
+          if command -v zsh >/dev/null 2>&1; then
+            "$bin_dir/yomi" --zsh | zsh -n
+          fi
+      - name: Install from release asset
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $binDir = Join-Path $env:RUNNER_TEMP "yomi-bin"
+          $script = Invoke-RestMethod "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/install.ps1"
+          $installer = [scriptblock]::Create($script)
+          & $installer -Repo $env:GITHUB_REPOSITORY -Version $env:RELEASE_TAG -BinDir $binDir
+          $yomi = Join-Path $binDir "yomi.exe"
+          & $yomi --help
+          "tests/日本語.txt`nplan.md`n" | & $yomi --lang ja --filter ni
+          $powershellIntegration = (& $yomi --powershell) -join "`n"
+          $null = [scriptblock]::Create($powershellIntegration)
