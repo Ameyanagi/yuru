@@ -10,33 +10,33 @@ Yuru는 기본적으로 사용자 영역에 설치됩니다. `sudo`가 필요하
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3
 ```
 
 기본 설치 위치는 `~/.local/bin`입니다. `XDG_BIN_HOME` 또는 `YURU_INSTALL_BIN_DIR`로 변경할 수 있습니다.
 `--all`을 사용하면 현재 shell 설정에 통합 스크립트도 추가합니다.
-설치기는 기본 언어를 물어보고 `~/.config/yuru/config`에 저장합니다.
+설치기는 기본 언어를 물어보고 `~/.config/yuru/config.toml`에 저장합니다.
 
 프롬프트 없이 기본 언어를 지정하려면:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all --default-lang ja
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3 --default-lang ja
 ```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
-Invoke-Expression "& { $script } -All"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.3"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin`에 `yuru.exe`를 설치하고, 사용자 PATH와 PowerShell profile을 업데이트합니다.
-`-DefaultLang ja`처럼 지정하면 `%APPDATA%\yuru\config`에 기본 언어를 씁니다.
+`-DefaultLang ja`처럼 지정하면 `%APPDATA%\yuru\config.toml`에 기본 언어를 씁니다.
 
 바이너리만 설치:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --version v0.1.3
 ```
 
 crates.io에서 설치:
@@ -46,6 +46,8 @@ cargo install yuru
 ```
 
 crates.io package 이름과 설치되는 명령은 모두 `yuru`입니다.
+
+자세한 내용은 [install / uninstall docs](install-uninstall.md)를 참고하세요.
 
 ## Shell 통합
 
@@ -100,6 +102,8 @@ yuru --fzf-compat ignore
 
 `~/.config/yuru/config.toml`에서 `lang = "auto"`, `load_fzf_defaults = "safe"`, `algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`, `[ja] reading = "none" | "lindera"`, `[zh] initials = true` 등을 설정할 수 있습니다. CLI 인자가 가장 높은 우선순위를 가집니다.
 
+자세한 호환성은 [fzf compatibility](fzf-compat.md), 언어 매칭 동작은 [language matching](language-matching.md)를 참고하세요.
+
 ## 개발
 
 ```sh
@@ -118,8 +122,8 @@ version tag 를 push 하면 GitHub Actions 가 macOS, Linux, Windows용 release 
 release workflow 는 tag push 에서만 실행되며, tag 는 crate version 과 일치해야 합니다.
 
 ```sh
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 ## 라이선스

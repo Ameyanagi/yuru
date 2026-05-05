@@ -10,33 +10,33 @@ Yuru 默认安装到用户目录，不需要 `sudo`。
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3
 ```
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
 `YURU_INSTALL_BIN_DIR` 修改安装目录。`--all` 会为当前 shell 添加集成配置。
-安装器会询问默认语言，并写入 `~/.config/yuru/config`。
+安装器会询问默认语言，并写入 `~/.config/yuru/config.toml`。
 
 无需提示直接指定默认语言:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all --default-lang zh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3 --default-lang zh
 ```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
-Invoke-Expression "& { $script } -All"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.3"
 ```
 
 这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
-可以使用 `-DefaultLang zh` 写入 `%APPDATA%\yuru\config`。
+可以使用 `-DefaultLang zh` 写入 `%APPDATA%\yuru\config.toml`。
 
 只安装二进制文件:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --version v0.1.3
 ```
 
 从 crates.io 安装:
@@ -46,6 +46,8 @@ cargo install yuru
 ```
 
 crates.io package 名称和安装后的命令都是 `yuru`。
+
+更多信息见 [install / uninstall docs](install-uninstall.md)。
 
 ## Shell 集成
 
@@ -100,6 +102,8 @@ yuru --fzf-compat ignore
 
 `~/.config/yuru/config.toml` 可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[zh] initials = true` 等。CLI 参数优先级最高。
 
+详细兼容性见 [fzf compatibility](fzf-compat.md)，语言匹配行为见 [language matching](language-matching.md)。
+
 ## 开发
 
 ```sh
@@ -118,8 +122,8 @@ push version tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的 rele
 release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 ## 许可证

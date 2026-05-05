@@ -442,6 +442,7 @@ fn is_boundary(text: &[char], position: usize) -> bool {
 mod tests {
     use super::*;
     use crate::SearchKey;
+    use proptest::prelude::*;
 
     #[test]
     fn subsequence_match_basic() {
@@ -543,5 +544,26 @@ mod tests {
 
         assert!(matcher.score("rdme", "README.md").is_some());
         assert!(matcher.score("zz", "README.md").is_none());
+    }
+
+    proptest! {
+        #[test]
+        fn score_text_never_panics(pattern in "\\PC{0,24}", text in "\\PC{0,64}") {
+            let _ = score_text(&pattern, &text);
+            let _ = score_exact_text(&pattern, &text);
+        }
+
+        #[test]
+        fn match_positions_are_ordered_and_in_bounds(
+            pattern in "\\PC{0,24}",
+            text in "\\PC{0,64}",
+            case_sensitive in any::<bool>(),
+        ) {
+            if let Some(positions) = match_positions(&pattern, &text, case_sensitive) {
+                let text_len = text.chars().count();
+                prop_assert!(positions.char_indices.windows(2).all(|window| window[0] < window[1]));
+                prop_assert!(positions.char_indices.iter().all(|index| *index < text_len));
+            }
+        }
     }
 }

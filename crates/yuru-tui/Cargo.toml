@@ -2,6 +2,7 @@
 name = "yuru-tui"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 description = "Terminal user interface for Yuru"

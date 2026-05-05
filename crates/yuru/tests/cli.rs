@@ -105,6 +105,54 @@ fn cli_reads_toml_config_file() {
 }
 
 #[test]
+fn cli_doctor_reports_missing_config_without_loading_fzf_opts() {
+    command()
+        .env("FZF_DEFAULT_OPTS", "--definitely-not-a-yuru-option")
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Yuru doctor"))
+        .stdout(predicate::str::contains("warn config: missing"))
+        .stdout(predicate::str::contains("info default language: plain"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
+fn cli_doctor_reports_toml_default_language() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(&config, "[defaults]\nlang = \"ja\"\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "ok config: {} (toml)",
+            config.display()
+        )))
+        .stdout(predicate::str::contains("info default language: ja"));
+}
+
+#[test]
+fn cli_doctor_reports_legacy_default_language() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    fs::write(&config, "--lang zh\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("warn config:"))
+        .stdout(predicate::str::contains("legacy shell words"))
+        .stdout(predicate::str::contains("info default language: zh"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
 fn cli_toml_config_overrides_safe_fzf_default_opts() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("config.toml");
@@ -173,6 +221,93 @@ fn cli_zh_query_bjdx_matches_beijing_university() {
         .assert()
         .success()
         .stdout(predicate::str::contains("北京大学.txt"));
+}
+
+#[test]
+fn cli_explain_reports_plain_match_key() {
+    command()
+        .args(["--filter", "read", "--explain", "--limit", "1"])
+        .write_stdin("README.md\nCargo.toml\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("README.md\n  score:"))
+        .stdout(predicate::str::contains("matched key: Normalized"))
+        .stdout(predicate::str::contains("matched text: read"))
+        .stdout(predicate::str::contains("source span: 0..4"));
+}
+
+#[test]
+fn cli_explain_reports_japanese_romaji_source_span() {
+    command()
+        .args([
+            "--lang",
+            "ja",
+            "--filter",
+            "ni",
+            "--explain",
+            "--limit",
+            "1",
+        ])
+        .write_stdin("tests/日本語.txt\nplan.md\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("tests/日本語.txt"))
+        .stdout(predicate::str::contains("matched key: RomajiReading"))
+        .stdout(predicate::str::contains("source span:"))
+        .stdout(predicate::str::contains("\"日本"));
+}
+
+#[test]
+fn cli_explain_reports_chinese_initial_source_span() {
+    command()
+        .args(["--lang", "zh", "--filter", "bjdx", "--explain"])
+        .write_stdin("北京大学.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("北京大学.txt"))
+        .stdout(predicate::str::contains("matched key: PinyinInitials"))
+        .stdout(predicate::str::contains("source span: 0..4 \"北京大学\""));
+}
+
+#[test]
+fn cli_debug_match_is_hidden_alias_for_explain() {
+    command()
+        .args([
+            "--lang",
+            "ja",
+            "--filter",
+            "tokyo",
+            "--alias",
+            "tokyo=東京駅.txt",
+            "--debug-match",
+        ])
+        .write_stdin("東京駅.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("matched key: LearnedAlias"))
+        .stdout(predicate::str::contains("source span: n/a"));
+}
+
+#[test]
+fn cli_explain_preserves_no_match_exit_status() {
+    command()
+        .args(["--filter", "missing", "--explain"])
+        .write_stdin("alpha\n")
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
+}
+
+#[test]
+fn cli_explain_rejects_print0() {
+    command()
+        .args(["--filter", "alpha", "--explain", "--print0"])
+        .write_stdin("alpha\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--explain cannot be combined with --print0",
+        ));
 }
 
 #[test]

@@ -2,6 +2,7 @@
 name = "yuru"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 description = "A fast phonetic fuzzy finder for the shell"

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" role="img" aria-labelledby="title desc">
+  <title id="title">Yuru phonetic search demo</title>
+  <desc id="desc">A terminal-style demo showing Chinese pinyin initials and Japanese romaji matching.</desc>
+  <rect width="920" height="420" fill="#242831"/>
+  <rect x="24" y="24" width="872" height="372" rx="8" fill="#1e222a" stroke="#3b414d"/>
+  <text x="52" y="70" fill="#8fd7e8" font-family="Menlo, Consolas, monospace" font-size="30">yuru --lang auto</text>
+  <text x="52" y="122" fill="#f4f4f5" font-family="Menlo, Consolas, monospace" font-size="34">&gt; bjdx</text>
+  <text x="52" y="178" fill="#f4f4f5" font-family="Menlo, Consolas, monospace" font-size="32">
+    <tspan fill="#f7d774" font-weight="700">北京大学</tspan><tspan>.txt</tspan>
+  </text>
+  <text x="52" y="230" fill="#f4f4f5" font-family="Menlo, Consolas, monospace" font-size="32">docs/tokyo_notes.md</text>
+  <text x="52" y="282" fill="#f4f4f5" font-family="Menlo, Consolas, monospace" font-size="32">
+    <tspan>tests/</tspan><tspan fill="#f7d774" font-weight="700">日本語</tspan><tspan>.txt</tspan>
+  </text>
+  <text x="52" y="334" fill="#aeb5c2" font-family="Menlo, Consolas, monospace" font-size="24">source-span highlight keeps CJK surface text precise</text>
+  <rect x="50" y="96" width="152" height="42" fill="#f4f4f5">
+    <animate attributeName="x" values="50;50;50" dur="4s" repeatCount="indefinite"/>
+    <animate attributeName="width" values="0;152;152" dur="4s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;0.9;0" keyTimes="0;0.3;1" dur="4s" repeatCount="indefinite"/>
+  </rect>
+</svg>

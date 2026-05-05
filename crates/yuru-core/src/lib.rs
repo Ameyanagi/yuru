@@ -1,3 +1,9 @@
+//! Core candidate indexing, fuzzy matching, ranking, and source-span data types
+//! for Yuru.
+//!
+//! This crate is intentionally language-neutral. Japanese and Chinese phonetic
+//! keys are supplied by separate backend crates through [`LanguageBackend`].
+
 pub mod candidate;
 pub mod config;
 pub mod fzf_query;

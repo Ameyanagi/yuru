@@ -1,3 +1,8 @@
+//! Chinese pinyin matching backend for Yuru.
+//!
+//! The backend adds full pinyin, joined pinyin, and initials keys for Han text
+//! and preserves source spans for CJK-aware highlighting.
+
 pub mod pinyin;
 
 use yuru_core::{base_query_variants, LangMode, LanguageBackend, QueryVariant, SearchKey};

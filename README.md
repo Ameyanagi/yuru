@@ -1,8 +1,28 @@
 # Yuru
 
+[![CI](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml/badge.svg)](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Ameyanagi/yuru)](https://github.com/Ameyanagi/yuru/releases/latest)
+[![crates.io](https://img.shields.io/crates/v/yuru.svg)](https://crates.io/crates/yuru)
+[![docs.rs](https://docs.rs/yuru/badge.svg)](https://docs.rs/yuru)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](Cargo.toml)
+
 Yuru is a fast command-line fuzzy finder with Japanese and Chinese phonetic search.
 It is designed to feel familiar to fzf users while adding multilingual matching and
 source-span highlighting for CJK text.
+
+![Yuru demo](docs/assets/yuru-demo.svg)
+
+## Why Yuru instead of fzf?
+
+| Feature | fzf | Yuru |
+| --- | --- | --- |
+| General fuzzy finding | Yes | Yes |
+| Japanese kana/kanji phonetic matching | Limited | Yes |
+| Chinese pinyin and initials matching | Limited | Yes |
+| fzf-like shell bindings | Yes | Yes |
+| Full fzf option compatibility | Yes | Partial, evolving |
+| CJK source-span highlighting | Limited | Yes |
 
 Localized documentation:
 
@@ -17,45 +37,45 @@ Yuru installs into user space by default. It does not require `sudo`.
 macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3
 ```
 
 This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
 `YURU_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
 shell. The installer asks for a default language and writes it to
-`~/.config/yuru/config`.
+`~/.config/yuru/config.toml`.
 
 To set the default language without a prompt:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all --default-lang ja
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --all --version v0.1.3 --default-lang ja
 ```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
-Invoke-Expression "& { $script } -All"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.3"
 ```
 
 This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
 the user PATH, adds PowerShell integration to your user profile, and can write
-the default language to `%APPDATA%\yuru\config`.
+the default language to `%APPDATA%\yuru\config.toml`.
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
-Invoke-Expression "& { $script } -All -DefaultLang ja"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.3 -DefaultLang ja"
 ```
 
 To install only the binary:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install | sh -s -- --version v0.1.3
 ```
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
-Invoke-Expression "& { $script }"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.3/install.ps1
+Invoke-Expression "& { $script } -Version v0.1.3"
 ```
 
 Crates.io:
@@ -65,6 +85,12 @@ cargo install yuru
 ```
 
 The crates.io package and installed command are both `yuru`.
+
+Latest convenience install commands are also available from the `main` branch,
+but release-pinned commands are recommended for reproducibility.
+
+See [install and uninstall details](docs/install-uninstall.md), including
+release checksums and exactly which files the installer can modify.
 
 ## Shell Integration
 
@@ -124,6 +150,18 @@ Auto language mode keeps one backend active per run:
 printf "北京大学.txt\n" | LANG=zh_CN.UTF-8 yuru --lang auto --filter bjdx
 ```
 
+Explain a match:
+
+```sh
+printf "北京大学.txt\n" | yuru --lang zh --filter bjdx --explain
+```
+
+Check local setup:
+
+```sh
+yuru doctor
+```
+
 ## fzf Compatibility
 
 Yuru supports common fzf scripting/search options such as `--query`,
@@ -144,6 +182,8 @@ not accidentally break Yuru:
 ```sh
 yuru --load-fzf-default-opts never|safe|all
 ```
+
+See the full [fzf compatibility matrix](docs/fzf-compat.md).
 
 ## Configuration
 
@@ -175,6 +215,9 @@ polyphone = "common"   # none | common | phrase
 script = "auto"        # auto | hans | hant
 ```
 
+See [configuration details](docs/config.md) and
+[language matching behavior](docs/language-matching.md).
+
 ## Development
 
 Install local git hooks:
@@ -200,6 +243,10 @@ The hook policy runs formatter, linter, tests, and benchmarks before commits and
 pushes. Set `YURU_SKIP_BENCH=1` only when you intentionally need a fast local
 checkpoint.
 
+Performance numbers from the current benchmark suite are published in
+[docs/performance.md](docs/performance.md). Troubleshooting notes are in
+[docs/troubleshooting.md](docs/troubleshooting.md).
+
 ## Releases
 
 GitHub Actions builds release assets for:
@@ -213,9 +260,13 @@ Create a version tag to publish a release and crates.io packages. The release
 workflow only runs on tags, and the tag must match the crate version.
 
 ```sh
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
+
+Release notes are tracked in [CHANGELOG.md](CHANGELOG.md). Contributor and
+security policies live in [CONTRIBUTING.md](CONTRIBUTING.md) and
+[SECURITY.md](SECURITY.md).
 
 ## License
 

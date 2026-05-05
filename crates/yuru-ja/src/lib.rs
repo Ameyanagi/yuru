@@ -1,3 +1,9 @@
+//! Japanese phonetic matching backend for Yuru.
+//!
+//! The backend adds kana and romaji reading keys for Japanese candidates and
+//! keeps source spans so matches in generated readings can highlight the
+//! original display text.
+
 pub mod reading;
 pub mod romaji;
 

@@ -1,0 +1,7 @@
+{"version":2,"width":92,"height":20,"timestamp":1788534000,"env":{"SHELL":"/bin/zsh","TERM":"xterm-256color"}}
+[0.0,"o","$ printf '北京大学.txt\\nカメラ.txt\\ntests/日本語.txt\\n' | yuru --lang auto --filter bjdx --explain\\r\\n"]
+[0.1,"o","北京大学.txt\\r\\n"]
+[0.1,"o","  score: 12842\\r\\n"]
+[0.1,"o","  matched key: PinyinInitials\\r\\n"]
+[0.1,"o","  matched text: bjdx\\r\\n"]
+[0.1,"o","  source span: 0..4 \"北京大学\"\\r\\n"]

@@ -167,6 +167,37 @@ jobs:
             curl -fsS "https://crates.io/api/v1/crates/$1/$VERSION" >/dev/null 2>&1
           }
 
+          wait_for_crate_index() {
+            crate="$1"
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              tmpdir="$(mktemp -d)"
+              log_file="$(mktemp)"
+              {
+                printf '[package]\n'
+                printf 'name = "yuru-index-probe"\n'
+                printf 'version = "0.0.0"\n'
+                printf 'edition = "2021"\n'
+                printf 'publish = false\n\n'
+                printf '[dependencies]\n'
+                printf '%s = "=%s"\n' "$crate" "$VERSION"
+              } >"$tmpdir/Cargo.toml"
+
+              if cargo generate-lockfile --manifest-path "$tmpdir/Cargo.toml" >"$log_file" 2>&1; then
+                rm -rf "$tmpdir" "$log_file"
+                echo "$crate $VERSION is visible in the crates.io index"
+                return 0
+              fi
+
+              echo "$crate $VERSION is not visible in the crates.io index yet; retrying"
+              sed 's/^/  /' "$log_file"
+              rm -rf "$tmpdir" "$log_file"
+              sleep "$((attempt * 15))"
+            done
+
+            echo "timed out waiting for $crate $VERSION in the crates.io index" >&2
+            return 1
+          }
+
           already_published() {
             grep -Eiq "already (uploaded|published|exists)|previously uploaded|crate version .* is already uploaded" "$1"
           }
@@ -199,6 +230,7 @@ jobs:
             crate="$1"
             if crate_exists "$crate"; then
               echo "$crate $VERSION is already published; skipping"
+              wait_for_crate_index "$crate"
               return 0
             fi
 
@@ -206,11 +238,13 @@ jobs:
               log_file="$(mktemp)"
               if cargo publish -p "$crate" --locked 2>&1 | tee "$log_file"; then
                 rm -f "$log_file"
+                wait_for_crate_index "$crate"
                 return 0
               fi
               if already_published "$log_file" || crate_exists "$crate"; then
                 echo "$crate $VERSION is already published; continuing"
                 rm -f "$log_file"
+                wait_for_crate_index "$crate"
                 return 0
               fi
               if sleep_for_rate_limit "$log_file"; then
@@ -278,12 +312,12 @@ jobs:
           Install with the user-space installer:
 
           \`\`\`sh
-          curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
+          curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/${tag}/install | sh -s -- --all --version ${tag}
           \`\`\`
 
           \`\`\`powershell
-          \$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
-          Invoke-Expression "& { \$script } -All"
+          \$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/${tag}/install.ps1
+          Invoke-Expression "& { \$script } -All -Version ${tag}"
           \`\`\`
 
           Install from crates.io:

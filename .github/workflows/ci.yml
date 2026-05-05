@@ -25,6 +25,32 @@ jobs:
       - name: Run benchmarks
         run: ./scripts/bench
 
+  msrv:
+    name: minimum supported Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Install MSRV toolchain
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Check workspace with MSRV
+        run: cargo +1.88.0 check --workspace --all-targets --all-features --locked
+
+  supply-chain:
+    name: audit and dependency policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Install cargo audit tools
+        run: |
+          cargo install cargo-audit --locked
+          cargo install cargo-deny --locked
+      - name: Check advisories
+        run: cargo audit
+      - name: Check dependency policy
+        run: cargo deny check advisories bans licenses sources
+
   windows-quality:
     name: windows test and PowerShell syntax
     runs-on: windows-latest

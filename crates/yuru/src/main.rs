@@ -8,13 +8,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use fields::{accept_output, prepare_items, FieldConfig, InputItem, InputRecord, OutputRecord};
 use ignore::{DirEntry, WalkBuilder};
 use shell::ShellKind;
 use yuru_core::{
-    build_index, dedup_and_limit_keys, dedup_and_limit_variants, search, LanguageBackend,
-    MatcherAlgo, PlainBackend, SearchConfig, SearchKey, Tiebreak,
+    build_index, dedup_and_limit_keys, dedup_and_limit_variants, key_kind_allowed, match_positions,
+    search, Candidate, LanguageBackend, MatcherAlgo, PlainBackend, QueryVariant, ScoredCandidate,
+    SearchConfig, SearchKey, SourceSpan, Tiebreak,
 };
 use yuru_ja::{JapaneseBackend, JapaneseReadingMode};
 use yuru_zh::{ChineseBackend, ChinesePolyphoneMode, ChineseScriptMode};
@@ -81,6 +82,12 @@ enum AlgoArg {
     Nucleo,
 }
 
+#[derive(Debug, Subcommand)]
+enum CommandArg {
+    /// Print environment, config, and shell integration diagnostics.
+    Doctor,
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "yuru",
@@ -89,6 +96,9 @@ enum AlgoArg {
     args_override_self = true
 )]
 struct Args {
+    #[command(subcommand)]
+    command: Option<CommandArg>,
+
     #[arg(long, value_enum, default_value_t = LangArg::Plain)]
     lang: LangArg,
 
@@ -269,6 +279,12 @@ struct Args {
     #[arg(long)]
     debug_query_variants: bool,
 
+    #[arg(long)]
+    explain: bool,
+
+    #[arg(long = "debug-match", hide = true)]
+    debug_match: bool,
+
     #[arg(long = "alias")]
     aliases: Vec<String>,
 
@@ -302,6 +318,13 @@ fn run() -> Result<ExitCode> {
     if let Some(kind) = shell_script_kind(&args)? {
         print!("{}", shell::script(kind));
         return Ok(ExitCode::SUCCESS);
+    }
+    if matches!(args.command, Some(CommandArg::Doctor)) {
+        print_doctor_report()?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if explain_mode(&args) && args.print0 {
+        bail!("--explain cannot be combined with --print0");
     }
     enforce_fzf_compat(&args)?;
     let query = effective_query(&args);
@@ -366,6 +389,22 @@ fn run() -> Result<ExitCode> {
     }
 
     let results = search(&query, &index, backend.as_ref(), &config);
+
+    if explain_mode(&args) {
+        write_explain_output(
+            &query,
+            &results,
+            &items,
+            &field_config,
+            &index,
+            backend.as_ref(),
+            &config,
+        )?;
+        if results.is_empty() && !args.exit_0 {
+            return Ok(ExitCode::from(1));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let mut output = Vec::new();
     if args.print_query {
@@ -541,7 +580,11 @@ fn should_run_interactive(args: &Args) -> bool {
 }
 
 fn should_run_interactive_with_tty(args: &Args, ui_tty_available: bool) -> bool {
-    args.filter.is_none() && !args.debug_query_variants && ui_tty_available
+    args.filter.is_none() && !args.debug_query_variants && !explain_mode(args) && ui_tty_available
+}
+
+fn explain_mode(args: &Args) -> bool {
+    args.explain || args.debug_match
 }
 
 fn default_limit(args: &Args, interactive: bool) -> usize {
@@ -597,6 +640,15 @@ mod tests {
         );
         assert_eq!(default_limit(&batch_args, false), 10);
         assert_eq!(default_limit(&filter_args, false), usize::MAX);
+    }
+
+    #[test]
+    fn doctor_preparse_only_matches_leading_subcommand() {
+        assert!(doctor_command_present(&[OsString::from("doctor")]));
+        assert!(!doctor_command_present(&[
+            OsString::from("--filter"),
+            OsString::from("doctor")
+        ]));
     }
 }
 
@@ -1077,13 +1129,390 @@ fn write_records(records: &[OutputRecord], print0: bool) -> Result<()> {
     Ok(())
 }
 
+fn write_explain_output(
+    query: &str,
+    results: &[ScoredCandidate],
+    items: &[InputItem],
+    field_config: &FieldConfig,
+    candidates: &[Candidate],
+    backend: &dyn LanguageBackend,
+    config: &SearchConfig,
+) -> Result<()> {
+    let mut stdout = io::stdout().lock();
+
+    for result in results {
+        let record = accept_output(&items[result.id], field_config, result.id)?;
+        stdout.write_all(record.as_bytes())?;
+        stdout.write_all(b"\n")?;
+
+        let matched = explain_match(query, result, candidates, backend, config);
+        writeln!(stdout, "  score: {}", result.score)?;
+        writeln!(stdout, "  matched key: {:?}", result.key_kind)?;
+        if let Some(matched) = matched {
+            writeln!(stdout, "  query: {}", matched.pattern)?;
+            writeln!(stdout, "  matched text: {}", matched.variant.text)?;
+            writeln!(
+                stdout,
+                "  key span: {}..{}",
+                matched.key_span.start, matched.key_span.end
+            )?;
+            writeln!(stdout, "  key text: {}", matched.key_text)?;
+            match matched.source_span {
+                Some(span) => {
+                    let snippet = char_slice(&result.display, span.start, span.end);
+                    writeln!(
+                        stdout,
+                        "  source span: {}..{} \"{}\"",
+                        span.start, span.end, snippet
+                    )?;
+                }
+                None => {
+                    writeln!(stdout, "  source span: n/a")?;
+                }
+            }
+        } else {
+            writeln!(stdout, "  query: {query}")?;
+            writeln!(stdout, "  matched text: n/a")?;
+            writeln!(stdout, "  key span: n/a")?;
+            writeln!(stdout, "  key text: n/a")?;
+            writeln!(stdout, "  source span: n/a")?;
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct ExplainMatch {
+    pattern: String,
+    variant: QueryVariant,
+    key_text: String,
+    key_span: SourceSpan,
+    source_span: Option<SourceSpan>,
+}
+
+fn explain_match(
+    query: &str,
+    result: &ScoredCandidate,
+    candidates: &[Candidate],
+    backend: &dyn LanguageBackend,
+    config: &SearchConfig,
+) -> Option<ExplainMatch> {
+    let key = matched_key(candidates, result)?;
+    let patterns = highlight_patterns(query);
+    let patterns = if patterns.is_empty() {
+        vec![query.to_string()]
+    } else {
+        patterns
+    };
+
+    for pattern in patterns {
+        let variants =
+            dedup_and_limit_variants(backend.expand_query(&pattern), config.max_query_variants);
+        for variant in variants {
+            if config.case_sensitive && variant.kind == yuru_core::QueryVariantKind::Normalized {
+                continue;
+            }
+            if !key_kind_allowed(&variant, key.kind) {
+                continue;
+            }
+            let Some(positions) = match_positions(&variant.text, &key.text, config.case_sensitive)
+            else {
+                continue;
+            };
+            let Some(key_span) = span_from_positions(&positions.char_indices) else {
+                continue;
+            };
+            let source_span = source_span_for_key_positions(key, &positions.char_indices)
+                .or_else(|| direct_source_span(&pattern, &result.display, config.case_sensitive));
+            return Some(ExplainMatch {
+                pattern,
+                variant,
+                key_text: key.text.clone(),
+                key_span,
+                source_span,
+            });
+        }
+    }
+
+    None
+}
+
+fn matched_key<'a>(candidates: &'a [Candidate], result: &ScoredCandidate) -> Option<&'a SearchKey> {
+    candidates
+        .get(result.id)
+        .filter(|candidate| candidate.id == result.id)
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|candidate| candidate.id == result.id)
+        })
+        .and_then(|candidate| candidate.keys.get(result.key_index as usize))
+}
+
+fn highlight_patterns(query: &str) -> Vec<String> {
+    query
+        .split_whitespace()
+        .filter_map(|raw| {
+            if raw == "|" {
+                return None;
+            }
+
+            let mut pattern = raw;
+            if pattern.starts_with('!') {
+                return None;
+            }
+            if let Some(stripped) = pattern.strip_prefix('\'') {
+                pattern = stripped;
+            }
+            if let Some(stripped) = pattern.strip_prefix('^') {
+                pattern = stripped;
+            }
+            if let Some(stripped) = pattern.strip_suffix('$') {
+                pattern = stripped;
+            }
+            if let Some(stripped) = pattern.strip_suffix('\'') {
+                pattern = stripped;
+            }
+
+            (!pattern.is_empty()).then(|| pattern.to_string())
+        })
+        .collect()
+}
+
+fn span_from_positions(positions: &[usize]) -> Option<SourceSpan> {
+    let start = positions.iter().copied().min()?;
+    let end = positions.iter().copied().max()?.saturating_add(1);
+    Some(SourceSpan { start, end })
+}
+
+fn source_span_for_key_positions(key: &SearchKey, positions: &[usize]) -> Option<SourceSpan> {
+    let source_map = key.source_map.as_ref()?;
+    let mut start = usize::MAX;
+    let mut end = 0usize;
+    let mut found = false;
+
+    for position in positions {
+        let Some(Some(span)) = source_map.get(*position) else {
+            continue;
+        };
+        start = start.min(span.start);
+        end = end.max(span.end);
+        found = true;
+    }
+
+    found.then_some(SourceSpan { start, end })
+}
+
+fn direct_source_span(pattern: &str, display: &str, case_sensitive: bool) -> Option<SourceSpan> {
+    let positions = match_positions(pattern, display, case_sensitive)?;
+    span_from_positions(&positions.char_indices)
+}
+
+fn char_slice(text: &str, start: usize, end: usize) -> String {
+    text.chars()
+        .enumerate()
+        .filter_map(|(index, ch)| (start..end).contains(&index).then_some(ch))
+        .collect()
+}
+
+fn print_doctor_report() -> Result<()> {
+    let mut stdout = io::stdout().lock();
+    let exe = std::env::current_exe().context("failed to resolve current executable")?;
+    let config = yuru_config_source();
+    let default_lang = doctor_default_lang(config.as_ref()).unwrap_or_else(|| "plain".to_string());
+    let fzf_mode = match preparse_load_fzf_default_opts(&[], config.as_ref()) {
+        Ok(mode) => format!("{mode:?}").to_ascii_lowercase(),
+        Err(error) => format!("unreadable ({error})"),
+    };
+
+    writeln!(stdout, "Yuru doctor")?;
+    writeln!(stdout, "ok binary: {}", exe.display())?;
+    writeln!(stdout, "ok version: {}", env!("CARGO_PKG_VERSION"))?;
+    match path_visibility(&exe) {
+        Some(path) => writeln!(stdout, "ok path: visible in PATH at {}", path.display())?,
+        None => writeln!(stdout, "warn path: binary directory is not visible in PATH")?,
+    }
+
+    match &config {
+        Some(ConfigSource::Toml(path)) => {
+            writeln!(stdout, "ok config: {} (toml)", path.display())?;
+        }
+        Some(ConfigSource::Legacy(path)) => {
+            writeln!(
+                stdout,
+                "warn config: {} (legacy shell words; migrate to config.toml)",
+                path.display()
+            )?;
+        }
+        None => {
+            writeln!(stdout, "warn config: missing (using compiled defaults)")?;
+        }
+    }
+    writeln!(stdout, "info default language: {default_lang}")?;
+    writeln!(
+        stdout,
+        "info fzf default opts: {}",
+        doctor_fzf_defaults(&fzf_mode)
+    )?;
+    writeln!(stdout, "info locale: {}", doctor_locale())?;
+    writeln!(stdout, "info default command: {}", doctor_default_command())?;
+    writeln!(
+        stdout,
+        "info shell integration: {}",
+        doctor_shell_integration()
+    )?;
+    Ok(())
+}
+
+fn path_visibility(exe: &Path) -> Option<PathBuf> {
+    let exe_name = exe.file_name()?;
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(exe_name))
+        .find(|candidate| candidate.exists())
+}
+
+fn doctor_default_lang(config: Option<&ConfigSource>) -> Option<String> {
+    match config? {
+        ConfigSource::Toml(path) => toml_config_default_lang(path),
+        ConfigSource::Legacy(path) => shell_word_default_lang(path),
+    }
+}
+
+fn toml_config_default_lang(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let value = content.parse::<toml::Value>().ok()?;
+    value
+        .get("defaults")
+        .and_then(|defaults| defaults.get("lang"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_string)
+}
+
+fn shell_word_default_lang(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    find_option_value(split_shell_words(&content), "--lang")
+}
+
+fn find_option_value<I>(args: I, option: &str) -> Option<String>
+where
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    let equals_prefix = format!("{option}=");
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        let arg = arg.as_ref();
+        if let Some(value) = arg.strip_prefix(&equals_prefix) {
+            return Some(value.to_string());
+        }
+        if arg == option {
+            return args.next().map(|value| value.as_ref().to_string());
+        }
+    }
+    None
+}
+
+fn doctor_fzf_defaults(mode: &str) -> String {
+    let mut sources = Vec::new();
+    for name in [
+        "FZF_DEFAULT_OPTS_FILE",
+        "FZF_DEFAULT_OPTS",
+        "YURU_DEFAULT_OPTS_FILE",
+        "YURU_DEFAULT_OPTS",
+    ] {
+        if std::env::var_os(name).is_some() {
+            sources.push(name);
+        }
+    }
+
+    if sources.is_empty() {
+        format!("{mode} (no default opts env)")
+    } else {
+        format!("{mode} ({})", sources.join(", "))
+    }
+}
+
+fn doctor_locale() -> String {
+    let locale = locale_hint();
+    if locale.is_empty() {
+        "(not set)".to_string()
+    } else {
+        locale
+    }
+}
+
+fn doctor_default_command() -> String {
+    default_source_command()
+        .map(|(name, command)| {
+            if command.trim().is_empty() {
+                format!("{name} is set but empty")
+            } else {
+                format!("{name} ({command})")
+            }
+        })
+        .unwrap_or_else(|| "built-in walker".to_string())
+}
+
+fn doctor_shell_integration() -> String {
+    match detected_shell_profile() {
+        Some((shell, path)) if profile_has_shell_integration(&path) => {
+            format!("{shell} ({})", path.display())
+        }
+        Some((shell, path)) => {
+            format!("{shell} profile missing marker ({})", path.display())
+        }
+        None => "unknown shell/profile".to_string(),
+    }
+}
+
+#[cfg(not(windows))]
+fn detected_shell_profile() -> Option<(&'static str, PathBuf)> {
+    let shell = std::env::var("SHELL").ok()?;
+    let home = PathBuf::from(std::env::var("HOME").ok()?);
+    let shell_name = Path::new(&shell).file_name()?.to_string_lossy();
+    match shell_name.as_ref() {
+        "zsh" => Some(("zsh", home.join(".zshrc"))),
+        "bash" => Some(("bash", home.join(".bashrc"))),
+        "fish" => Some((
+            "fish",
+            home.join(".config").join("fish").join("config.fish"),
+        )),
+        _ => None,
+    }
+}
+
+#[cfg(windows)]
+fn detected_shell_profile() -> Option<(&'static str, PathBuf)> {
+    let home = PathBuf::from(std::env::var("USERPROFILE").ok()?);
+    let profiles = [
+        home.join("Documents")
+            .join("PowerShell")
+            .join("Microsoft.PowerShell_profile.ps1"),
+        home.join("Documents")
+            .join("WindowsPowerShell")
+            .join("Microsoft.PowerShell_profile.ps1"),
+    ];
+    profiles
+        .into_iter()
+        .find(|path| path.exists())
+        .map(|path| ("powershell", path))
+}
+
+fn profile_has_shell_integration(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .map(|content| content.contains("yuru shell integration"))
+        .unwrap_or(false)
+}
+
 fn expanded_args() -> Result<Vec<OsString>> {
     let mut args = std::env::args_os();
     let program = args.next().unwrap_or_else(|| OsString::from("yuru"));
     let mut expanded = vec![program];
     let rest: Vec<_> = args.collect();
 
-    if !shell_flags_present(&rest) {
+    if !shell_flags_present(&rest) && !doctor_command_present(&rest) {
         let config = yuru_config_source();
         let load_fzf_defaults = preparse_load_fzf_default_opts(&rest, config.as_ref())?;
         append_fzf_default_opts(&mut expanded, load_fzf_defaults)?;
@@ -1096,6 +1525,10 @@ fn expanded_args() -> Result<Vec<OsString>> {
 
     expanded.extend(rest.into_iter().map(normalize_plus_arg));
     Ok(expanded)
+}
+
+fn doctor_command_present(args: &[OsString]) -> bool {
+    args.first().and_then(|arg| arg.to_str()) == Some("doctor")
 }
 
 #[derive(Clone, Debug)]

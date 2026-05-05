@@ -4,8 +4,12 @@ set -eu
 cd "$(dirname "$0")/.."
 . ./scripts/cargo-env
 
-cargo bench --bench search
+YURU_BENCH_1M=0 YURU_BENCH_KANJI_HEAVY=0 cargo bench --bench search
 
 if [ "${YURU_BENCH_1M:-0}" = "1" ]; then
-  YURU_BENCH_1M=1 cargo bench --bench search plain_search_1m_read_opt_in
+  YURU_BENCH_1M=1 YURU_BENCH_KANJI_HEAVY=0 cargo bench --bench search plain_search_1m_read_opt_in
+fi
+
+if [ "${YURU_BENCH_KANJI_HEAVY:-0}" = "1" ]; then
+  YURU_BENCH_1M=0 YURU_BENCH_KANJI_HEAVY=1 cargo bench --bench search kanji_heavy
 fi

@@ -2,6 +2,7 @@
 name = "yuru-zh"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 description = "Chinese pinyin matching support for Yuru"

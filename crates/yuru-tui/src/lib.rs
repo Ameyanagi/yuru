@@ -1,3 +1,8 @@
+//! Terminal user interface for Yuru.
+//!
+//! The TUI provides fzf-like navigation, multi-select, expected keys, a small
+//! supported binding subset, and source-span-aware match highlighting.
+
 use std::collections::HashSet;
 use std::io::{self, Write};
 
