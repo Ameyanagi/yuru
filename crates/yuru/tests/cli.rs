@@ -284,6 +284,31 @@ fn cli_walker_can_include_directories_and_skip_names() {
         .stdout(predicate::eq("keep\n"));
 }
 
+#[cfg(unix)]
+#[test]
+fn cli_walker_skips_broken_symlinks_when_following_links() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join(".config")).unwrap();
+    std::os::unix::fs::symlink("missing", dir.path().join(".config").join("starship")).unwrap();
+    fs::write(dir.path().join("alpha.txt"), "").unwrap();
+
+    command()
+        .current_dir(dir.path())
+        .args(["--filter", "alpha", "--walker", "file,follow,hidden"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha.txt\n"));
+}
+
+#[test]
+fn cli_prints_version() {
+    command()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("yuru "));
+}
+
 #[test]
 fn cli_tiebreak_length_is_default_for_equal_scores() {
     command()
@@ -448,6 +473,11 @@ cat "$YURU_FAKE_ARGS""#,
 #[cfg(unix)]
 #[test]
 fn zsh_completion_replaces_starstar_token_and_keeps_prefix() {
+    if StdCommand::new("zsh").arg("--version").output().is_err() {
+        eprintln!("skipping zsh completion smoke because zsh is not installed");
+        return;
+    }
+
     let dir = tempfile::tempdir().unwrap();
     let script = write_shell_script(dir.path(), "yuru.zsh", "--zsh");
     let fake = write_fake_yuru(

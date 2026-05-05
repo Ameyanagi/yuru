@@ -41,6 +41,7 @@ enum SchemeArg {
 #[command(
     name = "yuru",
     about = "A fast phonetic fuzzy finder prototype",
+    version,
     args_override_self = true
 )]
 struct Args {
@@ -529,7 +530,11 @@ fn run_walker(args: &Args) -> Result<Vec<String>> {
             .into_iter()
             .filter_entry(|entry| walker_entry_allowed(entry, &skips, options.hidden))
         {
-            let entry = entry?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) if walker_error_is_skippable(&error) => continue,
+                Err(error) => return Err(error.into()),
+            };
             if entry.depth() == 0 {
                 continue;
             }
@@ -544,6 +549,19 @@ fn run_walker(args: &Args) -> Result<Vec<String>> {
     }
 
     Ok(out)
+}
+
+fn walker_error_is_skippable(error: &walkdir::Error) -> bool {
+    if error.depth() == 0 {
+        return false;
+    }
+
+    error.io_error().is_some_and(|io_error| {
+        matches!(
+            io_error.kind(),
+            io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+        )
+    })
 }
 
 fn parse_walker_options(raw: &str) -> Result<WalkerOptions> {
