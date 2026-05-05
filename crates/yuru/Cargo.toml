@@ -3,6 +3,7 @@ name = "yuru"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 description = "A fast phonetic fuzzy finder for the shell"
 keywords = ["fuzzy", "finder", "phonetic", "shell"]
 categories = ["command-line-utilities"]

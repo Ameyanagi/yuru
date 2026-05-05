@@ -159,3 +159,9 @@ workflow only runs on tags, and the tag must match the crate version.
 git tag v0.1.1
 git push origin v0.1.1
 ```
+
+## License
+
+Yuru is distributed under the terms of both the MIT license and the Apache
+License 2.0. See [LICENSE-MIT](LICENSE-MIT) and
+[LICENSE-APACHE](LICENSE-APACHE).

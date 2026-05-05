@@ -3,6 +3,7 @@ name = "yuru-tui"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 description = "Terminal user interface for Yuru"
 keywords = ["fuzzy", "finder", "tui"]
 categories = ["command-line-utilities"]

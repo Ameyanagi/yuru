@@ -109,3 +109,8 @@ release workflow 는 tag push 에서만 실행되며, tag 는 crate version 과 
 git tag v0.1.1
 git push origin v0.1.1
 ```
+
+## 라이선스
+
+Yuru는 MIT license와 Apache License 2.0의 조건으로 배포됩니다.
+[LICENSE-MIT](../LICENSE-MIT) 및 [LICENSE-APACHE](../LICENSE-APACHE)를 참고하세요.

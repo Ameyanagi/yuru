@@ -3,6 +3,7 @@ name = "yuru-core"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 description = "Core fuzzy matching and ranking library for Yuru"
 keywords = ["fuzzy", "finder", "matching"]
 categories = ["text-processing"]

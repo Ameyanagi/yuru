@@ -3,6 +3,7 @@ name = "yuru-zh"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 description = "Chinese pinyin matching support for Yuru"
 keywords = ["fuzzy", "chinese", "pinyin"]
 categories = ["text-processing"]
