@@ -3,6 +3,7 @@ pub enum ShellKind {
     Bash,
     Zsh,
     Fish,
+    PowerShell,
 }
 
 pub fn script(kind: ShellKind) -> &'static str {
@@ -10,6 +11,7 @@ pub fn script(kind: ShellKind) -> &'static str {
         ShellKind::Bash => BASH,
         ShellKind::Zsh => ZSH,
         ShellKind::Fish => FISH,
+        ShellKind::PowerShell => POWERSHELL,
     }
 }
 
@@ -312,4 +314,120 @@ bind \cr __yomi_ctrl_r__
 bind \ec __yomi_alt_c__
 # fzf-style path completion trigger: COMMAND [FUZZY]**<TAB>
 bind \t __yomi_completion__
+"#;
+
+const POWERSHELL: &str = r#"# yomi shell integration for PowerShell
+# Install with: yomi --powershell | Invoke-Expression
+
+function Get-YomiCommand {
+    if ($env:YOMI_BIN) { return $env:YOMI_BIN }
+    return "yomi"
+}
+
+function Quote-YomiArgument {
+    param([string]$Value)
+    if ($Value -match '^[A-Za-z0-9_@%+=:,./\\-]+$') {
+        return $Value
+    }
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Join-YomiSelection {
+    param([string[]]$Items)
+    ($Items | Where-Object { $_ } | ForEach-Object { Quote-YomiArgument $_ }) -join " "
+}
+
+function Invoke-YomiWithOptionalCommand {
+    param(
+        [string]$CommandText,
+        [string[]]$YomiArgs
+    )
+    $yomi = Get-YomiCommand
+    if ($null -ne $CommandText) {
+        if ($CommandText.Trim().Length -eq 0) { return @() }
+        Invoke-Expression $CommandText | & $yomi @YomiArgs
+    } else {
+        & $yomi @YomiArgs
+    }
+}
+
+function Invoke-YomiCtrlT {
+    $commandText = $null
+    if (Test-Path Env:YOMI_CTRL_T_COMMAND) {
+        $commandText = $env:YOMI_CTRL_T_COMMAND
+    } elseif (Test-Path Env:FZF_CTRL_T_COMMAND) {
+        $commandText = $env:FZF_CTRL_T_COMMAND
+    }
+    $opts = @()
+    if ($env:YOMI_CTRL_T_OPTS) { $opts += $env:YOMI_CTRL_T_OPTS -split '\s+' }
+    elseif ($env:FZF_CTRL_T_OPTS) { $opts += $env:FZF_CTRL_T_OPTS -split '\s+' }
+    $yomiArgs = @("--scheme", "path", "-m", "--walker", "file,dir,follow,hidden") + $opts
+    $selected = @(Invoke-YomiWithOptionalCommand -CommandText $commandText -YomiArgs $yomiArgs)
+    if ($selected.Count -eq 0) { return }
+    [Microsoft.PowerShell.PSConsoleReadLine]::Insert((Join-YomiSelection $selected))
+}
+
+function Invoke-YomiCtrlR {
+    $yomi = Get-YomiCommand
+    $opts = @()
+    if ($env:YOMI_CTRL_R_OPTS) { $opts += $env:YOMI_CTRL_R_OPTS -split '\s+' }
+    elseif ($env:FZF_CTRL_R_OPTS) { $opts += $env:FZF_CTRL_R_OPTS -split '\s+' }
+    $selected = @(Get-History | ForEach-Object CommandLine | & $yomi --scheme history --tac --no-sort --no-multi @opts | Select-Object -First 1)
+    if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
+    [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
+    [Microsoft.PowerShell.PSConsoleReadLine]::Insert($selected[0])
+}
+
+function Invoke-YomiAltC {
+    $commandText = $null
+    if (Test-Path Env:YOMI_ALT_C_COMMAND) {
+        $commandText = $env:YOMI_ALT_C_COMMAND
+    } elseif (Test-Path Env:FZF_ALT_C_COMMAND) {
+        $commandText = $env:FZF_ALT_C_COMMAND
+    }
+    $opts = @()
+    if ($env:YOMI_ALT_C_OPTS) { $opts += $env:YOMI_ALT_C_OPTS -split '\s+' }
+    elseif ($env:FZF_ALT_C_OPTS) { $opts += $env:FZF_ALT_C_OPTS -split '\s+' }
+    $yomiArgs = @("--scheme", "path", "--no-multi", "--walker", "dir,follow,hidden") + $opts
+    $selected = @(Invoke-YomiWithOptionalCommand -CommandText $commandText -YomiArgs $yomiArgs | Select-Object -First 1)
+    if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
+    Set-Location -LiteralPath $selected[0]
+    [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
+}
+
+function Invoke-YomiCompletion {
+    param($key, $arg)
+    $line = $null
+    $cursor = $null
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+    $left = $line.Substring(0, $cursor)
+    $match = [regex]::Match($left, '(\S*\*\*)$')
+    if (-not $match.Success) {
+        [Microsoft.PowerShell.PSConsoleReadLine]::Complete($key, $arg)
+        return
+    }
+    $token = $match.Groups[1].Value
+    $prefix = $token -replace '\*\*$', ''
+    $yomi = Get-YomiCommand
+    $opts = @()
+    if ($env:YOMI_COMPLETION_OPTS) { $opts += $env:YOMI_COMPLETION_OPTS -split '\s+' }
+    $selected = @(& $yomi --scheme path -m --walker file,dir,follow,hidden --query $prefix @opts)
+    if ($selected.Count -eq 0) { return }
+    $insert = Join-YomiSelection $selected
+    $newLine = $line.Substring(0, $cursor - $token.Length) + $insert + $line.Substring($cursor)
+    [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
+    [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
+    [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition(($cursor - $token.Length) + $insert.Length)
+}
+
+if (Get-Module -ListAvailable -Name PSReadLine) {
+    Import-Module PSReadLine -ErrorAction SilentlyContinue
+}
+if (Get-Command Set-PSReadLineKeyHandler -ErrorAction SilentlyContinue) {
+    Set-PSReadLineKeyHandler -Key Ctrl+t -ScriptBlock { Invoke-YomiCtrlT }
+    Set-PSReadLineKeyHandler -Key Ctrl+r -ScriptBlock { Invoke-YomiCtrlR }
+    Set-PSReadLineKeyHandler -Key Alt+c -ScriptBlock { Invoke-YomiAltC }
+    # fzf-style path completion trigger: COMMAND [FUZZY]**<Tab>
+    Set-PSReadLineKeyHandler -Key Tab -ScriptBlock { param($key, $arg) Invoke-YomiCompletion $key $arg }
+}
 "#;

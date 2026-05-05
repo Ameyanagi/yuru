@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "${{ matrix.target }}"
+      - name: Build
+        run: cargo build --release -p yomi-cli --target "${{ matrix.target }}"
+      - name: Package Unix
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/yomi" yomi
+          chmod 755 yomi
+          tar -czf "dist/yomi-${{ matrix.target }}.tar.gz" yomi README.md
+      - name: Package Windows
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/yomi.exe" "yomi.exe"
+          Compress-Archive -Force -Path yomi.exe,README.md -DestinationPath "dist/yomi-${{ matrix.target }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomi-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Prepare checksums
+        run: |
+          cd dist
+          sha256sum yomi-* > SHA256SUMS
+      - name: Prepare release notes
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          cat > RELEASE_NOTES.md <<EOF
+          # Yomi ${tag}
+
+          User-space installers:
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh -s -- --all
+          \`\`\`
+
+          \`\`\`powershell
+          \$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yomi/main/install.ps1
+          Invoke-Expression "& { \$script } -All"
+          \`\`\`
+
+          Release assets include macOS, Linux, and Windows binaries plus SHA256SUMS.
+          EOF
+      - name: Publish release
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+            gh release edit "$tag" --title "Yomi $tag" --notes-file RELEASE_NOTES.md --latest
+          else
+            gh release create "$tag" dist/* --title "Yomi $tag" --notes-file RELEASE_NOTES.md --latest
+          fi

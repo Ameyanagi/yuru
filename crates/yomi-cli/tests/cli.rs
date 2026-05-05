@@ -277,13 +277,24 @@ fn cli_prints_fish_shell_integration() {
 }
 
 #[test]
+fn cli_prints_powershell_shell_integration() {
+    command()
+        .args(["--powershell"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Set-PSReadLineKeyHandler"))
+        .stdout(predicate::str::contains("Invoke-YomiCtrlT"))
+        .stdout(predicate::str::contains("**<Tab>"));
+}
+
+#[test]
 fn cli_rejects_multiple_shell_integration_flags() {
     command()
         .args(["--bash", "--zsh"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "only one of --bash, --zsh, or --fish",
+            "only one of --bash, --zsh, --fish, or --powershell",
         ));
 }
 

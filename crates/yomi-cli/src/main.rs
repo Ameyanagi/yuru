@@ -204,6 +204,9 @@ struct Args {
 
     #[arg(long)]
     fish: bool,
+
+    #[arg(long)]
+    powershell: bool,
 }
 
 fn main() -> ExitCode {
@@ -662,7 +665,16 @@ fn shell_flags_present(args: &[OsString]) -> bool {
     args.iter().any(|arg| {
         matches!(
             arg.to_str(),
-            Some("--bash" | "--zsh" | "--fish" | "--bash=true" | "--zsh=true" | "--fish=true")
+            Some(
+                "--bash"
+                    | "--zsh"
+                    | "--fish"
+                    | "--powershell"
+                    | "--bash=true"
+                    | "--zsh=true"
+                    | "--fish=true"
+                    | "--powershell=true"
+            )
         )
     })
 }
@@ -695,12 +707,12 @@ fn normalize_plus_arg(arg: OsString) -> OsString {
 }
 
 fn shell_script_kind(args: &Args) -> Result<Option<ShellKind>> {
-    let selected = [args.bash, args.zsh, args.fish]
+    let selected = [args.bash, args.zsh, args.fish, args.powershell]
         .into_iter()
         .filter(|enabled| *enabled)
         .count();
     if selected > 1 {
-        bail!("only one of --bash, --zsh, or --fish can be used");
+        bail!("only one of --bash, --zsh, --fish, or --powershell can be used");
     }
 
     Ok(if args.bash {
@@ -709,6 +721,8 @@ fn shell_script_kind(args: &Args) -> Result<Option<ShellKind>> {
         Some(ShellKind::Zsh)
     } else if args.fish {
         Some(ShellKind::Fish)
+    } else if args.powershell {
+        Some(ShellKind::PowerShell)
     } else {
         None
     })

@@ -1,0 +1,307 @@
+#!/usr/bin/env sh
+set -eu
+
+repo="${YOMI_INSTALL_REPO:-Ameyanagi/yomi}"
+version="${YOMI_INSTALL_VERSION:-latest}"
+bin_dir="${YOMI_INSTALL_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
+shells=""
+from_source=0
+
+usage() {
+  cat <<'EOF'
+Yomi user-space installer
+
+Usage:
+  ./install [options]
+  curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh -s -- [options]
+
+Options:
+  --all                 Install binary and shell integration for the current shell
+  --shell LIST          Install shell integration: bash,zsh,fish,all
+  --no-shell            Install only the binary
+  --bin-dir DIR         Install binary into DIR (default: ~/.local/bin)
+  --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yomi)
+  --version TAG         Release tag to download (default: latest)
+  --from-source         Build yomi from the current checkout with cargo
+  -h, --help            Show this help
+
+This installer never uses sudo and never writes to system directories.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --all)
+      shells="current"
+      shift
+      ;;
+    --shell)
+      shells="${2:-}"
+      [ -n "$shells" ] || {
+        echo "install: --shell requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --no-shell)
+      shells=""
+      shift
+      ;;
+    --bin-dir)
+      bin_dir="${2:-}"
+      [ -n "$bin_dir" ] || {
+        echo "install: --bin-dir requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --repo)
+      repo="${2:-}"
+      [ -n "$repo" ] || {
+        echo "install: --repo requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --version)
+      version="${2:-}"
+      [ -n "$version" ] || {
+        echo "install: --version requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --from-source)
+      from_source=1
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "install: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+log() {
+  printf 'yomi-install: %s\n' "$*"
+}
+
+need() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "install: required command not found: $1" >&2
+    exit 1
+  fi
+}
+
+detect_target() {
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m | tr '[:upper:]' '[:lower:]')"
+
+  case "$os" in
+    darwin)
+      case "$arch" in
+        arm64 | aarch64) printf 'aarch64-apple-darwin' ;;
+        x86_64 | amd64) printf 'x86_64-apple-darwin' ;;
+        *) echo "install: unsupported macOS architecture: $arch" >&2; exit 1 ;;
+      esac
+      ;;
+    linux)
+      case "$arch" in
+        x86_64 | amd64) printf 'x86_64-unknown-linux-gnu' ;;
+        *) echo "install: unsupported Linux architecture: $arch" >&2; exit 1 ;;
+      esac
+      ;;
+    msys* | mingw* | cygwin*)
+      case "$arch" in
+        x86_64 | amd64) printf 'x86_64-pc-windows-msvc' ;;
+        *) echo "install: unsupported Windows architecture: $arch" >&2; exit 1 ;;
+      esac
+      ;;
+    *)
+      echo "install: unsupported OS: $os" >&2
+      exit 1
+      ;;
+  esac
+}
+
+download() {
+  url="$1"
+  out="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 --retry-delay 2 -o "$out" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -O "$out" "$url"
+  else
+    echo "install: curl or wget is required to download releases" >&2
+    exit 1
+  fi
+}
+
+install_from_source() {
+  need cargo
+  log "building release binary with cargo"
+  cargo build --release -p yomi-cli
+  mkdir -p "$bin_dir"
+  cp target/release/yomi "$bin_dir/yomi"
+  chmod 755 "$bin_dir/yomi"
+}
+
+install_from_release() {
+  target="$(detect_target)"
+  case "$target" in
+    *windows*) asset="yomi-$target.zip" ;;
+    *) asset="yomi-$target.tar.gz" ;;
+  esac
+
+  if [ "$version" = "latest" ]; then
+    url="https://github.com/$repo/releases/latest/download/$asset"
+  else
+    url="https://github.com/$repo/releases/download/$version/$asset"
+  fi
+
+  tmp="${TMPDIR:-/tmp}/yomi-install.$$"
+  rm -rf "$tmp"
+  mkdir -p "$tmp"
+  trap 'rm -rf "$tmp"' EXIT INT TERM
+
+  log "downloading $asset"
+  download "$url" "$tmp/$asset"
+
+  case "$asset" in
+    *.zip)
+      need unzip
+      unzip -q "$tmp/$asset" -d "$tmp"
+      binary="$tmp/yomi.exe"
+      ;;
+    *.tar.gz)
+      tar -xzf "$tmp/$asset" -C "$tmp"
+      binary="$tmp/yomi"
+      ;;
+  esac
+
+  if [ ! -f "$binary" ]; then
+    echo "install: archive did not contain yomi binary" >&2
+    exit 1
+  fi
+
+  mkdir -p "$bin_dir"
+  cp "$binary" "$bin_dir/$(basename "$binary")"
+  chmod 755 "$bin_dir/$(basename "$binary")"
+}
+
+shell_block() {
+  shell_name="$1"
+  case "$shell_name" in
+    bash)
+      cat <<'EOF'
+
+# yomi shell integration
+if command -v yomi >/dev/null 2>&1; then
+  eval "$(yomi --bash)"
+fi
+EOF
+      ;;
+    zsh)
+      cat <<'EOF'
+
+# yomi shell integration
+if command -v yomi >/dev/null 2>&1; then
+  source <(yomi --zsh)
+fi
+EOF
+      ;;
+    fish)
+      cat <<'EOF'
+
+# yomi shell integration
+if command -q yomi
+  yomi --fish | source
+end
+EOF
+      ;;
+  esac
+}
+
+append_once() {
+  file="$1"
+  marker="$2"
+  content="$3"
+  mkdir -p "$(dirname "$file")"
+  touch "$file"
+  if grep -F "$marker" "$file" >/dev/null 2>&1; then
+    log "shell integration already present in $file"
+    return
+  fi
+  printf '%s\n' "$content" >>"$file"
+  log "updated $file"
+}
+
+current_shell() {
+  name="$(basename "${SHELL:-}")"
+  case "$name" in
+    bash | zsh | fish) printf '%s' "$name" ;;
+    *) printf '' ;;
+  esac
+}
+
+install_shell() {
+  selected="$1"
+  if [ "$selected" = "current" ]; then
+    selected="$(current_shell)"
+    if [ -z "$selected" ]; then
+      log "could not detect bash, zsh, or fish; skipping shell integration"
+      return
+    fi
+  elif [ "$selected" = "all" ]; then
+    selected="bash,zsh,fish"
+  fi
+
+  old_ifs="$IFS"
+  IFS=','
+  for shell_name in $selected; do
+    IFS="$old_ifs"
+    shell_name="$(printf '%s' "$shell_name" | tr -d '[:space:]')"
+    case "$shell_name" in
+      bash)
+        append_once "$HOME/.bashrc" "yomi shell integration" "$(shell_block bash)"
+        ;;
+      zsh)
+        append_once "$HOME/.zshrc" "yomi shell integration" "$(shell_block zsh)"
+        ;;
+      fish)
+        append_once "$HOME/.config/fish/config.fish" "yomi shell integration" "$(shell_block fish)"
+        ;;
+      "")
+        ;;
+      *)
+        echo "install: unsupported shell for Unix installer: $shell_name" >&2
+        exit 2
+        ;;
+    esac
+    IFS=','
+  done
+  IFS="$old_ifs"
+}
+
+if [ "$from_source" = "1" ]; then
+  install_from_source
+else
+  install_from_release
+fi
+
+log "installed binary into $bin_dir"
+
+case ":$PATH:" in
+  *":$bin_dir:"*) ;;
+  *) log "add $bin_dir to PATH if yomi is not found by your shell" ;;
+esac
+
+if [ -n "$shells" ]; then
+  install_shell "$shells"
+  log "restart your shell or reload your shell config"
+fi
