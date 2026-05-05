@@ -4,20 +4,95 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag, for example v0.1.0"
-        required: true
-        type: string
 
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  validate:
+    name: validate tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Validate tag matches crate version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 - <<'PY'
+          import json
+          import subprocess
+
+          publishable = {"yuru", "yuru-core", "yuru-ja", "yuru-zh", "yuru-tui"}
+          metadata = json.loads(
+              subprocess.check_output(["cargo", "metadata", "--no-deps", "--format-version", "1"])
+          )
+          packages = {package["name"]: package for package in metadata["packages"]}
+
+          missing = sorted(publishable - packages.keys())
+          if missing:
+              raise SystemExit(f"publishable package(s) missing from metadata: {', '.join(missing)}")
+
+          versions = {packages[name]["version"] for name in publishable}
+          if len(versions) != 1:
+              details = ", ".join(f"{name}={packages[name]['version']}" for name in sorted(publishable))
+              raise SystemExit(f"publishable package versions differ: {details}")
+
+          version = versions.pop()
+          expected_req = f"^{version}"
+          for name in sorted(publishable):
+              for dependency in packages[name]["dependencies"]:
+                  if dependency["name"] in publishable and dependency["req"] != expected_req:
+                      raise SystemExit(
+                          f"{name} depends on {dependency['name']} with {dependency['req']}, "
+                          f"expected {expected_req}"
+                      )
+
+          print(version)
+          PY
+          )"
+
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tags must look like vX.Y.Z; got $tag" >&2
+            exit 1
+          fi
+          if [ "$tag" != "v$version" ]; then
+            echo "Release tag $tag does not match publishable crate version $version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: format, lint, test, bench
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+      - name: Run checks
+        run: ./scripts/check
+      - name: Run benchmarks
+        run: ./scripts/bench
+
   build:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -43,32 +118,118 @@ jobs:
           rustup default stable
           rustup target add "${{ matrix.target }}"
       - name: Build
-        run: cargo build --release -p yomi-cli --target "${{ matrix.target }}"
+        run: cargo build --release -p yuru --target "${{ matrix.target }}" --locked
       - name: Package Unix
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/yomi" yomi
-          chmod 755 yomi
-          tar -czf "dist/yomi-${{ matrix.target }}.tar.gz" yomi README.md
+          cp "target/${{ matrix.target }}/release/yuru" yuru
+          chmod 755 yuru
+          tar -czf "dist/yuru-${{ matrix.target }}.tar.gz" yuru README.md
       - name: Package Windows
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/yomi.exe" "yomi.exe"
-          Compress-Archive -Force -Path yomi.exe,README.md -DestinationPath "dist/yomi-${{ matrix.target }}.zip"
+          Copy-Item "target/${{ matrix.target }}/release/yuru.exe" "yuru.exe"
+          Compress-Archive -Force -Path yuru.exe,README.md -DestinationPath "dist/yuru-${{ matrix.target }}.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: yomi-${{ matrix.target }}
+          name: yuru-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
+
+  publish-crates:
+    name: publish crates.io
+    runs-on: ubuntu-latest
+    needs: [validate, quality, build]
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Publish crates in dependency order
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "CARGO_REGISTRY_TOKEN secret is required to publish crates" >&2
+            exit 1
+          fi
+
+          crate_exists() {
+            curl -fsS "https://crates.io/api/v1/crates/$1/$VERSION" >/dev/null 2>&1
+          }
+
+          wait_for_crate() {
+            crate="$1"
+            for _ in $(seq 1 30); do
+              if crate_exists "$crate"; then
+                return 0
+              fi
+              sleep 10
+            done
+            echo "$crate $VERSION was not visible on crates.io in time" >&2
+            return 1
+          }
+
+          publish_crate() {
+            crate="$1"
+            if crate_exists "$crate"; then
+              echo "$crate $VERSION is already published; skipping"
+              return 0
+            fi
+
+            for attempt in 1 2 3 4 5; do
+              if cargo publish -p "$crate" --locked; then
+                wait_for_crate "$crate"
+                return 0
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "failed to publish $crate after $attempt attempts" >&2
+                return 1
+              fi
+              sleep "$((attempt * 20))"
+            done
+          }
+
+          publish_crate yuru-core
+          publish_crate yuru-ja
+          publish_crate yuru-zh
+          publish_crate yuru-tui
+          publish_crate yuru
+
+  crates-io-smoke:
+    name: crates.io install smoke
+    runs-on: ubuntu-latest
+    needs: [validate, publish-crates]
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Install yuru from crates.io
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install yuru --version "$VERSION" --locked --root "$RUNNER_TEMP/yuru-crates"
+          "$RUNNER_TEMP/yuru-crates/bin/yuru" --help
+          printf 'tests/日本語.txt\nplan.md\n' |
+            "$RUNNER_TEMP/yuru-crates/bin/yuru" --lang ja --filter ni |
+            grep -F 'tests/日本語.txt'
 
   release:
     name: publish GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [validate, build, crates-io-smoke]
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -80,34 +241,40 @@ jobs:
       - name: Prepare checksums
         run: |
           cd dist
-          sha256sum yomi-* > SHA256SUMS
+          sha256sum yuru-* > SHA256SUMS
       - name: Prepare release notes
         run: |
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="${{ github.ref_name }}"
           cat > RELEASE_NOTES.md <<EOF
-          # Yomi ${tag}
+          # Yuru ${tag}
 
-          User-space installers:
+          Install with the user-space installer:
 
           \`\`\`sh
-          curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh -s -- --all
+          curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
           \`\`\`
 
           \`\`\`powershell
-          \$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yomi/main/install.ps1
+          \$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
           Invoke-Expression "& { \$script } -All"
+          \`\`\`
+
+          Install from crates.io:
+
+          \`\`\`sh
+          cargo install yuru
           \`\`\`
 
           Release assets include macOS, Linux, and Windows binaries plus SHA256SUMS.
           EOF
       - name: Publish release
         run: |
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag="${{ github.ref_name }}"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/* --clobber
-            gh release edit "$tag" --title "Yomi $tag" --notes-file RELEASE_NOTES.md --latest
+            gh release edit "$tag" --title "Yuru $tag" --notes-file RELEASE_NOTES.md --latest
           else
-            gh release create "$tag" dist/* --title "Yomi $tag" --notes-file RELEASE_NOTES.md --latest
+            gh release create "$tag" dist/* --title "Yuru $tag" --notes-file RELEASE_NOTES.md --latest
           fi
 
   install-smoke:
@@ -131,7 +298,7 @@ jobs:
             os: windows-latest
             shell: pwsh
     env:
-      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - name: Install from release asset
@@ -139,26 +306,31 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          bin_dir="$RUNNER_TEMP/yomi-bin"
+          bin_dir="$RUNNER_TEMP/yuru-bin"
           curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/install" |
-            sh -s -- --repo "$GITHUB_REPOSITORY" --version "$RELEASE_TAG" --bin-dir "$bin_dir" --no-shell
-          "$bin_dir/yomi" --help
-          printf 'tests/日本語.txt\nplan.md\n' | "$bin_dir/yomi" --lang ja --filter ni
-          "$bin_dir/yomi" --bash | bash -n
+            sh -s -- --repo "$GITHUB_REPOSITORY" --version "$RELEASE_TAG" --bin-dir "$bin_dir" --no-shell --no-config
+          "$bin_dir/yuru" --help
+          printf 'tests/日本語.txt\nplan.md\n' |
+            "$bin_dir/yuru" --lang ja --filter ni |
+            grep -F 'tests/日本語.txt'
+          "$bin_dir/yuru" --bash | bash -n
           if command -v zsh >/dev/null 2>&1; then
-            "$bin_dir/yomi" --zsh | zsh -n
+            "$bin_dir/yuru" --zsh | zsh -n
           fi
       - name: Install from release asset
         if: matrix.shell == 'pwsh'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $binDir = Join-Path $env:RUNNER_TEMP "yomi-bin"
+          $binDir = Join-Path $env:RUNNER_TEMP "yuru-bin"
           $script = Invoke-RestMethod "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/install.ps1"
           $installer = [scriptblock]::Create($script)
-          & $installer -Repo $env:GITHUB_REPOSITORY -Version $env:RELEASE_TAG -BinDir $binDir
-          $yomi = Join-Path $binDir "yomi.exe"
-          & $yomi --help
-          "tests/日本語.txt`nplan.md`n" | & $yomi --lang ja --filter ni
-          $powershellIntegration = (& $yomi --powershell) -join "`n"
+          & $installer -Repo $env:GITHUB_REPOSITORY -Version $env:RELEASE_TAG -BinDir $binDir -NoConfig
+          $yuru = Join-Path $binDir "yuru.exe"
+          & $yuru --help
+          $matchOutput = "tests/日本語.txt`nplan.md`n" | & $yuru --lang ja --filter ni
+          if (($matchOutput -join "`n") -notmatch [regex]::Escape("tests/日本語.txt")) {
+            throw "expected Japanese filter smoke output to contain tests/日本語.txt"
+          }
+          $powershellIntegration = (& $yuru --powershell) -join "`n"
           $null = [scriptblock]::Create($powershellIntegration)

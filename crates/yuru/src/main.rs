@@ -11,16 +11,17 @@ use clap::{Parser, ValueEnum};
 use fields::{accept_output, prepare_items, FieldConfig, InputItem};
 use shell::ShellKind;
 use walkdir::{DirEntry, WalkDir};
-use yomi_core::{
+use yuru_core::{
     build_index, dedup_and_limit_keys, dedup_and_limit_variants, search, LanguageBackend,
     PlainBackend, SearchConfig, SearchKey, Tiebreak,
 };
-use yomi_ja::JapaneseBackend;
-use yomi_zh::ChineseBackend;
+use yuru_ja::JapaneseBackend;
+use yuru_zh::ChineseBackend;
 
 const DEFAULT_WALKER: &str = "file,follow,hidden";
 const DEFAULT_WALKER_ROOT: &str = ".";
 const DEFAULT_WALKER_SKIP: &str = ".git,node_modules";
+const DEFAULT_INTERACTIVE_LIMIT: usize = 1000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum LangArg {
@@ -38,7 +39,7 @@ enum SchemeArg {
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "yomi",
+    name = "yuru",
     about = "A fast phonetic fuzzy finder prototype",
     args_override_self = true
 )]
@@ -213,7 +214,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(error) => {
-            eprintln!("yomi: {error:#}");
+            eprintln!("yuru: {error:#}");
             ExitCode::from(2)
         }
     }
@@ -229,11 +230,10 @@ fn run() -> Result<ExitCode> {
     }
     let backend = create_backend(args.lang);
     let query = effective_query(&args);
-    let limit = args.limit.unwrap_or(if args.filter.is_some() {
-        usize::MAX
-    } else {
-        10
-    });
+    let interactive = should_run_interactive(&args);
+    let limit = args
+        .limit
+        .unwrap_or_else(|| default_limit(&args, interactive));
     let tiebreaks = parse_tiebreaks(&args)?;
     let config = SearchConfig {
         max_query_variants: args.max_query_variants,
@@ -277,7 +277,7 @@ fn run() -> Result<ExitCode> {
     );
     apply_aliases(&mut index, &items, &args.aliases, &config)?;
 
-    if should_run_interactive(&args) {
+    if interactive {
         return run_interactive_mode(
             &args,
             &items,
@@ -329,12 +329,12 @@ fn run_interactive_mode(
     args: &Args,
     items: &[InputItem],
     field_config: &FieldConfig,
-    index: &[yomi_core::Candidate],
+    index: &[yuru_core::Candidate],
     backend: &dyn LanguageBackend,
     config: SearchConfig,
     query: String,
 ) -> Result<ExitCode> {
-    let options = yomi_tui::TuiOptions {
+    let options = yuru_tui::TuiOptions {
         initial_query: query,
         prompt: args.prompt.clone().unwrap_or_else(|| "> ".to_string()),
         height: parse_tui_height(args),
@@ -342,8 +342,8 @@ fn run_interactive_mode(
         multi: args.multi && !args.no_multi,
     };
 
-    match yomi_tui::run_interactive(index, backend, config, options)? {
-        yomi_tui::TuiOutcome::Accepted { ids, query } => {
+    match yuru_tui::run_interactive(index, backend, config, options)? {
+        yuru_tui::TuiOutcome::Accepted { ids, query } => {
             let mut output = Vec::new();
             if args.print_query {
                 output.push(query);
@@ -354,14 +354,14 @@ fn run_interactive_mode(
             write_records(&output, args.print0)?;
             Ok(ExitCode::SUCCESS)
         }
-        yomi_tui::TuiOutcome::NoSelection => {
+        yuru_tui::TuiOutcome::NoSelection => {
             if args.exit_0 {
                 Ok(ExitCode::SUCCESS)
             } else {
                 Ok(ExitCode::from(1))
             }
         }
-        yomi_tui::TuiOutcome::Aborted => Ok(ExitCode::from(130)),
+        yuru_tui::TuiOutcome::Aborted => Ok(ExitCode::from(130)),
     }
 }
 
@@ -373,6 +373,16 @@ fn should_run_interactive_with_tty(args: &Args, ui_tty_available: bool) -> bool 
     args.filter.is_none() && !args.debug_query_variants && ui_tty_available
 }
 
+fn default_limit(args: &Args, interactive: bool) -> usize {
+    if args.filter.is_some() {
+        usize::MAX
+    } else if interactive {
+        DEFAULT_INTERACTIVE_LIMIT
+    } else {
+        10
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,7 +390,7 @@ mod tests {
     #[test]
     fn shell_binding_invocations_can_run_interactive_with_captured_stdout() {
         let args = Args::parse_from([
-            "yomi",
+            "yuru",
             "--scheme",
             "history",
             "--tac",
@@ -393,15 +403,29 @@ mod tests {
 
     #[test]
     fn filter_and_debug_modes_stay_non_interactive() {
-        let filter_args = Args::parse_from(["yomi", "--filter", "abc"]);
-        let debug_args = Args::parse_from(["yomi", "--debug-query-variants"]);
+        let filter_args = Args::parse_from(["yuru", "--filter", "abc"]);
+        let debug_args = Args::parse_from(["yuru", "--debug-query-variants"]);
 
         assert!(!should_run_interactive_with_tty(&filter_args, true));
         assert!(!should_run_interactive_with_tty(&debug_args, true));
         assert!(!should_run_interactive_with_tty(
-            &Args::parse_from(["yomi"]),
+            &Args::parse_from(["yuru"]),
             false
         ));
+    }
+
+    #[test]
+    fn interactive_mode_uses_larger_default_limit() {
+        let interactive_args = Args::parse_from(["yuru"]);
+        let batch_args = Args::parse_from(["yuru"]);
+        let filter_args = Args::parse_from(["yuru", "--filter", "abc"]);
+
+        assert_eq!(
+            default_limit(&interactive_args, true),
+            DEFAULT_INTERACTIVE_LIMIT
+        );
+        assert_eq!(default_limit(&batch_args, false), 10);
+        assert_eq!(default_limit(&filter_args, false), usize::MAX);
     }
 }
 
@@ -426,13 +450,17 @@ fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<Stri
         return Ok(stdin_items);
     }
 
-    if let Ok(command) = std::env::var("FZF_DEFAULT_COMMAND") {
+    if walker_requested {
+        return run_walker(args);
+    }
+
+    if let Some((env_name, command)) = default_source_command() {
         if !command.trim().is_empty() {
-            return run_default_command(&command);
+            return run_default_command(env_name, &command);
         }
     }
 
-    if !stdin_is_terminal && !walker_requested {
+    if !stdin_is_terminal {
         return Ok(stdin_items);
     }
 
@@ -455,16 +483,25 @@ fn read_stdin_candidates(read0: bool) -> Result<Vec<String>> {
     }
 }
 
-fn run_default_command(command: &str) -> Result<Vec<String>> {
+fn default_source_command() -> Option<(&'static str, String)> {
+    for env_name in ["YURU_DEFAULT_COMMAND", "FZF_DEFAULT_COMMAND"] {
+        if let Ok(command) = std::env::var(env_name) {
+            return Some((env_name, command));
+        }
+    }
+    None
+}
+
+fn run_default_command(env_name: &str, command: &str) -> Result<Vec<String>> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
     let output = std::process::Command::new(shell)
         .arg("-c")
         .arg(command)
         .output()
-        .with_context(|| format!("failed to run FZF_DEFAULT_COMMAND: {command}"))?;
+        .with_context(|| format!("failed to run {env_name}: {command}"))?;
 
     if !output.status.success() {
-        bail!("FZF_DEFAULT_COMMAND exited with {}", output.status);
+        bail!("{env_name} exited with {}", output.status);
     }
 
     Ok(String::from_utf8_lossy(&output.stdout)
@@ -564,7 +601,7 @@ fn display_walked_path(root: &Path, path: &Path) -> String {
 }
 
 fn apply_aliases(
-    candidates: &mut [yomi_core::Candidate],
+    candidates: &mut [yuru_core::Candidate],
     items: &[InputItem],
     aliases: &[String],
     config: &SearchConfig,
@@ -676,11 +713,25 @@ fn write_records(records: &[String], print0: bool) -> Result<()> {
 
 fn expanded_args() -> Result<Vec<OsString>> {
     let mut args = std::env::args_os();
-    let program = args.next().unwrap_or_else(|| OsString::from("yomi"));
+    let program = args.next().unwrap_or_else(|| OsString::from("yuru"));
     let mut expanded = vec![program];
     let rest: Vec<_> = args.collect();
 
     if !shell_flags_present(&rest) {
+        if let Some(path) = yuru_config_file() {
+            if path.exists() {
+                let content = std::fs::read_to_string(&path)
+                    .with_context(|| format!("failed to read {}", path.display()))?;
+                expanded.extend(split_shell_words(&content).map(OsString::from));
+            }
+        }
+        if let Ok(path) = std::env::var("YURU_DEFAULT_OPTS_FILE") {
+            let content = std::fs::read_to_string(path)?;
+            expanded.extend(split_shell_words(&content).map(OsString::from));
+        }
+        if let Ok(opts) = std::env::var("YURU_DEFAULT_OPTS") {
+            expanded.extend(split_shell_words(&opts).map(OsString::from));
+        }
         if let Ok(path) = std::env::var("FZF_DEFAULT_OPTS_FILE") {
             let content = std::fs::read_to_string(path)?;
             expanded.extend(split_shell_words(&content).map(OsString::from));
@@ -692,6 +743,34 @@ fn expanded_args() -> Result<Vec<OsString>> {
 
     expanded.extend(rest.into_iter().map(normalize_plus_arg));
     Ok(expanded)
+}
+
+fn yuru_config_file() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("YURU_CONFIG_FILE") {
+        return Some(PathBuf::from(path));
+    }
+    let mut candidates = Vec::new();
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let appdata = PathBuf::from(appdata);
+            candidates.push(appdata.join("yuru").join("config"));
+        }
+    }
+
+    if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
+        let config_home = PathBuf::from(config_home);
+        candidates.push(config_home.join("yuru").join("config"));
+    } else if let Ok(home) = std::env::var("HOME") {
+        let config_home = PathBuf::from(home).join(".config");
+        candidates.push(config_home.join("yuru").join("config"));
+    }
+
+    candidates
+        .iter()
+        .find(|path| path.exists())
+        .cloned()
+        .or_else(|| candidates.into_iter().next())
 }
 
 fn shell_flags_present(args: &[OsString]) -> bool {

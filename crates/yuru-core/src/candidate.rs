@@ -1,6 +1,12 @@
 use std::collections::HashSet;
 
 use crate::{KeyKind, LanguageBackend, SearchConfig};
+use rayon::prelude::*;
+
+#[cfg(not(test))]
+const PARALLEL_INDEX_THRESHOLD: usize = 50_000;
+#[cfg(test)]
+const PARALLEL_INDEX_THRESHOLD: usize = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceSpan {
@@ -128,11 +134,24 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
+    let items: Vec<_> = items.into_iter().map(Into::into).collect();
+    if should_build_index_parallel(items.len()) {
+        return items
+            .into_par_iter()
+            .enumerate()
+            .map(|(id, item)| build_candidate(id, item, backend, config))
+            .collect();
+    }
+
     items
         .into_iter()
         .enumerate()
         .map(|(id, item)| build_candidate(id, item, backend, config))
         .collect()
+}
+
+fn should_build_index_parallel(len: usize) -> bool {
+    len >= PARALLEL_INDEX_THRESHOLD && rayon::current_num_threads() > 1
 }
 
 pub fn dedup_and_limit_keys(keys: Vec<SearchKey>, config: &SearchConfig) -> Vec<SearchKey> {
@@ -209,6 +228,19 @@ mod tests {
                 .map(|k| (k.kind, k.text.as_str()))
                 .collect::<HashSet<_>>()
                 .len()
+        );
+    }
+
+    #[test]
+    fn parallel_index_preserves_input_order_and_ids() {
+        let cfg = SearchConfig::default();
+        let cand = build_index(["one", "two", "three", "four"], &PlainBackend, &cfg);
+
+        assert_eq!(
+            cand.iter()
+                .map(|candidate| (candidate.id, candidate.display.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(0, "one"), (1, "two"), (2, "three"), (3, "four")]
         );
     }
 }

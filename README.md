@@ -1,6 +1,6 @@
-# Yomi
+# Yuru
 
-Yomi is a fast command-line fuzzy finder with Japanese and Chinese phonetic search.
+Yuru is a fast command-line fuzzy finder with Japanese and Chinese phonetic search.
 It is designed to feel familiar to fzf users while adding multilingual matching and
 source-span highlighting for CJK text.
 
@@ -12,53 +12,74 @@ Localized documentation:
 
 ## Install
 
-Yomi installs into user space by default. It does not require `sudo`.
+Yuru installs into user space by default. It does not require `sudo`.
 
 macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh -s -- --all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
 ```
 
-This installs `yomi` into `~/.local/bin` unless `XDG_BIN_HOME` or
-`YOMI_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
-shell.
+This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
+`YURU_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
+shell. The installer asks for a default language and writes it to
+`~/.config/yuru/config`.
+
+To set the default language without a prompt:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all --default-lang ja
+```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yomi/main/install.ps1
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
 Invoke-Expression "& { $script } -All"
 ```
 
-This installs `yomi.exe` into `%LOCALAPPDATA%\Yomi\bin`, adds that directory to
-the user PATH, and adds PowerShell integration to your user profile.
+This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
+the user PATH, adds PowerShell integration to your user profile, and can write
+the default language to `%APPDATA%\yuru\config`.
+
+```powershell
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
+Invoke-Expression "& { $script } -All -DefaultLang ja"
+```
 
 To install only the binary:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh
 ```
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yomi/main/install.ps1
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
 Invoke-Expression "& { $script }"
 ```
 
-## Shell Integration
-
-Yomi can print shell setup code directly from the binary:
+Crates.io:
 
 ```sh
-eval "$(yomi --bash)"
-source <(yomi --zsh)
-yomi --fish | source
+cargo install yuru
+```
+
+The crates.io package and installed command are both `yuru`.
+
+## Shell Integration
+
+Yuru can print shell setup code directly from the binary:
+
+```sh
+eval "$(yuru --bash)"
+source <(yuru --zsh)
+yuru --fish | source
 ```
 
 PowerShell:
 
 ```powershell
-yomi --powershell | Invoke-Expression
+yuru --powershell | Invoke-Expression
 ```
 
 The shell integration provides:
@@ -76,25 +97,25 @@ model. PowerShell support uses PSReadLine key handlers.
 Filter input:
 
 ```sh
-printf "README.md\nsrc/lib.rs\ntests/日本語.txt\n" | yomi --lang ja --filter ni
+printf "README.md\nsrc/lib.rs\ntests/日本語.txt\n" | yuru --lang ja --filter ni
 ```
 
 Open the interactive finder:
 
 ```sh
-yomi --walker file,dir,follow,hidden --scheme path
+yuru --walker file,dir,follow,hidden --scheme path
 ```
 
 Chinese pinyin initials:
 
 ```sh
-printf "北京大学.txt\nnotes.txt\n" | yomi --lang zh --filter bjdx
+printf "北京大学.txt\nnotes.txt\n" | yuru --lang zh --filter bjdx
 ```
 
 Japanese romaji:
 
 ```sh
-printf "カメラ.txt\ntests/日本人の.txt\n" | yomi --lang ja --filter kamera
+printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamera
 ```
 
 ## Development
@@ -115,11 +136,11 @@ Run benchmarks:
 
 ```sh
 ./scripts/bench
-YOMI_BENCH_1M=1 ./scripts/bench
+YURU_BENCH_1M=1 ./scripts/bench
 ```
 
 The hook policy runs formatter, linter, tests, and benchmarks before commits and
-pushes. Set `YOMI_SKIP_BENCH=1` only when you intentionally need a fast local
+pushes. Set `YURU_SKIP_BENCH=1` only when you intentionally need a fast local
 checkpoint.
 
 ## Releases
@@ -131,9 +152,10 @@ GitHub Actions builds release assets for:
 - `aarch64-apple-darwin`
 - `x86_64-pc-windows-msvc`
 
-Create a tag to publish a release:
+Create a version tag to publish a release and crates.io packages. The release
+workflow only runs on tags, and the tag must match the crate version.
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```

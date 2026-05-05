@@ -1,6 +1,6 @@
 pub mod pinyin;
 
-use yomi_core::{base_query_variants, LangMode, LanguageBackend, QueryVariant, SearchKey};
+use yuru_core::{base_query_variants, LangMode, LanguageBackend, QueryVariant, SearchKey};
 
 #[derive(Clone, Debug, Default)]
 pub struct ChineseBackend;
@@ -28,7 +28,7 @@ impl LanguageBackend for ChineseBackend {
 
     fn expand_query(&self, query: &str) -> Vec<QueryVariant> {
         let mut variants = base_query_variants(query);
-        let normalized = yomi_core::normalize::normalize(query);
+        let normalized = yuru_core::normalize::normalize(query);
         if normalized.chars().all(|ch| ch.is_ascii_alphabetic()) && normalized.len() > 1 {
             variants.push(QueryVariant::initials(normalized.clone()));
             variants.push(QueryVariant::pinyin(normalized));
@@ -39,7 +39,7 @@ impl LanguageBackend for ChineseBackend {
 
 #[cfg(test)]
 mod tests {
-    use yomi_core::{build_candidate, KeyKind, SearchConfig};
+    use yuru_core::{build_candidate, KeyKind, SearchConfig};
 
     use super::*;
 

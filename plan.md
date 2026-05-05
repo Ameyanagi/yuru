@@ -1,39 +1,39 @@
-# Yomi Project Brief
+# Yuru Project Brief
 
 ## 1. Project Name
 
-**Yomi**
+**Yuru**
 
-> Yomi is a fast phonetic fuzzy finder.
+> Yuru is a fast phonetic fuzzy finder.
 
 日本語説明:
 
-> Yomi は、ローマ字やピンインなどの「読み」で検索できる高速 fuzzy finder です。
+> Yuru は、ローマ字やピンインなどの「読み」で検索できる高速 fuzzy finder です。
 
 想定CLI:
 
 ```bash
-yomi --lang plain
-yomi --lang ja
-yomi --lang zh
+yuru --lang plain
+yuru --lang ja
+yuru --lang zh
 ```
 
 将来的な crate / module 分割案:
 
 ```text
-yomi          # CLI
-yomi-core     # matcher core
-yomi-ja       # Japanese backend
-yomi-zh       # Chinese backend
-yomi-tui      # terminal UI
-yomi-cache    # persistent cache, optional
+yuru          # CLI
+yuru-core     # matcher core
+yuru-ja       # Japanese backend
+yuru-zh       # Chinese backend
+yuru-tui      # terminal UI
+yuru-cache    # persistent cache, optional
 ```
 
 ---
 
 ## 2. Core Idea
 
-Yomi は fzf 風の高速 fuzzy finder に、言語ごとの phonetic search layer を追加する。
+Yuru は fzf 風の高速 fuzzy finder に、言語ごとの phonetic search layer を追加する。
 
 主なユースケース:
 
@@ -84,7 +84,7 @@ Chinese:
 
 ### 3.1 複数言語を同時に検索しない
 
-Yomi は、1セッションで1つの language mode だけを有効にする。
+Yuru は、1セッションで1つの language mode だけを有効にする。
 
 ```text
 --lang=plain
@@ -588,9 +588,9 @@ keys:
 lang別に分ける:
 
 ```text
-~/.cache/yomi/plain/
-~/.cache/yomi/ja/
-~/.cache/yomi/zh/
+~/.cache/yuru/plain/
+~/.cache/yuru/ja/
+~/.cache/yuru/zh/
 ```
 
 または1つのDBで `lang` を key に含める。
@@ -811,7 +811,7 @@ Lucene / Tantivy
 
 ## 15. ib-matcher Positioning
 
-`ib-matcher` は、Yomi の問題設定に近い Rust ライブラリ。
+`ib-matcher` は、Yuru の問題設定に近い Rust ライブラリ。
 
 特に近い点:
 
@@ -822,7 +822,7 @@ Lucene / Tantivy
 - string/glob/regex matching
 ```
 
-ただし、Yomi の中核にそのまま使えるかはベンチが必要。
+ただし、Yuru の中核にそのまま使えるかはベンチが必要。
 
 懸念点:
 
@@ -847,40 +847,40 @@ C案:
 基本:
 
 ```bash
-yomi --lang plain
-yomi --lang ja
-yomi --lang zh
+yuru --lang plain
+yuru --lang ja
+yuru --lang zh
 ```
 
 読み生成モード:
 
 ```bash
-yomi --reading none       # 読み解析なし。最速
-yomi --reading lazy       # default. 軽いkeyを先に作り、重い読みは遅延生成
-yomi --reading sync       # 起動時に全解析。小さいリスト向け
-yomi --reading cache-only # キャッシュにある読みだけ使う
+yuru --reading none       # 読み解析なし。最速
+yuru --reading lazy       # default. 軽いkeyを先に作り、重い読みは遅延生成
+yuru --reading sync       # 起動時に全解析。小さいリスト向け
+yuru --reading cache-only # キャッシュにある読みだけ使う
 ```
 
 その他:
 
 ```bash
-yomi --no-cache
-yomi --cache-dir ~/.cache/yomi
-yomi --algo fast
-yomi --algo quality
-yomi --top-b 1000
-yomi --max-query-variants 8
-yomi --max-keys-per-candidate 8
+yuru --no-cache
+yuru --cache-dir ~/.cache/yuru
+yuru --algo fast
+yuru --algo quality
+yuru --top-b 1000
+yuru --max-query-variants 8
+yuru --max-keys-per-candidate 8
 ```
 
 fzf互換を意識するなら将来的に:
 
 ```bash
-yomi --exact
-yomi --regex
-yomi --query <QUERY>
-yomi --select-1
-yomi --exit-0
+yuru --exact
+yuru --regex
+yuru --query <QUERY>
+yuru --select-1
+yuru --exit-0
 ```
 
 ---
@@ -1006,8 +1006,8 @@ fzf
 skim
 nucleo example or custom harness
 ib-matcher direct matching
-Yomi with/without prefilter
-Yomi with/without cache
+Yuru with/without prefilter
+Yuru with/without cache
 ```
 
 ---
@@ -1015,8 +1015,8 @@ Yomi with/without cache
 ## 19. Key Engineering Decisions
 
 ```text
-1. Project name is Yomi.
-2. Yomi is a phonetic fuzzy finder.
+1. Project name is Yuru.
+2. Yuru is a phonetic fuzzy finder.
 3. One language mode per session.
 4. Original fuzzy matching is always enabled.
 5. Reading generation never runs in the keypress hot path.
@@ -1104,7 +1104,7 @@ fn search(
 Recommended first coding task:
 
 ```text
-Create a Rust CLI prototype named yomi with:
+Create a Rust CLI prototype named yuru with:
   - --lang plain|ja|zh
   - stdin candidate loading
   - Candidate/SearchKey data model
@@ -1141,7 +1141,7 @@ Benchmark tests:
 For testability, implement a non-interactive query mode early:
 
 ```bash
-yomi --lang ja --query tokyo --limit 10 < fixtures/mixed.txt
+yuru --lang ja --query tokyo --limit 10 < fixtures/mixed.txt
 ```
 
 This is more important than the TUI in the first prototype.
@@ -1168,8 +1168,8 @@ Do not make perf benchmarks strict pass/fail based on wall-clock time across all
 Target module names:
 
 ```text
-crates/yomi-core/src/normalize.rs
-crates/yomi-core/src/kana.rs
+crates/yuru-core/src/normalize.rs
+crates/yuru-core/src/kana.rs
 ```
 
 Test cases:
@@ -1208,7 +1208,7 @@ If the first MVP does not implement full NFKC, mark the test as pending or gate 
 Target module:
 
 ```text
-crates/yomi-ja/src/romaji.rs
+crates/yuru-ja/src/romaji.rs
 ```
 
 The important design is that conversion returns multiple capped candidates, not one canonical answer.
@@ -1269,14 +1269,14 @@ fn romaji_variants_are_deduped_and_capped() {
 }
 ```
 
-MVP can use a simple custom trie/longest-match implementation. Later, compare with `wana_kana` or `romkan`, but do not let a third-party library decide Yomi's query variant policy without caps.
+MVP can use a simple custom trie/longest-match implementation. Later, compare with `wana_kana` or `romkan`, but do not let a third-party library decide Yuru's query variant policy without caps.
 
 ### 22.5 Unit tests: Chinese pinyin key generation
 
 Target module:
 
 ```text
-crates/yomi-zh/src/pinyin.rs
+crates/yuru-zh/src/pinyin.rs
 ```
 
 Required tests:
@@ -1316,7 +1316,7 @@ If using a pinyin crate that returns several readings per character, never gener
 Target module:
 
 ```text
-crates/yomi-core/src/candidate.rs
+crates/yuru-core/src/candidate.rs
 ```
 
 Required tests:
@@ -1364,9 +1364,9 @@ fn search_keys_are_deduped_and_capped() {
 Target module:
 
 ```text
-crates/yomi-core/src/query.rs
-crates/yomi-ja/src/query.rs
-crates/yomi-zh/src/query.rs
+crates/yuru-core/src/query.rs
+crates/yuru-ja/src/query.rs
+crates/yuru-zh/src/query.rs
 ```
 
 Required tests:
@@ -1407,8 +1407,8 @@ fn empty_query_does_not_panic() {
 Target module:
 
 ```text
-crates/yomi-core/src/matcher.rs
-crates/yomi-core/src/rank.rs
+crates/yuru-core/src/matcher.rs
+crates/yuru-core/src/rank.rs
 ```
 
 Required tests:
@@ -1480,7 +1480,7 @@ This protects the core requirement: do not cross-product all languages and all k
 Target module:
 
 ```text
-crates/yomi-cache/src/lib.rs
+crates/yuru-cache/src/lib.rs
 ```
 
 Required tests:
@@ -1566,7 +1566,7 @@ Required tests:
 ```rust
 #[test]
 fn cli_plain_query_readme() {
-    Command::cargo_bin("yomi")
+    Command::cargo_bin("yuru")
         .unwrap()
         .args(["--lang", "plain", "--query", "read", "--limit", "1"])
         .write_stdin(include_str!("fixtures/mixed_paths.txt"))
@@ -1577,7 +1577,7 @@ fn cli_plain_query_readme() {
 
 #[test]
 fn cli_ja_query_kamera_matches_katakana() {
-    Command::cargo_bin("yomi")
+    Command::cargo_bin("yuru")
         .unwrap()
         .args(["--lang", "ja", "--query", "kamera", "--limit", "3"])
         .write_stdin(include_str!("fixtures/mixed_paths.txt"))
@@ -1588,7 +1588,7 @@ fn cli_ja_query_kamera_matches_katakana() {
 
 #[test]
 fn cli_ja_query_tokyo_matches_when_reading_key_or_alias_exists() {
-    Command::cargo_bin("yomi")
+    Command::cargo_bin("yuru")
         .unwrap()
         .args(["--lang", "ja", "--query", "tokyo", "--limit", "3", "--alias", "tokyo=東京駅.txt"])
         .write_stdin(include_str!("fixtures/mixed_paths.txt"))
@@ -1599,7 +1599,7 @@ fn cli_ja_query_tokyo_matches_when_reading_key_or_alias_exists() {
 
 #[test]
 fn cli_zh_query_bjdx_matches_beijing_university() {
-    Command::cargo_bin("yomi")
+    Command::cargo_bin("yuru")
         .unwrap()
         .args(["--lang", "zh", "--query", "bjdx", "--limit", "3"])
         .write_stdin(include_str!("fixtures/mixed_paths.txt"))
@@ -1610,7 +1610,7 @@ fn cli_zh_query_bjdx_matches_beijing_university() {
 
 #[test]
 fn cli_caps_query_variants() {
-    Command::cargo_bin("yomi")
+    Command::cargo_bin("yuru")
         .unwrap()
         .args(["--lang", "ja", "--query", "oooooooo", "--max-query-variants", "4", "--debug-query-variants"])
         .write_stdin(include_str!("fixtures/mixed_paths.txt"))
@@ -1827,7 +1827,7 @@ O(A^q)
 
 where `A` is the average branching factor.
 
-Yomi must use caps/beam search:
+Yuru must use caps/beam search:
 
 ```text
 O(Vq)
@@ -1896,7 +1896,7 @@ Baseline fzf-like storage:
 O(NL)
 ```
 
-Yomi with generated keys:
+Yuru with generated keys:
 
 ```text
 O(NL + N*S)
@@ -1936,13 +1936,13 @@ fzf-style DP/high-quality baseline:
 O(NLq / T)
 ```
 
-Yomi plain mode should be approximately the same order as fzf-like matching:
+Yuru plain mode should be approximately the same order as fzf-like matching:
 
 ```text
 O(NL / T) or O(NLq / T)
 ```
 
-Yomi language mode with key-kind filtering:
+Yuru language mode with key-kind filtering:
 
 ```text
 O((N * L * q + C_lang * V_lang * L_lang * q) / T)
@@ -1988,7 +1988,7 @@ N * L * q = 100,000 * 40 * 5 = 20,000,000 cell-ish operations
 per 8 workers: ~2,500,000 units
 ```
 
-Yomi with key-kind filtering:
+Yuru with key-kind filtering:
 
 ```text
 original work:
@@ -2029,7 +2029,7 @@ Actual wall time depends heavily on allocation, Unicode handling, cache locality
 
 ### 23.9 Cumulative cost while typing
 
-If user types `q` characters and Yomi reruns search after each keypress, DP-like cumulative matcher cost is roughly:
+If user types `q` characters and Yuru reruns search after each keypress, DP-like cumulative matcher cost is roughly:
 
 ```text
 O(NL * (1 + 2 + ... + q) / T)
@@ -2091,7 +2091,7 @@ Reason: the data model, query expansion, caps, and key-kind filtering are the co
 
 ### 24.2 Algorithm matrix
 
-| Layer | Algorithm | Big-O search cost | Use in Yomi | Notes |
+| Layer | Algorithm | Big-O search cost | Use in Yuru | Notes |
 |---|---:|---:|---|---|
 | Fast fuzzy | Greedy subsequence scan | `O(L)` per key | MVP default or Stage 1 | Simple, predictable, close to fzf v1 spirit. |
 | High-quality fuzzy | Smith-Waterman-like DP | `O(Lq)` per key | Stage 2 top-B only | Better ranking, too expensive for all keys. |
@@ -2119,7 +2119,7 @@ Reason: the data model, query expansion, caps, and key-kind filtering are the co
 | Regex internals | `regex-automata` | Advanced optional | Expert API, multi-pattern/automata controls. |
 | Unicode normalization | `unicode-normalization` | Use | NFKC/NFC/lowercase normalization. |
 | Grapheme segmentation | `unicode-segmentation` | Use if highlighting must be grapheme-correct | Needed for robust Unicode highlight positions. |
-| Japanese kana/romaji | `wana_kana` | Compare, maybe use for simple conversions | Converts/checks Japanese chars, kana, romaji. Still need Yomi-specific variant caps. |
+| Japanese kana/romaji | `wana_kana` | Compare, maybe use for simple conversions | Converts/checks Japanese chars, kana, romaji. Still need Yuru-specific variant caps. |
 | Japanese kana/romaji | `romkan` | Compare | Simple romaji/kana conversion. |
 | Japanese character cleanup | `kana` / `unicode-jp` | Optional | Half-width kana and full-width alphanumeric conversion. |
 | Japanese heavy reading | `vibrato` | Future plugin | Viterbi-based tokenization/morphological analysis. Keep outside hot path. |
@@ -2143,7 +2143,7 @@ Reason: the data model, query expansion, caps, and key-kind filtering are the co
 | `fzf` | Go | Main behavioral inspiration. v1 greedy and v2 Smith-Waterman-like scoring are reference points. |
 | `fzy` | C | Small/simple fuzzy ranking reference. Good for building a compact custom scorer. |
 | RapidFuzz | C++/Python | Strong edit-distance/typo-tolerant reference, but not fzf-style subsequence matching. |
-| Fuse.js | JavaScript | Bitap-style typo tolerant search. Useful conceptually, not default for Yomi. |
+| Fuse.js | JavaScript | Bitap-style typo tolerant search. Useful conceptually, not default for Yuru. |
 | Lucene | Java | Indexed fuzzy term search reference. Relevant only for future persistent index mode. |
 
 ### 24.5 Recommended Cargo feature layout
@@ -2244,9 +2244,9 @@ Questions to answer in the nucleo spike:
 
 ```text
 - Can one display item expose multiple searchable columns/keys naturally?
-- Can Yomi apply per-key weights cleanly?
+- Can Yuru apply per-key weights cleanly?
 - Can language-specific query variants be represented as multiple patterns?
-- Does nucleo's ranking remain intuitive for Yomi reading keys?
+- Does nucleo's ranking remain intuitive for Yuru reading keys?
 - Is update/injection suitable for lazy reading generation?
 ```
 
@@ -2260,7 +2260,7 @@ Evaluate `ib-matcher` and `ib-pinyin` when:
 - You need a reference for `n'`, `nn`, Hepburn/IME variants, pinyin initials, shuangpin, or mixed notation.
 ```
 
-Do not assume these libraries solve Yomi's ranking problem. They may be best used as:
+Do not assume these libraries solve Yuru's ranking problem. They may be best used as:
 
 ```text
 - reference implementations
@@ -2274,11 +2274,11 @@ Do not assume these libraries solve Yomi's ranking problem. They may be best use
 Create benchmark subcommands or examples:
 
 ```bash
-yomi-bench --backend custom --lang ja --query tokyo --dataset fixtures/100k_mixed.txt
-yomi-bench --backend nucleo --lang ja --query tokyo --dataset fixtures/100k_mixed.txt
-yomi-bench --backend ib-matcher --lang ja --query tokyo --dataset fixtures/100k_mixed.txt
-yomi-bench --backend custom --lang zh --query bjdx --dataset fixtures/100k_mixed.txt
-yomi-bench --backend ib-pinyin --lang zh --query bjdx --dataset fixtures/100k_mixed.txt
+yuru-bench --backend custom --lang ja --query tokyo --dataset fixtures/100k_mixed.txt
+yuru-bench --backend nucleo --lang ja --query tokyo --dataset fixtures/100k_mixed.txt
+yuru-bench --backend ib-matcher --lang ja --query tokyo --dataset fixtures/100k_mixed.txt
+yuru-bench --backend custom --lang zh --query bjdx --dataset fixtures/100k_mixed.txt
+yuru-bench --backend ib-pinyin --lang zh --query bjdx --dataset fixtures/100k_mixed.txt
 ```
 
 Record:
@@ -2353,12 +2353,12 @@ tantivy FuzzyTermQuery:
 
 ## 25. Updated First Codex Task
 
-Create a Rust CLI prototype named `yomi` with tests first.
+Create a Rust CLI prototype named `yuru` with tests first.
 
 Required behavior:
 
 ```text
-- CLI: yomi --lang plain|ja|zh --query <QUERY> --limit <N>
+- CLI: yuru --lang plain|ja|zh --query <QUERY> --limit <N>
 - Read candidates from stdin.
 - Build Candidate/SearchKey data model.
 - Always include Original and Normalized keys.
@@ -2377,18 +2377,18 @@ Initial file layout:
 
 ```text
 Cargo.toml
-crates/yomi-core/src/lib.rs
-crates/yomi-core/src/normalize.rs
-crates/yomi-core/src/candidate.rs
-crates/yomi-core/src/query.rs
-crates/yomi-core/src/matcher.rs
-crates/yomi-core/src/rank.rs
-crates/yomi-core/src/stats.rs
-crates/yomi-ja/src/lib.rs
-crates/yomi-ja/src/romaji.rs
-crates/yomi-zh/src/lib.rs
-crates/yomi-zh/src/pinyin.rs
-crates/yomi-cli/src/main.rs
+crates/yuru-core/src/lib.rs
+crates/yuru-core/src/normalize.rs
+crates/yuru-core/src/candidate.rs
+crates/yuru-core/src/query.rs
+crates/yuru-core/src/matcher.rs
+crates/yuru-core/src/rank.rs
+crates/yuru-core/src/stats.rs
+crates/yuru-ja/src/lib.rs
+crates/yuru-ja/src/romaji.rs
+crates/yuru-zh/src/lib.rs
+crates/yuru-zh/src/pinyin.rs
+crates/yuru/src/main.rs
 tests/cli.rs
 tests/fixtures/mixed_paths.txt
 benches/search.rs
@@ -2406,12 +2406,12 @@ cargo bench --bench search
 MVP correctness examples:
 
 ```bash
-printf 'README.md\nsrc/main.rs\n' | yomi --lang plain --query read --limit 1
+printf 'README.md\nsrc/main.rs\n' | yuru --lang plain --query read --limit 1
 # => README.md
 
-printf 'カメラ.txt\n' | yomi --lang ja --query kamera --limit 1
+printf 'カメラ.txt\n' | yuru --lang ja --query kamera --limit 1
 # => カメラ.txt
 
-printf '北京大学.txt\n' | yomi --lang zh --query bjdx --limit 1
+printf '北京大学.txt\n' | yuru --lang zh --query bjdx --limit 1
 # => 北京大学.txt
 ```

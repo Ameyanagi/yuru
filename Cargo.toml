@@ -1,30 +1,31 @@
 [package]
-name = "yomi-workspace"
+name = "yuru-workspace"
 version = "0.1.1"
 edition = "2021"
 publish = false
 
 [workspace]
 members = [
-    "crates/yomi-core",
-    "crates/yomi-ja",
-    "crates/yomi-zh",
-    "crates/yomi-tui",
-    "crates/yomi-cli",
+    "crates/yuru-core",
+    "crates/yuru-ja",
+    "crates/yuru-zh",
+    "crates/yuru-tui",
+    "crates/yuru",
 ]
 default-members = [
     ".",
-    "crates/yomi-core",
-    "crates/yomi-ja",
-    "crates/yomi-zh",
-    "crates/yomi-tui",
-    "crates/yomi-cli",
+    "crates/yuru-core",
+    "crates/yuru-ja",
+    "crates/yuru-zh",
+    "crates/yuru-tui",
+    "crates/yuru",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.1"
 edition = "2021"
+repository = "https://github.com/Ameyanagi/yuru"
 
 [workspace.dependencies]
 anyhow = "1"
@@ -35,15 +36,16 @@ crossterm = { version = "0.28", features = ["use-dev-tty"] }
 pinyin = "0.10"
 predicates = "3"
 proptest = "1"
+rayon = "1.12"
 regex = "1"
 shlex = "1"
 tempfile = "3"
 unicode-normalization = "0.1"
 walkdir = "2"
-yomi-core = { path = "crates/yomi-core" }
-yomi-ja = { path = "crates/yomi-ja" }
-yomi-tui = { path = "crates/yomi-tui" }
-yomi-zh = { path = "crates/yomi-zh" }
+yuru-core = { path = "crates/yuru-core", version = "0.1.1" }
+yuru-ja = { path = "crates/yuru-ja", version = "0.1.1" }
+yuru-tui = { path = "crates/yuru-tui", version = "0.1.1" }
+yuru-zh = { path = "crates/yuru-zh", version = "0.1.1" }
 
 [dev-dependencies]
 assert_cmd.workspace = true
@@ -51,9 +53,9 @@ criterion.workspace = true
 predicates.workspace = true
 proptest.workspace = true
 regex.workspace = true
-yomi-core.workspace = true
-yomi-ja.workspace = true
-yomi-zh.workspace = true
+yuru-core.workspace = true
+yuru-ja.workspace = true
+yuru-zh.workspace = true
 
 [[bench]]
 name = "search"

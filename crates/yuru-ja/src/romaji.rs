@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
-use yomi_core::SourceSpan;
+use yuru_core::SourceSpan;
 
 pub fn romaji_to_kana_candidates(input: &str, max: usize) -> Vec<String> {
     if max == 0 {

@@ -1,0 +1,13 @@
+[package]
+name = "yuru-tui"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Terminal user interface for Yuru"
+keywords = ["fuzzy", "finder", "tui"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+anyhow.workspace = true
+crossterm.workspace = true
+yuru-core.workspace = true

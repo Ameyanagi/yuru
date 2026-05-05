@@ -3,6 +3,6 @@ set -eu
 
 ./scripts/check
 
-if [ "${YOMI_SKIP_BENCH:-0}" != "1" ]; then
+if [ "${YURU_SKIP_BENCH:-0}" != "1" ]; then
   ./scripts/bench
 fi

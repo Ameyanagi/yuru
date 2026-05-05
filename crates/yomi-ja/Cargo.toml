@@ -1,8 +1,0 @@
-[package]
-name = "yomi-ja"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-yomi-core.workspace = true
-

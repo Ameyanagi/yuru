@@ -14,15 +14,15 @@ bash -n scripts/install-hooks
 bash -n .githooks/pre-commit
 bash -n .githooks/pre-push
 
-cargo run --quiet -p yomi-cli -- --bash | bash -n
+cargo run --quiet -p yuru -- --bash | bash -n
 if command -v zsh >/dev/null 2>&1; then
-  cargo run --quiet -p yomi-cli -- --zsh | zsh -n
+  cargo run --quiet -p yuru -- --zsh | zsh -n
 fi
 if command -v fish >/dev/null 2>&1; then
-  cargo run --quiet -p yomi-cli -- --fish | fish -n
+  cargo run --quiet -p yuru -- --fish | fish -n
 fi
 if command -v pwsh >/dev/null 2>&1; then
   pwsh -NoProfile -Command "\$null = [scriptblock]::Create((Get-Content -Raw install.ps1))"
-  cargo run --quiet -p yomi-cli -- --powershell |
+  cargo run --quiet -p yuru -- --powershell |
     pwsh -NoProfile -Command "\$null = [scriptblock]::Create([Console]::In.ReadToEnd())"
 fi

@@ -1,48 +1,64 @@
-# Yomi
+# Yuru
 
-Yomi 是一个快速的命令行 fuzzy finder，支持日文读音搜索和中文拼音搜索。
+Yuru 是一个快速的命令行 fuzzy finder，支持日文读音搜索和中文拼音搜索。
 它的使用方式接近 fzf，同时针对 CJK 文本提供更准确的 phonetic match 高亮。
 
 ## 安装
 
-Yomi 默认安装到用户目录，不需要 `sudo`。
+Yuru 默认安装到用户目录，不需要 `sudo`。
 
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh -s -- --all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
 ```
 
-默认会把 `yomi` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
-`YOMI_INSTALL_BIN_DIR` 修改安装目录。`--all` 会为当前 shell 添加集成配置。
+默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
+`YURU_INSTALL_BIN_DIR` 修改安装目录。`--all` 会为当前 shell 添加集成配置。
+安装器会询问默认语言，并写入 `~/.config/yuru/config`。
+
+无需提示直接指定默认语言:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all --default-lang zh
+```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yomi/main/install.ps1
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
 Invoke-Expression "& { $script } -All"
 ```
 
-这会把 `yomi.exe` 安装到 `%LOCALAPPDATA%\Yomi\bin`，更新用户 PATH，并加入 PowerShell profile。
+这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
+可以使用 `-DefaultLang zh` 写入 `%APPDATA%\yuru\config`。
 
 只安装二进制文件:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh
 ```
+
+从 crates.io 安装:
+
+```sh
+cargo install yuru
+```
+
+crates.io package 名称和安装后的命令都是 `yuru`。
 
 ## Shell 集成
 
 ```sh
-eval "$(yomi --bash)"
-source <(yomi --zsh)
-yomi --fish | source
+eval "$(yuru --bash)"
+source <(yuru --zsh)
+yuru --fish | source
 ```
 
 PowerShell:
 
 ```powershell
-yomi --powershell | Invoke-Expression
+yuru --powershell | Invoke-Expression
 ```
 
 可用快捷键:
@@ -57,19 +73,19 @@ yomi --powershell | Invoke-Expression
 中文拼音首字母:
 
 ```sh
-printf "北京大学.txt\nnotes.txt\n" | yomi --lang zh --filter bjdx
+printf "北京大学.txt\nnotes.txt\n" | yuru --lang zh --filter bjdx
 ```
 
 日文 romaji:
 
 ```sh
-printf "カメラ.txt\ntests/日本人の.txt\n" | yomi --lang ja --filter kamera
+printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamera
 ```
 
 文件搜索:
 
 ```sh
-yomi --walker file,dir,follow,hidden --scheme path
+yuru --walker file,dir,follow,hidden --scheme path
 ```
 
 ## 开发
@@ -78,17 +94,18 @@ yomi --walker file,dir,follow,hidden --scheme path
 ./scripts/install-hooks
 ./scripts/check
 ./scripts/bench
-YOMI_BENCH_1M=1 ./scripts/bench
+YURU_BENCH_1M=1 ./scripts/bench
 ```
 
 git hook 会运行 formatter、linter、测试和 benchmark。只有在确实需要快速本地提交时才使用
-`YOMI_SKIP_BENCH=1`。
+`YURU_SKIP_BENCH=1`。
 
 ## 发布
 
-push tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的 release assets。
+push version tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的 release assets，并发布到 crates.io。
+release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```

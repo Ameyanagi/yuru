@@ -1,0 +1,12 @@
+[package]
+name = "yuru-core"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Core fuzzy matching and ranking library for Yuru"
+keywords = ["fuzzy", "finder", "matching"]
+categories = ["text-processing"]
+
+[dependencies]
+rayon.workspace = true
+unicode-normalization.workspace = true

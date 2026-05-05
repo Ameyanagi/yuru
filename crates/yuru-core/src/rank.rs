@@ -1,10 +1,32 @@
 use crate::{
-    dedup_and_limit_variants, fzf_query, key_kind_allowed, ExactMatcher, GreedyMatcher,
-    LanguageBackend, MatcherBackend, QueryVariantKind, SearchConfig, SearchStats, Tiebreak,
+    dedup_and_limit_variants, fzf_query, key_kind_allowed, score_exact_text, score_text,
+    ExactMatcher, GreedyMatcher, LanguageBackend, MatcherBackend, QueryVariant, QueryVariantKind,
+    SearchConfig, SearchStats, Tiebreak,
 };
+use rayon::prelude::*;
 use std::cmp::Ordering;
 
 const STREAMING_TOP_RESULTS_LIMIT: usize = 1024;
+const PARALLEL_SEARCH_CHUNK_SIZE: usize = 4096;
+#[cfg(not(test))]
+const PARALLEL_SEARCH_THRESHOLD: usize = 100_000;
+#[cfg(test)]
+const PARALLEL_SEARCH_THRESHOLD: usize = 4;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ScoreMode {
+    Greedy,
+    Exact,
+}
+
+impl ScoreMode {
+    fn score(self, pattern: &str, text: &str) -> Option<i64> {
+        match self {
+            Self::Greedy => score_text(pattern, text),
+            Self::Exact => score_exact_text(pattern, text),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoredCandidate {
@@ -21,13 +43,158 @@ pub fn search(
     backend: &dyn LanguageBackend,
     config: &SearchConfig,
 ) -> Vec<ScoredCandidate> {
-    if config.exact {
-        let mut matcher = ExactMatcher;
+    if config.disabled || config.extended && fzf_query::requires_extended_search(query) {
+        if config.exact {
+            let mut matcher = ExactMatcher;
+            return search_with_stats(query, candidates, backend, &mut matcher, config).0;
+        }
+
+        let mut matcher = GreedyMatcher;
         return search_with_stats(query, candidates, backend, &mut matcher, config).0;
     }
 
-    let mut matcher = GreedyMatcher;
-    search_with_stats(query, candidates, backend, &mut matcher, config).0
+    let score_mode = if config.exact {
+        ScoreMode::Exact
+    } else {
+        ScoreMode::Greedy
+    };
+    search_standard(query, candidates, backend, score_mode, config).0
+}
+
+fn search_standard(
+    query: &str,
+    candidates: &[crate::Candidate],
+    backend: &dyn LanguageBackend,
+    score_mode: ScoreMode,
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
+    let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
+    if should_search_parallel(candidates.len()) {
+        return search_standard_parallel(query, candidates, &variants, score_mode, config);
+    }
+
+    let mut stats = SearchStats {
+        variants_seen: variants.len(),
+        ..SearchStats::default()
+    };
+    let mut results = Vec::new();
+    let mut top_results = TopResults::enabled(query, config);
+
+    for candidate in candidates {
+        stats.candidates_seen += 1;
+        if let Some(scored) =
+            score_standard_candidate(candidate, &variants, score_mode, config, Some(&mut stats))
+        {
+            push_scored(scored, &mut results, top_results.as_mut());
+        }
+    }
+
+    (finish_results(results, top_results, query, config), stats)
+}
+
+fn should_search_parallel(len: usize) -> bool {
+    len >= PARALLEL_SEARCH_THRESHOLD && rayon::current_num_threads() > 1
+}
+
+fn search_standard_parallel(
+    query: &str,
+    candidates: &[crate::Candidate],
+    variants: &[QueryVariant],
+    score_mode: ScoreMode,
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
+    let (mut results, stats) = candidates
+        .par_chunks(PARALLEL_SEARCH_CHUNK_SIZE)
+        .map(|chunk| {
+            let mut stats = SearchStats {
+                variants_seen: variants.len(),
+                ..SearchStats::default()
+            };
+            let mut results = Vec::new();
+            let mut top_results = TopResults::enabled(query, config);
+
+            for candidate in chunk {
+                stats.candidates_seen += 1;
+                if let Some(scored) = score_standard_candidate(
+                    candidate,
+                    variants,
+                    score_mode,
+                    config,
+                    Some(&mut stats),
+                ) {
+                    push_scored(scored, &mut results, top_results.as_mut());
+                }
+            }
+
+            (finish_results(results, top_results, query, config), stats)
+        })
+        .reduce(
+            || (Vec::new(), SearchStats::default()),
+            |(mut left_results, mut left_stats), (mut right_results, right_stats)| {
+                left_results.append(&mut right_results);
+                left_stats.candidates_seen += right_stats.candidates_seen;
+                left_stats.keys_seen += right_stats.keys_seen;
+                left_stats.fuzzy_calls += right_stats.fuzzy_calls;
+                left_stats.quality_score_calls += right_stats.quality_score_calls;
+                left_stats.reading_generation_calls += right_stats.reading_generation_calls;
+                left_stats.variants_seen = left_stats.variants_seen.max(right_stats.variants_seen);
+                (left_results, left_stats)
+            },
+        );
+
+    finalize_results(&mut results, query, config);
+    (results, stats)
+}
+
+fn score_standard_candidate(
+    candidate: &crate::Candidate,
+    variants: &[QueryVariant],
+    score_mode: ScoreMode,
+    config: &SearchConfig,
+    mut stats: Option<&mut SearchStats>,
+) -> Option<ScoredCandidate> {
+    let mut best: Option<ScoredCandidate> = None;
+
+    for variant in variants {
+        if config.case_sensitive && variant.kind == QueryVariantKind::Normalized {
+            continue;
+        }
+
+        for (key_index, key) in candidate.keys.iter().enumerate() {
+            if config.case_sensitive && key.kind == crate::KeyKind::Normalized {
+                continue;
+            }
+
+            if !key_kind_allowed(variant, key.kind) {
+                continue;
+            }
+
+            if let Some(stats) = stats.as_deref_mut() {
+                stats.keys_seen += 1;
+                stats.fuzzy_calls += 1;
+            }
+
+            if let Some(base_score) = score_mode.score(&variant.text, &key.text) {
+                let score = base_score + i64::from(variant.weight + key.weight);
+                let scored = ScoredCandidate {
+                    id: candidate.id,
+                    display: candidate.display.clone(),
+                    score,
+                    key_kind: key.kind,
+                    key_index: key_index as u32,
+                };
+
+                if best
+                    .as_ref()
+                    .is_none_or(|current| scored.score > current.score)
+                {
+                    best = Some(scored);
+                }
+            }
+        }
+    }
+
+    best
 }
 
 pub fn search_with_stats(
@@ -62,6 +229,16 @@ pub fn search_with_stats(
         return search_extended(query, candidates, backend, matcher, config);
     }
 
+    search_standard_with_matcher(query, candidates, backend, matcher, config)
+}
+
+fn search_standard_with_matcher(
+    query: &str,
+    candidates: &[crate::Candidate],
+    backend: &dyn LanguageBackend,
+    matcher: &mut dyn MatcherBackend,
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
     let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
     let mut stats = SearchStats {
         variants_seen: variants.len(),
@@ -545,6 +722,31 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["zzabc", "abc"]
         );
+    }
+
+    #[test]
+    fn parallel_search_matches_sequential_matcher_results() {
+        let cfg = SearchConfig {
+            limit: 4,
+            ..SearchConfig::default()
+        };
+        let candidates = build_index(
+            [
+                "zzabc",
+                "abc",
+                "src/abc.txt",
+                "abc-long-name",
+                "a/b/c",
+                "prefix-abc",
+            ],
+            &PlainBackend,
+            &cfg,
+        );
+        let parallel = search("abc", &candidates, &PlainBackend, &cfg);
+        let mut matcher = GreedyMatcher;
+        let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
+
+        assert_eq!(parallel, sequential);
     }
 
     #[test]

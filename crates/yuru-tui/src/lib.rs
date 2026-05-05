@@ -12,7 +12,7 @@ use crossterm::{
         LeaveAlternateScreen,
     },
 };
-use yomi_core::{
+use yuru_core::{
     match_positions, search, Candidate, KeyKind, LanguageBackend, ScoredCandidate, SearchConfig,
     SearchKey,
 };
@@ -670,7 +670,7 @@ impl Drop for TerminalGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yomi_core::SourceSpan;
+    use yuru_core::SourceSpan;
 
     #[test]
     fn editing_actions_update_query_and_cursor() {
@@ -767,6 +767,26 @@ mod tests {
                     text: "src/module_42/".to_string(),
                     highlighted: false,
                 },
+                HighlightSegment {
+                    text: "READ".to_string(),
+                    highlighted: true,
+                },
+                HighlightSegment {
+                    text: "ME.md".to_string(),
+                    highlighted: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn plain_mode_highlight_marks_direct_matches_from_normalized_key() {
+        let result = scored("README.md", KeyKind::Normalized);
+        let segments = highlight_segments_for_result("read", &result, &[], false, 80);
+
+        assert_eq!(
+            segments,
+            vec![
                 HighlightSegment {
                     text: "READ".to_string(),
                     highlighted: true,

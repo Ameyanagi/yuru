@@ -1,23 +1,78 @@
 param(
     [switch]$All,
     [string]$BinDir,
-    [string]$Repo = "Ameyanagi/yomi",
+    [string]$Repo = "Ameyanagi/yuru",
     [string]$Version = "latest",
+    [ValidateSet("ask", "plain", "ja", "zh", "none")]
+    [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ask" }),
+    [switch]$NoConfig,
     [switch]$FromSource
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not $BinDir -or $BinDir.Trim().Length -eq 0) {
-    $BinDir = Join-Path $env:LOCALAPPDATA "Yomi\bin"
+    $BinDir = Join-Path $env:LOCALAPPDATA "Yuru\bin"
 }
 
-function Write-YomiInstallLog {
+function Write-YuruInstallLog {
     param([string]$Message)
-    Write-Host "yomi-install: $Message"
+    Write-Host "yuru-install: $Message"
 }
 
-function Get-YomiTarget {
+function Get-YuruConfigPath {
+    if ($env:YURU_CONFIG_FILE) { return $env:YURU_CONFIG_FILE }
+    if ($env:APPDATA) { return (Join-Path $env:APPDATA "yuru\config") }
+    return (Join-Path $HOME ".config\yuru\config")
+}
+
+function Read-YuruDefaultLanguage {
+    if ($DefaultLang -ne "ask") { return $DefaultLang }
+    if (-not [Environment]::UserInteractive) { return "none" }
+
+    while ($true) {
+        $answer = Read-Host "Choose Yuru default language [plain/ja/zh/none] (plain)"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return "plain" }
+        switch ($answer.Trim()) {
+            "plain" { return "plain" }
+            "ja" { return "ja" }
+            "zh" { return "zh" }
+            "none" { return "none" }
+            default { Write-Host "Please enter plain, ja, zh, or none." }
+        }
+    }
+}
+
+function Install-YuruConfig {
+    if ($NoConfig) {
+        Write-YuruInstallLog "skipping user config"
+        return
+    }
+
+    $selectedLang = Read-YuruDefaultLanguage
+    $configPath = Get-YuruConfigPath
+    $configDir = Split-Path -Parent $configPath
+    if (-not [string]::IsNullOrWhiteSpace($configDir)) {
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+    }
+
+    $lines = @()
+    if (Test-Path -LiteralPath $configPath) {
+        $lines = @(Get-Content -LiteralPath $configPath | Where-Object { $_ -notmatch '^\s*--lang(\s|=|$)' })
+    }
+    if ($selectedLang -ne "none") {
+        $lines += "--lang $selectedLang"
+    }
+    Set-Content -LiteralPath $configPath -Value $lines
+
+    if ($selectedLang -eq "none") {
+        Write-YuruInstallLog "left default language unset in $configPath"
+    } else {
+        Write-YuruInstallLog "configured default language '$selectedLang' in $configPath"
+    }
+}
+
+function Get-YuruTarget {
     $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
         throw "install.ps1 currently supports Windows user-space installs. Use ./install on macOS/Linux."
@@ -28,44 +83,44 @@ function Get-YomiTarget {
     "x86_64-pc-windows-msvc"
 }
 
-function Install-YomiFromSource {
+function Install-YuruFromSource {
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
         throw "cargo is required for -FromSource"
     }
-    Write-YomiInstallLog "building release binary with cargo"
-    cargo build --release -p yomi-cli
+    Write-YuruInstallLog "building release binary with cargo"
+    cargo build --release -p yuru
     New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-    Copy-Item -Force "target\release\yomi.exe" (Join-Path $BinDir "yomi.exe")
+    Copy-Item -Force "target\release\yuru.exe" (Join-Path $BinDir "yuru.exe")
 }
 
-function Install-YomiFromRelease {
-    $target = Get-YomiTarget
-    $asset = "yomi-$target.zip"
+function Install-YuruFromRelease {
+    $target = Get-YuruTarget
+    $asset = "yuru-$target.zip"
     if ($Version -eq "latest") {
         $url = "https://github.com/$Repo/releases/latest/download/$asset"
     } else {
         $url = "https://github.com/$Repo/releases/download/$Version/$asset"
     }
 
-    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("yomi-install-" + [System.Guid]::NewGuid())
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("yuru-install-" + [System.Guid]::NewGuid())
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     try {
         $archive = Join-Path $tmp $asset
-        Write-YomiInstallLog "downloading $asset"
+        Write-YuruInstallLog "downloading $asset"
         Invoke-WebRequest -Uri $url -OutFile $archive
         Expand-Archive -Force -Path $archive -DestinationPath $tmp
-        $binary = Join-Path $tmp "yomi.exe"
+        $binary = Join-Path $tmp "yuru.exe"
         if (-not (Test-Path $binary)) {
-            throw "archive did not contain yomi.exe"
+            throw "archive did not contain yuru.exe"
         }
         New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-        Copy-Item -Force $binary (Join-Path $BinDir "yomi.exe")
+        Copy-Item -Force $binary (Join-Path $BinDir "yuru.exe")
     } finally {
         Remove-Item -Force -Recurse $tmp -ErrorAction SilentlyContinue
     }
 }
 
-function Add-YomiToUserPath {
+function Add-YuruToUserPath {
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     $parts = @()
     if ($userPath) {
@@ -74,14 +129,14 @@ function Add-YomiToUserPath {
     if ($parts -notcontains $BinDir) {
         $next = (@($parts) + $BinDir) -join ';'
         [Environment]::SetEnvironmentVariable("Path", $next, "User")
-        Write-YomiInstallLog "added $BinDir to the user PATH"
+        Write-YuruInstallLog "added $BinDir to the user PATH"
     }
     if (($env:Path -split ';') -notcontains $BinDir) {
         $env:Path = "$env:Path;$BinDir"
     }
 }
 
-function Install-YomiPowerShellIntegration {
+function Install-YuruPowerShellIntegration {
     $profilePath = $PROFILE.CurrentUserAllHosts
     $profileDir = Split-Path -Parent $profilePath
     New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
@@ -89,33 +144,34 @@ function Install-YomiPowerShellIntegration {
         New-Item -ItemType File -Force -Path $profilePath | Out-Null
     }
 
-    $marker = "yomi shell integration"
+    $marker = "yuru shell integration"
     $content = Get-Content -Raw -Path $profilePath
     if ($content -like "*$marker*") {
-        Write-YomiInstallLog "PowerShell integration already present in $profilePath"
+        Write-YuruInstallLog "PowerShell integration already present in $profilePath"
         return
     }
 
     Add-Content -Path $profilePath -Value @"
 
-# yomi shell integration
-if (Get-Command yomi -ErrorAction SilentlyContinue) {
-    yomi --powershell | Invoke-Expression
+# yuru shell integration
+if (Get-Command yuru -ErrorAction SilentlyContinue) {
+    yuru --powershell | Invoke-Expression
 }
 "@
-    Write-YomiInstallLog "updated $profilePath"
+    Write-YuruInstallLog "updated $profilePath"
 }
 
 if ($FromSource) {
-    Install-YomiFromSource
+    Install-YuruFromSource
 } else {
-    Install-YomiFromRelease
+    Install-YuruFromRelease
 }
 
-Write-YomiInstallLog "installed binary into $BinDir"
-Add-YomiToUserPath
+Write-YuruInstallLog "installed binary into $BinDir"
+Add-YuruToUserPath
+Install-YuruConfig
 
 if ($All) {
-    Install-YomiPowerShellIntegration
-    Write-YomiInstallLog "restart PowerShell or reload your profile"
+    Install-YuruPowerShellIntegration
+    Write-YuruInstallLog "restart PowerShell or reload your profile"
 }

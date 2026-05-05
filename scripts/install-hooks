@@ -3,4 +3,4 @@ set -eu
 
 cd "$(dirname "$0")/.."
 git config core.hooksPath .githooks
-echo "Installed Yomi git hooks from .githooks"
+echo "Installed Yuru git hooks from .githooks"

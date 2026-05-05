@@ -1,9 +1,0 @@
-[package]
-name = "yomi-zh"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-pinyin.workspace = true
-yomi-core.workspace = true
-

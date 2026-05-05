@@ -1,7 +1,7 @@
 pub mod reading;
 pub mod romaji;
 
-use yomi_core::{
+use yuru_core::{
     base_query_variants, normalize,
     normalize::{contains_kana, katakana_to_hiragana},
     LangMode, LanguageBackend, QueryVariant, SearchKey, SourceSpan,
@@ -89,7 +89,7 @@ fn push_reading_keys_with_map(
 
 #[cfg(test)]
 mod tests {
-    use yomi_core::{build_candidate, KeyKind, SearchConfig};
+    use yuru_core::{build_candidate, KeyKind, SearchConfig};
 
     use super::*;
 

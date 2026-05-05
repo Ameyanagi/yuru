@@ -3,10 +3,10 @@ set -eu
 
 ./scripts/check
 
-if [ "${YOMI_SKIP_BENCH:-0}" != "1" ]; then
+if [ "${YURU_SKIP_BENCH:-0}" != "1" ]; then
   ./scripts/bench
 fi
 
-if [ "${YOMI_BENCH_1M_ON_PUSH:-1}" = "1" ] && [ "${YOMI_SKIP_BENCH:-0}" != "1" ]; then
-  YOMI_BENCH_1M=1 cargo bench --bench search plain_search_1m_read_opt_in
+if [ "${YURU_BENCH_1M_ON_PUSH:-1}" = "1" ] && [ "${YURU_SKIP_BENCH:-0}" != "1" ]; then
+  YURU_BENCH_1M=1 cargo bench --bench search plain_search_1m_read_opt_in
 fi

@@ -1,28 +1,32 @@
 #!/usr/bin/env sh
 set -eu
 
-repo="${YOMI_INSTALL_REPO:-Ameyanagi/yomi}"
-version="${YOMI_INSTALL_VERSION:-latest}"
-bin_dir="${YOMI_INSTALL_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
+repo="${YURU_INSTALL_REPO:-Ameyanagi/yuru}"
+version="${YURU_INSTALL_VERSION:-latest}"
+bin_dir="${YURU_INSTALL_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
+default_lang="${YURU_INSTALL_DEFAULT_LANG:-ask}"
+no_config=0
 shells=""
 from_source=0
 
 usage() {
   cat <<'EOF'
-Yomi user-space installer
+Yuru user-space installer
 
 Usage:
   ./install [options]
-  curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yomi/main/install | sh -s -- [options]
+  curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- [options]
 
 Options:
   --all                 Install binary and shell integration for the current shell
   --shell LIST          Install shell integration: bash,zsh,fish,all
   --no-shell            Install only the binary
   --bin-dir DIR         Install binary into DIR (default: ~/.local/bin)
-  --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yomi)
+  --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yuru)
   --version TAG         Release tag to download (default: latest)
-  --from-source         Build yomi from the current checkout with cargo
+  --default-lang LANG   Configure default language: ask, plain, ja, zh, none (default: ask)
+  --no-config           Do not create or update the user config file
+  --from-source         Build yuru from the current checkout with cargo
   -h, --help            Show this help
 
 This installer never uses sudo and never writes to system directories.
@@ -71,6 +75,18 @@ while [ "$#" -gt 0 ]; do
       }
       shift 2
       ;;
+    --default-lang)
+      default_lang="${2:-}"
+      [ -n "$default_lang" ] || {
+        echo "install: --default-lang requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --no-config)
+      no_config=1
+      shift
+      ;;
     --from-source)
       from_source=1
       shift
@@ -88,13 +104,91 @@ while [ "$#" -gt 0 ]; do
 done
 
 log() {
-  printf 'yomi-install: %s\n' "$*"
+  printf 'yuru-install: %s\n' "$*"
 }
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "install: required command not found: $1" >&2
     exit 1
+  fi
+}
+
+config_file() {
+  if [ -n "${YURU_CONFIG_FILE:-}" ]; then
+    printf '%s' "$YURU_CONFIG_FILE"
+  elif [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    printf '%s/yuru/config' "$XDG_CONFIG_HOME"
+  else
+    printf '%s/.config/yuru/config' "$HOME"
+  fi
+}
+
+validate_default_lang() {
+  case "$1" in
+    ask | plain | ja | zh | none) ;;
+    *)
+      echo "install: unsupported default language: $1" >&2
+      echo "install: expected one of: ask, plain, ja, zh, none" >&2
+      exit 2
+      ;;
+  esac
+}
+
+prompt_default_lang() {
+  if [ "$default_lang" != "ask" ]; then
+    printf '%s' "$default_lang"
+    return
+  fi
+
+  if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+    printf 'none'
+    return
+  fi
+
+  while :; do
+    printf 'Choose Yuru default language [plain/ja/zh/none] (plain): ' >/dev/tty
+    IFS= read -r answer </dev/tty || answer=""
+    answer="${answer:-plain}"
+    case "$answer" in
+      plain | ja | zh | none)
+        printf '%s' "$answer"
+        return
+        ;;
+      *)
+        printf 'Please enter plain, ja, zh, or none.\n' >/dev/tty
+        ;;
+    esac
+  done
+}
+
+install_config() {
+  [ "$no_config" = "0" ] || {
+    log "skipping user config"
+    return
+  }
+
+  selected_lang="$(prompt_default_lang)"
+  validate_default_lang "$selected_lang"
+  file="$(config_file)"
+  mkdir -p "$(dirname "$file")"
+  tmp="$file.tmp.$$"
+
+  if [ -f "$file" ]; then
+    sed '/^[[:space:]]*--lang\([=[:space:]]\|$\)/d' "$file" >"$tmp"
+  else
+    : >"$tmp"
+  fi
+
+  if [ "$selected_lang" != "none" ]; then
+    printf -- '--lang %s\n' "$selected_lang" >>"$tmp"
+  fi
+
+  mv "$tmp" "$file"
+  if [ "$selected_lang" = "none" ]; then
+    log "left default language unset in $file"
+  else
+    log "configured default language '$selected_lang' in $file"
   fi
 }
 
@@ -145,17 +239,17 @@ download() {
 install_from_source() {
   need cargo
   log "building release binary with cargo"
-  cargo build --release -p yomi-cli
+  cargo build --release -p yuru
   mkdir -p "$bin_dir"
-  cp target/release/yomi "$bin_dir/yomi"
-  chmod 755 "$bin_dir/yomi"
+  cp target/release/yuru "$bin_dir/yuru"
+  chmod 755 "$bin_dir/yuru"
 }
 
 install_from_release() {
   target="$(detect_target)"
   case "$target" in
-    *windows*) asset="yomi-$target.zip" ;;
-    *) asset="yomi-$target.tar.gz" ;;
+    *windows*) asset="yuru-$target.zip" ;;
+    *) asset="yuru-$target.tar.gz" ;;
   esac
 
   if [ "$version" = "latest" ]; then
@@ -164,7 +258,7 @@ install_from_release() {
     url="https://github.com/$repo/releases/download/$version/$asset"
   fi
 
-  tmp="${TMPDIR:-/tmp}/yomi-install.$$"
+  tmp="${TMPDIR:-/tmp}/yuru-install.$$"
   rm -rf "$tmp"
   mkdir -p "$tmp"
   trap 'rm -rf "$tmp"' EXIT INT TERM
@@ -176,16 +270,16 @@ install_from_release() {
     *.zip)
       need unzip
       unzip -q "$tmp/$asset" -d "$tmp"
-      binary="$tmp/yomi.exe"
+      binary="$tmp/yuru.exe"
       ;;
     *.tar.gz)
       tar -xzf "$tmp/$asset" -C "$tmp"
-      binary="$tmp/yomi"
+      binary="$tmp/yuru"
       ;;
   esac
 
   if [ ! -f "$binary" ]; then
-    echo "install: archive did not contain yomi binary" >&2
+    echo "install: archive did not contain yuru binary" >&2
     exit 1
   fi
 
@@ -200,27 +294,27 @@ shell_block() {
     bash)
       cat <<'EOF'
 
-# yomi shell integration
-if command -v yomi >/dev/null 2>&1; then
-  eval "$(yomi --bash)"
+# yuru shell integration
+if command -v yuru >/dev/null 2>&1; then
+  eval "$(yuru --bash)"
 fi
 EOF
       ;;
     zsh)
       cat <<'EOF'
 
-# yomi shell integration
-if command -v yomi >/dev/null 2>&1; then
-  source <(yomi --zsh)
+# yuru shell integration
+if command -v yuru >/dev/null 2>&1; then
+  source <(yuru --zsh)
 fi
 EOF
       ;;
     fish)
       cat <<'EOF'
 
-# yomi shell integration
-if command -q yomi
-  yomi --fish | source
+# yuru shell integration
+if command -q yuru
+  yuru --fish | source
 end
 EOF
       ;;
@@ -268,13 +362,13 @@ install_shell() {
     shell_name="$(printf '%s' "$shell_name" | tr -d '[:space:]')"
     case "$shell_name" in
       bash)
-        append_once "$HOME/.bashrc" "yomi shell integration" "$(shell_block bash)"
+        append_once "$HOME/.bashrc" "yuru shell integration" "$(shell_block bash)"
         ;;
       zsh)
-        append_once "$HOME/.zshrc" "yomi shell integration" "$(shell_block zsh)"
+        append_once "$HOME/.zshrc" "yuru shell integration" "$(shell_block zsh)"
         ;;
       fish)
-        append_once "$HOME/.config/fish/config.fish" "yomi shell integration" "$(shell_block fish)"
+        append_once "$HOME/.config/fish/config.fish" "yuru shell integration" "$(shell_block fish)"
         ;;
       "")
         ;;
@@ -295,10 +389,12 @@ else
 fi
 
 log "installed binary into $bin_dir"
+validate_default_lang "$default_lang"
+install_config
 
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
-  *) log "add $bin_dir to PATH if yomi is not found by your shell" ;;
+  *) log "add $bin_dir to PATH if yuru is not found by your shell" ;;
 esac
 
 if [ -n "$shells" ]; then

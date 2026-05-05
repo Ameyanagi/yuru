@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
-use yomi_core::SourceSpan;
+use yuru_core::SourceSpan;
 
 #[derive(Clone, Copy, Debug)]
 struct ReadingEntry {

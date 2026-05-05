@@ -1,0 +1,11 @@
+[package]
+name = "yuru-ja"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Japanese phonetic matching support for Yuru"
+keywords = ["fuzzy", "japanese", "romaji", "kana"]
+categories = ["text-processing"]
+
+[dependencies]
+yuru-core.workspace = true

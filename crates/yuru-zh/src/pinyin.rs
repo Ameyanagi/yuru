@@ -1,5 +1,5 @@
 use pinyin::ToPinyin;
-use yomi_core::SourceSpan;
+use yuru_core::SourceSpan;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PinyinKey {

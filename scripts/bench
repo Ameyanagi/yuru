@@ -5,6 +5,6 @@ cd "$(dirname "$0")/.."
 
 cargo bench --bench search
 
-if [ "${YOMI_BENCH_1M:-0}" = "1" ]; then
-  YOMI_BENCH_1M=1 cargo bench --bench search plain_search_1m_read_opt_in
+if [ "${YURU_BENCH_1M:-0}" = "1" ]; then
+  YURU_BENCH_1M=1 cargo bench --bench search plain_search_1m_read_opt_in
 fi

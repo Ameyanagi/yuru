@@ -1495,7 +1495,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "yomi-cli"
+name = "yuru"
 version = "0.1.1"
 dependencies = [
  "anyhow",
@@ -1506,37 +1506,38 @@ dependencies = [
  "shlex",
  "tempfile",
  "walkdir",
- "yomi-core",
- "yomi-ja",
- "yomi-tui",
- "yomi-zh",
+ "yuru-core",
+ "yuru-ja",
+ "yuru-tui",
+ "yuru-zh",
 ]
 
 [[package]]
-name = "yomi-core"
+name = "yuru-core"
 version = "0.1.1"
 dependencies = [
+ "rayon",
  "unicode-normalization",
 ]
 
 [[package]]
-name = "yomi-ja"
+name = "yuru-ja"
 version = "0.1.1"
 dependencies = [
- "yomi-core",
+ "yuru-core",
 ]
 
 [[package]]
-name = "yomi-tui"
+name = "yuru-tui"
 version = "0.1.1"
 dependencies = [
  "anyhow",
  "crossterm",
- "yomi-core",
+ "yuru-core",
 ]
 
 [[package]]
-name = "yomi-workspace"
+name = "yuru-workspace"
 version = "0.1.1"
 dependencies = [
  "assert_cmd",
@@ -1544,17 +1545,17 @@ dependencies = [
  "predicates",
  "proptest",
  "regex",
- "yomi-core",
- "yomi-ja",
- "yomi-zh",
+ "yuru-core",
+ "yuru-ja",
+ "yuru-zh",
 ]
 
 [[package]]
-name = "yomi-zh"
+name = "yuru-zh"
 version = "0.1.1"
 dependencies = [
  "pinyin",
- "yomi-core",
+ "yuru-core",
 ]
 
 [[package]]

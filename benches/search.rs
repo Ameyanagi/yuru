@@ -1,9 +1,46 @@
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use yomi_core::{build_index, search, PlainBackend, SearchConfig};
-use yomi_ja::JapaneseBackend;
-use yomi_zh::ChineseBackend;
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use yuru_core::{build_index, search, PlainBackend, SearchConfig};
+use yuru_ja::JapaneseBackend;
+use yuru_zh::ChineseBackend;
+
+fn bench_build_index_plain_100k(c: &mut Criterion) {
+    let cfg = SearchConfig::default();
+    let candidates: Vec<_> = (0..100_000)
+        .map(|idx| format!("src/module_{idx}/README.md"))
+        .collect();
+
+    c.bench_function("plain_build_index_100k", |b| {
+        b.iter_batched(
+            || candidates.clone(),
+            |items| build_index(black_box(items), &PlainBackend, black_box(&cfg)),
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+fn bench_build_index_ja_100k(c: &mut Criterion) {
+    let cfg = SearchConfig::default();
+    let candidates: Vec<_> = (0..100_000)
+        .map(|idx| {
+            if idx % 100 == 0 {
+                format!("カメラ_{idx}.txt")
+            } else {
+                format!("notes/{idx}.txt")
+            }
+        })
+        .collect();
+    let backend = JapaneseBackend;
+
+    c.bench_function("ja_build_index_100k", |b| {
+        b.iter_batched(
+            || candidates.clone(),
+            |items| build_index(black_box(items), &backend, black_box(&cfg)),
+            BatchSize::LargeInput,
+        );
+    });
+}
 
 fn bench_plain_search(c: &mut Criterion) {
     let cfg = SearchConfig::default();
@@ -136,7 +173,7 @@ fn bench_zh_search_100k(c: &mut Criterion) {
 }
 
 fn bench_plain_search_1m(c: &mut Criterion) {
-    if std::env::var("YOMI_BENCH_1M").as_deref() != Ok("1") {
+    if std::env::var("YURU_BENCH_1M").as_deref() != Ok("1") {
         return;
     }
 
@@ -162,6 +199,8 @@ fn bench_plain_search_1m(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_build_index_plain_100k,
+    bench_build_index_ja_100k,
     bench_plain_search,
     bench_plain_search_100k,
     bench_ja_search,

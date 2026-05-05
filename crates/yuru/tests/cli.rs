@@ -1,7 +1,11 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::MAIN_SEPARATOR;
+#[cfg(unix)]
+use std::process::Command as StdCommand;
 
 const FIXTURE: &str = include_str!("fixtures/mixed_paths.txt");
 
@@ -53,6 +57,36 @@ fn cli_ja_query_ni_matches_seed_kanji_reading() {
         .success()
         .stdout(predicate::str::contains("tests/日本語.txt"))
         .stdout(predicate::str::contains("tests/日本人の.txt"));
+}
+
+#[test]
+fn cli_reads_default_language_from_yuru_config_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    fs::write(&config, "--lang ja\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .args(["--filter", "ni"])
+        .write_stdin("tests/日本語.txt\nplan.md\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("tests/日本語.txt\n"));
+}
+
+#[test]
+fn cli_args_override_yuru_config_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    fs::write(&config, "--lang ja\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .args(["--lang", "plain", "--filter", "ni"])
+        .write_stdin("tests/日本語.txt\nplain-ni.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("plain-ni.txt\n"));
 }
 
 #[test]
@@ -176,6 +210,27 @@ fn cli_uses_fzf_default_command_when_stdin_is_empty() {
 }
 
 #[test]
+fn cli_uses_yuru_default_command_when_stdin_is_empty() {
+    command()
+        .env("YURU_DEFAULT_COMMAND", "printf 'alpha\\nbeta\\n'")
+        .args(["--filter", "alph"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"));
+}
+
+#[test]
+fn cli_yuru_default_command_overrides_fzf_default_command() {
+    command()
+        .env("YURU_DEFAULT_COMMAND", "printf 'alpha\\n'")
+        .env("FZF_DEFAULT_COMMAND", "printf 'beta\\n'")
+        .args(["--filter", "alpha"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"));
+}
+
+#[test]
 fn cli_walks_files_when_explicit_walker_and_stdin_is_empty() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("alpha.txt"), "").unwrap();
@@ -188,6 +243,23 @@ fn cli_walks_files_when_explicit_walker_and_stdin_is_empty() {
         .assert()
         .success()
         .stdout(predicate::eq(format!("nested{MAIN_SEPARATOR}beta.log\n")));
+}
+
+#[test]
+fn cli_explicit_walker_ignores_invalid_fzf_default_command() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("alpha.txt"), "").unwrap();
+
+    command()
+        .current_dir(dir.path())
+        .env(
+            "FZF_DEFAULT_COMMAND",
+            "fdfind --definitely-missing-yuru-test",
+        )
+        .args(["--filter", "alpha", "--walker", "file,follow,hidden"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha.txt\n"));
 }
 
 #[test]
@@ -245,12 +317,13 @@ fn cli_scheme_path_prefers_match_in_basename() {
 #[test]
 fn cli_prints_bash_shell_integration_without_reading_fzf_opts() {
     command()
-        .env("FZF_DEFAULT_OPTS", "--definitely-not-a-yomi-option")
+        .env("FZF_DEFAULT_OPTS", "--definitely-not-a-yuru-option")
         .args(["--bash"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("__yomi_ctrl_t__"))
+        .stdout(predicate::str::contains("__yuru_ctrl_t__"))
         .stdout(predicate::str::contains("FZF_CTRL_T_COMMAND"))
+        .stdout(predicate::str::contains("__yuru_setup_completion__"))
         .stdout(predicate::str::contains("complete -D"))
         .stdout(predicate::str::contains("**<TAB>"));
 }
@@ -261,8 +334,9 @@ fn cli_prints_zsh_shell_integration() {
         .args(["--zsh"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("zle -N __yomi_ctrl_r__"))
-        .stdout(predicate::str::contains("bindkey '^T'"))
+        .stdout(predicate::str::contains("zle -N __yuru_ctrl_r__"))
+        .stdout(predicate::str::contains("__yuru_default_completion_widget"))
+        .stdout(predicate::str::contains("bindkey -M emacs '^T'"))
         .stdout(predicate::str::contains("**<TAB>"));
 }
 
@@ -272,8 +346,11 @@ fn cli_prints_fish_shell_integration() {
         .args(["--fish"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("function __yomi_ctrl_r__"))
-        .stdout(predicate::str::contains("bind \\ct __yomi_ctrl_t__"))
+        .stdout(predicate::str::contains("function __yuru_ctrl_r__"))
+        .stdout(predicate::str::contains(
+            "function __yuru_completion_trigger__",
+        ))
+        .stdout(predicate::str::contains("bind \\ct __yuru_ctrl_t__"))
         .stdout(predicate::str::contains("**<TAB>"));
 }
 
@@ -284,8 +361,124 @@ fn cli_prints_powershell_shell_integration() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Set-PSReadLineKeyHandler"))
-        .stdout(predicate::str::contains("Invoke-YomiCtrlT"))
+        .stdout(predicate::str::contains("Invoke-YuruCtrlT"))
+        .stdout(predicate::str::contains("Get-YuruCompletionTrigger"))
         .stdout(predicate::str::contains("**<Tab>"));
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_completion_joins_selected_paths_for_starstar_trigger() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = write_shell_script(dir.path(), "yuru.bash", "--bash");
+    let fake = write_fake_yuru(
+        dir.path(),
+        "fake-yuru",
+        "printf 'src/main.rs\\nsrc/lib.rs\\n'\n",
+    );
+
+    let output = StdCommand::new("bash")
+        .args([
+            "--noprofile",
+            "--norc",
+            "-c",
+            r#"source "$YURU_SCRIPT"
+COMP_WORDS=(vim 'src/**')
+COMP_CWORD=1
+__yuru_completion__
+complete -p vim >/dev/null
+printf '%s\n' "${COMPREPLY[0]}""#,
+        ])
+        .env("YURU_SCRIPT", &script)
+        .env("YURU_BIN", &fake)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "src/main.rs src/lib.rs\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn bash_ctrl_r_passes_current_line_as_initial_query() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = write_shell_script(dir.path(), "yuru.bash", "--bash");
+    let fake = write_fake_yuru(
+        dir.path(),
+        "fake-yuru",
+        "printf '%s\\n' \"$@\" > \"$YURU_FAKE_ARGS\"\nprintf 'git status\\n'\n",
+    );
+    let args_file = dir.path().join("args.txt");
+
+    let output = StdCommand::new("bash")
+        .args([
+            "--noprofile",
+            "--norc",
+            "-c",
+            r#"source "$YURU_SCRIPT"
+READLINE_LINE=git
+READLINE_POINT=3
+__yuru_ctrl_r__
+printf '%s\n' "$READLINE_LINE"
+cat "$YURU_FAKE_ARGS""#,
+        ])
+        .env("YURU_SCRIPT", &script)
+        .env("YURU_BIN", &fake)
+        .env("YURU_FAKE_ARGS", &args_file)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("git status\n"));
+    assert!(stdout.contains("--query\ngit\n"), "stdout={stdout}");
+}
+
+#[cfg(unix)]
+#[test]
+fn zsh_completion_replaces_starstar_token_and_keeps_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = write_shell_script(dir.path(), "yuru.zsh", "--zsh");
+    let fake = write_fake_yuru(
+        dir.path(),
+        "fake-yuru",
+        "printf 'src/main.rs\\nsrc/lib.rs\\n'\n",
+    );
+
+    let output = StdCommand::new("zsh")
+        .args([
+            "-fc",
+            r#"source "$YURU_SCRIPT"
+YURU_BIN="$YURU_FAKE"
+LBUFFER="vim src/**"
+__yuru_completion__ 2>/dev/null
+print -r -- "$LBUFFER""#,
+        ])
+        .env("YURU_SCRIPT", &script)
+        .env("YURU_FAKE", &fake)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "vim src/main.rs src/lib.rs \n"
+    );
 }
 
 #[test]
@@ -300,10 +493,34 @@ fn cli_rejects_multiple_shell_integration_flags() {
 }
 
 fn command() -> Command {
-    let mut command = Command::cargo_bin("yomi").unwrap();
+    let mut command = Command::cargo_bin("yuru").unwrap();
     command
         .env_remove("FZF_DEFAULT_OPTS")
         .env_remove("FZF_DEFAULT_OPTS_FILE")
-        .env_remove("FZF_DEFAULT_COMMAND");
+        .env_remove("FZF_DEFAULT_COMMAND")
+        .env_remove("YURU_DEFAULT_COMMAND")
+        .env_remove("YURU_DEFAULT_OPTS")
+        .env_remove("YURU_DEFAULT_OPTS_FILE")
+        .env("YURU_CONFIG_FILE", "__yuru_test_no_config__")
+        .env_remove("XDG_CONFIG_HOME");
     command
+}
+
+#[cfg(unix)]
+fn write_shell_script(dir: &std::path::Path, name: &str, flag: &str) -> std::path::PathBuf {
+    let output = command().arg(flag).output().unwrap();
+    assert!(output.status.success());
+    let path = dir.join(name);
+    fs::write(&path, output.stdout).unwrap();
+    path
+}
+
+#[cfg(unix)]
+fn write_fake_yuru(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+    let path = dir.join(name);
+    fs::write(&path, format!("#!/usr/bin/env bash\n{body}")).unwrap();
+    let mut permissions = fs::metadata(&path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&path, permissions).unwrap();
+    path
 }

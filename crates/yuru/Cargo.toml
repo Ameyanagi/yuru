@@ -1,10 +1,14 @@
 [package]
-name = "yomi-cli"
+name = "yuru"
 version.workspace = true
 edition.workspace = true
+repository.workspace = true
+description = "A fast phonetic fuzzy finder for the shell"
+keywords = ["fuzzy", "finder", "phonetic", "shell"]
+categories = ["command-line-utilities"]
 
 [[bin]]
-name = "yomi"
+name = "yuru"
 path = "src/main.rs"
 
 [dependencies]
@@ -13,10 +17,10 @@ clap.workspace = true
 regex.workspace = true
 shlex.workspace = true
 walkdir.workspace = true
-yomi-core.workspace = true
-yomi-ja.workspace = true
-yomi-tui.workspace = true
-yomi-zh.workspace = true
+yuru-core.workspace = true
+yuru-ja.workspace = true
+yuru-tui.workspace = true
+yuru-zh.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

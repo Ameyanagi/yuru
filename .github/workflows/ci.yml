@@ -45,6 +45,6 @@ jobs:
         run: |
           $null = [scriptblock]::Create((Get-Content -Raw install.ps1))
           $script = ""
-          cargo run --quiet -p yomi-cli -- --powershell |
+          cargo run --quiet -p yuru -- --powershell |
             ForEach-Object { $script += "$_`n" }
           $null = [scriptblock]::Create($script)
