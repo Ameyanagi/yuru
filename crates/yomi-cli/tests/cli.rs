@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
+use std::path::MAIN_SEPARATOR;
 
 const FIXTURE: &str = include_str!("fixtures/mixed_paths.txt");
 
@@ -186,7 +187,7 @@ fn cli_walks_files_when_explicit_walker_and_stdin_is_empty() {
         .args(["--filter", "beta", "--walker", "file,follow,hidden"])
         .assert()
         .success()
-        .stdout(predicate::eq("nested/beta.log\n"));
+        .stdout(predicate::eq(format!("nested{MAIN_SEPARATOR}beta.log\n")));
 }
 
 #[test]
