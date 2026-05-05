@@ -171,6 +171,30 @@ jobs:
             grep -Eiq "already (uploaded|published|exists)|previously uploaded|crate version .* is already uploaded" "$1"
           }
 
+          sleep_for_rate_limit() {
+            retry_after="$(
+              sed -nE 's/.*try again after (.*) and see .*/\1/p' "$1" | tail -n 1
+            )"
+            if [ -z "$retry_after" ]; then
+              return 1
+            fi
+
+            retry_epoch="$(date -u -d "$retry_after" +%s 2>/dev/null || true)"
+            if [ -z "$retry_epoch" ]; then
+              return 1
+            fi
+
+            now_epoch="$(date -u +%s)"
+            sleep_seconds="$((retry_epoch - now_epoch + 15))"
+            if [ "$sleep_seconds" -lt 15 ]; then
+              sleep_seconds=15
+            fi
+
+            echo "crates.io rate limit; sleeping ${sleep_seconds}s until after $retry_after"
+            sleep "$sleep_seconds"
+            return 0
+          }
+
           publish_crate() {
             crate="$1"
             if crate_exists "$crate"; then
@@ -178,7 +202,7 @@ jobs:
               return 0
             fi
 
-            for attempt in 1 2 3 4 5; do
+            for attempt in 1 2 3 4 5 6 7 8; do
               log_file="$(mktemp)"
               if cargo publish -p "$crate" --locked 2>&1 | tee "$log_file"; then
                 rm -f "$log_file"
@@ -189,8 +213,12 @@ jobs:
                 rm -f "$log_file"
                 return 0
               fi
+              if sleep_for_rate_limit "$log_file"; then
+                rm -f "$log_file"
+                continue
+              fi
               rm -f "$log_file"
-              if [ "$attempt" -eq 5 ]; then
+              if [ "$attempt" -eq 8 ]; then
                 echo "failed to publish $crate after $attempt attempts" >&2
                 return 1
               fi
