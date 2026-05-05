@@ -167,16 +167,8 @@ jobs:
             curl -fsS "https://crates.io/api/v1/crates/$1/$VERSION" >/dev/null 2>&1
           }
 
-          wait_for_crate() {
-            crate="$1"
-            for _ in $(seq 1 30); do
-              if crate_exists "$crate"; then
-                return 0
-              fi
-              sleep 10
-            done
-            echo "$crate $VERSION was not visible on crates.io in time" >&2
-            return 1
+          already_published() {
+            grep -Eiq "already (uploaded|published|exists)|previously uploaded|crate version .* is already uploaded" "$1"
           }
 
           publish_crate() {
@@ -187,10 +179,17 @@ jobs:
             fi
 
             for attempt in 1 2 3 4 5; do
-              if cargo publish -p "$crate" --locked; then
-                wait_for_crate "$crate"
+              log_file="$(mktemp)"
+              if cargo publish -p "$crate" --locked 2>&1 | tee "$log_file"; then
+                rm -f "$log_file"
                 return 0
               fi
+              if already_published "$log_file" || crate_exists "$crate"; then
+                echo "$crate $VERSION is already published; continuing"
+                rm -f "$log_file"
+                return 0
+              fi
+              rm -f "$log_file"
               if [ "$attempt" -eq 5 ]; then
                 echo "failed to publish $crate after $attempt attempts" >&2
                 return 1
