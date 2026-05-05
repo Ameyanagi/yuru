@@ -10,21 +10,51 @@ pub struct FieldConfig {
 }
 
 #[derive(Clone, Debug)]
+pub struct InputRecord {
+    pub raw: Vec<u8>,
+    pub display: String,
+}
+
+impl InputRecord {
+    pub fn from_raw(raw: Vec<u8>) -> Self {
+        let display = String::from_utf8_lossy(&raw).into_owned();
+        Self { raw, display }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct InputItem {
+    pub raw: Vec<u8>,
     pub original: String,
     pub display: String,
     pub search_text: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OutputRecord {
+    Raw(Vec<u8>),
+    Text(String),
+}
+
+impl OutputRecord {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Raw(bytes) => bytes,
+            Self::Text(text) => text.as_bytes(),
+        }
+    }
+}
+
 pub fn prepare_items(
-    raw_items: Vec<String>,
+    raw_items: Vec<InputRecord>,
     config: &FieldConfig,
     ansi: bool,
 ) -> Result<Vec<InputItem>> {
     raw_items
         .into_iter()
         .enumerate()
-        .map(|(index, original)| {
+        .map(|(index, record)| {
+            let original = record.display;
             let searchable_original = if ansi {
                 strip_ansi_codes(&original)
             } else {
@@ -58,6 +88,7 @@ pub fn prepare_items(
             };
 
             Ok(InputItem {
+                raw: record.raw,
                 original,
                 display,
                 search_text,
@@ -66,12 +97,17 @@ pub fn prepare_items(
         .collect()
 }
 
-pub fn accept_output(item: &InputItem, config: &FieldConfig, ordinal: usize) -> Result<String> {
+pub fn accept_output(
+    item: &InputItem,
+    config: &FieldConfig,
+    ordinal: usize,
+) -> Result<OutputRecord> {
     if let Some(spec) = &config.accept_nth {
         transform_line(&item.original, spec, config.delimiter.as_deref(), ordinal)
+            .map(OutputRecord::Text)
             .with_context(|| format!("invalid --accept-nth expression: {spec}"))
     } else {
-        Ok(item.original.clone())
+        Ok(OutputRecord::Raw(item.raw.clone()))
     }
 }
 

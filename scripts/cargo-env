@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+  if [ -z "${CC+x}" ] && [ -x /usr/bin/cc ]; then
+    export CC=/usr/bin/cc
+  fi
+
+  if [ -z "${SDKROOT+x}" ] && command -v xcrun >/dev/null 2>&1; then
+    sdkroot=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)
+    if [ -n "$sdkroot" ]; then
+      export SDKROOT=$sdkroot
+    fi
+  fi
+fi

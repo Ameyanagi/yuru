@@ -49,7 +49,7 @@ fn cli_ja_query_tokyo_matches_when_alias_exists() {
 }
 
 #[test]
-fn cli_ja_query_ni_matches_seed_kanji_reading() {
+fn cli_ja_query_ni_matches_lindera_kanji_reading() {
     command()
         .args(["--lang", "ja", "--filter", "ni"])
         .write_stdin("tests/日本語.txt\ntests/日本人の.txt\nplan.md\n")
@@ -90,6 +90,82 @@ fn cli_args_override_yuru_config_file() {
 }
 
 #[test]
+fn cli_reads_toml_config_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(&config, "[defaults]\nlang = \"ja\"\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .args(["--filter", "ni"])
+        .write_stdin("tests/日本語.txt\nplan.md\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("tests/日本語.txt\n"));
+}
+
+#[test]
+fn cli_toml_config_overrides_safe_fzf_default_opts() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(&config, "[defaults]\nlimit = 2\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .env("FZF_DEFAULT_OPTS", "--limit 1")
+        .args(["--filter", "", "--disabled", "--no-sort"])
+        .write_stdin("alpha\nbeta\ngamma\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\nbeta\n"));
+}
+
+#[test]
+fn cli_yuru_default_opts_override_toml_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(&config, "[defaults]\nlimit = 2\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .env("YURU_DEFAULT_OPTS", "--limit 1")
+        .args(["--filter", "", "--disabled", "--no-sort"])
+        .write_stdin("alpha\nbeta\ngamma\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"));
+}
+
+#[test]
+fn cli_safe_fzf_default_opts_drop_unsupported_options() {
+    command()
+        .env(
+            "FZF_DEFAULT_OPTS",
+            "--preview 'cat {}' --definitely-not-a-yuru-option --prompt 'pick> '",
+        )
+        .args(["--filter", "alpha"])
+        .write_stdin("alpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
+fn cli_can_load_all_fzf_default_opts() {
+    command()
+        .env("FZF_DEFAULT_OPTS", "--preview 'cat {}'")
+        .args(["--load-fzf-default-opts", "all", "--filter", "alpha"])
+        .write_stdin("alpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::str::contains(
+            "ignoring unsupported fzf option --preview",
+        ));
+}
+
+#[test]
 fn cli_zh_query_bjdx_matches_beijing_university() {
     command()
         .args(["--lang", "zh", "--query", "bjdx", "--limit", "3"])
@@ -97,6 +173,48 @@ fn cli_zh_query_bjdx_matches_beijing_university() {
         .assert()
         .success()
         .stdout(predicate::str::contains("北京大学.txt"));
+}
+
+#[test]
+fn cli_lang_auto_selects_japanese_for_japanese_locale_and_han_candidates() {
+    command()
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .args(["--lang", "auto", "--filter", "ni"])
+        .write_stdin("tests/日本語.txt\nplan.md\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("tests/日本語.txt\n"));
+}
+
+#[test]
+fn cli_lang_auto_selects_chinese_for_chinese_locale_and_han_candidates() {
+    command()
+        .env("LC_ALL", "zh_CN.UTF-8")
+        .args(["--lang", "auto", "--filter", "bjdx"])
+        .write_stdin("北京大学.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("北京大学.txt\n"));
+}
+
+#[test]
+fn cli_ja_reading_none_disables_lindera_kanji_reading() {
+    command()
+        .args(["--lang", "ja", "--ja-reading", "none", "--filter", "ni"])
+        .write_stdin("tests/日本語.txt\nplan.md\n")
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
+}
+
+#[test]
+fn cli_zh_initials_can_be_disabled_for_exact_initial_query() {
+    command()
+        .args(["--lang", "zh", "--no-zh-initials", "--filter", "'bjdx"])
+        .write_stdin("北京大学.txt\nnotes.txt\n")
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
 }
 
 #[test]
@@ -125,6 +243,26 @@ fn cli_filter_exact_does_not_match_subsequence() {
         .assert()
         .success()
         .stdout(predicate::eq("abc\n"));
+}
+
+#[test]
+fn cli_algo_nucleo_filters_candidates() {
+    command()
+        .args(["--algo", "nucleo", "--filter", "rdme"])
+        .write_stdin("README.md\nCargo.toml\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("README.md\n"));
+}
+
+#[test]
+fn cli_algo_fzf_v2_uses_quality_matcher_path() {
+    command()
+        .args(["--algo", "fzf-v2", "--filter", "rdme"])
+        .write_stdin("README.md\nCargo.toml\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("README.md\n"));
 }
 
 #[test]
@@ -173,6 +311,38 @@ fn cli_read0_print0_tac_tail_no_sort() {
         .assert()
         .success()
         .stdout(predicate::eq("three\0two\0"));
+}
+
+#[test]
+fn cli_preserves_invalid_utf8_bytes_on_default_output() {
+    let output = command()
+        .args(["--filter", "bad", "--no-sort"])
+        .write_stdin(b"bad\xff\nother\n".as_slice())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"bad\xff\n");
+}
+
+#[test]
+fn cli_preserves_invalid_utf8_bytes_with_read0_print0() {
+    let output = command()
+        .args(["--filter", "bad", "--read0", "--print0"])
+        .write_stdin(b"bad\xff\0other\0".as_slice())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"bad\xff\0");
 }
 
 #[test]
@@ -301,6 +471,20 @@ fn cli_walker_skips_broken_symlinks_when_following_links() {
 }
 
 #[test]
+fn cli_walker_respects_gitignore() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+    fs::write(dir.path().join("ignored.txt"), "").unwrap();
+
+    command()
+        .current_dir(dir.path())
+        .args(["--filter", "ignored", "--walker", "file"])
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
+}
+
+#[test]
 fn cli_reads_candidates_from_input_file_without_stdin_pipe() {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("candidates.txt");
@@ -365,6 +549,90 @@ fn cli_prints_bash_shell_integration_without_reading_fzf_opts() {
         .stdout(predicate::str::contains("__yuru_setup_completion__"))
         .stdout(predicate::str::contains("complete -D"))
         .stdout(predicate::str::contains("**<TAB>"));
+}
+
+#[test]
+fn cli_warns_for_parsed_but_unsupported_fzf_options_by_default() {
+    command()
+        .args([
+            "--filter",
+            "alpha",
+            "--preview",
+            "cat {}",
+            "--bind",
+            "ctrl-y:execute-silent(echo {})",
+        ])
+        .write_stdin("alpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::str::contains(
+            "ignoring unsupported fzf option --preview",
+        ))
+        .stderr(predicate::str::contains(
+            "ignoring unsupported fzf option --bind",
+        ));
+}
+
+#[test]
+fn cli_rejects_unsupported_fzf_options_in_strict_mode() {
+    command()
+        .args([
+            "--filter",
+            "alpha",
+            "--preview",
+            "cat {}",
+            "--fzf-compat",
+            "strict",
+        ])
+        .write_stdin("alpha\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "unsupported fzf option(s): --preview",
+        ));
+}
+
+#[test]
+fn cli_can_ignore_unsupported_fzf_options() {
+    command()
+        .args([
+            "--filter",
+            "alpha",
+            "--preview",
+            "cat {}",
+            "--fzf-compat",
+            "ignore",
+        ])
+        .write_stdin("alpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
+fn cli_does_not_warn_for_supported_expect_and_header_options() {
+    command()
+        .args([
+            "--filter", "alpha", "--expect", "ctrl-y", "--header", "Pick one",
+        ])
+        .write_stdin("alpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
+fn cli_does_not_warn_for_supported_bind_subset() {
+    command()
+        .args(["--filter", "alpha", "--bind", "ctrl-x:abort,ctrl-y:accept"])
+        .write_stdin("alpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"))
+        .stderr(predicate::eq(""));
 }
 
 #[test]
@@ -608,6 +876,7 @@ fn command() -> Command {
         .env_remove("YURU_DEFAULT_COMMAND")
         .env_remove("YURU_DEFAULT_OPTS")
         .env_remove("YURU_DEFAULT_OPTS_FILE")
+        .env_remove("YURU_FZF_COMPAT")
         .env("YURU_CONFIG_FILE", "__yuru_test_no_config__")
         .env_remove("XDG_CONFIG_HOME");
     command

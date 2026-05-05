@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
+. ./scripts/cargo-env
+
 ./scripts/check
 
 if [ "${YURU_SKIP_BENCH:-0}" != "1" ]; then

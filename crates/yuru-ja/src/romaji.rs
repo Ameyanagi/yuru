@@ -25,7 +25,7 @@ pub fn romaji_to_kana_candidates(input: &str, max: usize) -> Vec<String> {
         }
 
         if index >= input.len() {
-            push_unique(&mut out, &mut seen, built, max);
+            push_unique_kana(&mut out, &mut seen, built, max);
             if out.len() >= max {
                 break;
             }
@@ -38,7 +38,7 @@ pub fn romaji_to_kana_candidates(input: &str, max: usize) -> Vec<String> {
     }
 
     for special in long_vowel_guess(&input) {
-        push_unique(&mut out, &mut seen, special, max);
+        push_unique_kana(&mut out, &mut seen, special, max);
     }
 
     out
@@ -153,6 +153,18 @@ fn push_unique(out: &mut Vec<String>, seen: &mut HashSet<String>, value: String,
     }
 }
 
+fn push_unique_kana(out: &mut Vec<String>, seen: &mut HashSet<String>, value: String, max: usize) {
+    if contains_kana(&value) {
+        push_unique(out, seen, value, max);
+    }
+}
+
+fn contains_kana(value: &str) -> bool {
+    value
+        .chars()
+        .any(|ch| ('ぁ'..='ゖ').contains(&ch) || ('ァ'..='ヶ').contains(&ch))
+}
+
 fn expand_one(input: &str, index: usize, built: &str) -> Vec<(usize, String)> {
     let rest = &input[index..];
     let mut expanded = Vec::new();
@@ -231,7 +243,11 @@ fn expand_double_consonant(input: &str, index: usize, built: &str) -> Option<(us
 
     let current = bytes[0] as char;
     let next = bytes[1] as char;
-    if current == next && is_consonant(current) && current != 'n' {
+    if current == next
+        && is_consonant(current)
+        && current != 'n'
+        && starts_with_kana_token(&rest[1..])
+    {
         let mut out = built.to_owned();
         out.push('っ');
         Some((index + 1, out))
@@ -242,6 +258,12 @@ fn expand_double_consonant(input: &str, index: usize, built: &str) -> Option<(us
 
 fn is_consonant(ch: char) -> bool {
     ch.is_ascii_alphabetic() && !matches!(ch, 'a' | 'i' | 'u' | 'e' | 'o')
+}
+
+fn starts_with_kana_token(rest: &str) -> bool {
+    [3usize, 2, 1]
+        .into_iter()
+        .any(|len| rest.len() >= len && kana_for_token(&rest[..len]).is_some())
 }
 
 fn long_vowel_guess(input: &str) -> Vec<String> {
@@ -543,6 +565,11 @@ mod tests {
 
         assert!(out.len() <= 4);
         assert_eq!(out.len(), unique.len());
+    }
+
+    #[test]
+    fn impossible_romaji_does_not_emit_identity_variant() {
+        assert!(romaji_to_kana_candidates("zzzzzzzz", 8).is_empty());
     }
 
     #[test]

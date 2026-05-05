@@ -1,6 +1,6 @@
 [package]
 name = "yuru-workspace"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 publish = false
 
@@ -23,7 +23,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 repository = "https://github.com/Ameyanagi/yuru"
 license = "MIT OR Apache-2.0"
@@ -34,6 +34,9 @@ assert_cmd = "2"
 clap = { version = "4.5", features = ["derive"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
+ignore = "0.4"
+lindera = { version = "3.0.7", default-features = false, features = ["embed-ipadic"] }
+nucleo-matcher = "0.3"
 pinyin = "0.10"
 predicates = "3"
 proptest = "1"
@@ -41,12 +44,12 @@ rayon = "1.12"
 regex = "1"
 shlex = "1"
 tempfile = "3"
+toml = "0.8"
 unicode-normalization = "0.1"
-walkdir = "2"
-yuru-core = { path = "crates/yuru-core", version = "0.1.1" }
-yuru-ja = { path = "crates/yuru-ja", version = "0.1.1" }
-yuru-tui = { path = "crates/yuru-tui", version = "0.1.1" }
-yuru-zh = { path = "crates/yuru-zh", version = "0.1.1" }
+yuru-core = { path = "crates/yuru-core", version = "0.1.2" }
+yuru-ja = { path = "crates/yuru-ja", version = "0.1.2" }
+yuru-tui = { path = "crates/yuru-tui", version = "0.1.2" }
+yuru-zh = { path = "crates/yuru-zh", version = "0.1.2" }
 
 [dev-dependencies]
 assert_cmd.workspace = true

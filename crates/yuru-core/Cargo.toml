@@ -9,5 +9,6 @@ keywords = ["fuzzy", "finder", "matching"]
 categories = ["text-processing"]
 
 [dependencies]
+nucleo-matcher.workspace = true
 rayon.workspace = true
 unicode-normalization.workspace = true

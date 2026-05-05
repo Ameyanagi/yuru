@@ -88,6 +88,18 @@ printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamer
 yuru --walker file,dir,follow,hidden --scheme path
 ```
 
+## fzf 호환성과 설정
+
+Yuru는 `--filter`, `--query`, `--read0`, `--print0`, `--nth`, `--with-nth`, `--scheme`, `--walker`, `--expect`와 `accept` / `abort` / `clear-query`용 `--bind` subset을 지원합니다. 아직 지원하지 않는 fzf option은 기본적으로 warning을 출력합니다.
+
+```sh
+yuru --fzf-compat warn
+yuru --fzf-compat strict
+yuru --fzf-compat ignore
+```
+
+`~/.config/yuru/config.toml`에서 `lang = "auto"`, `load_fzf_defaults = "safe"`, `algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`, `[ja] reading = "none" | "lindera"`, `[zh] initials = true` 등을 설정할 수 있습니다. CLI 인자가 가장 높은 우선순위를 가집니다.
+
 ## 개발
 
 ```sh
@@ -106,8 +118,8 @@ version tag 를 push 하면 GitHub Actions 가 macOS, Linux, Windows용 release 
 release workflow 는 tag push 에서만 실행되며, tag 는 crate version 과 일치해야 합니다.
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 ## 라이선스

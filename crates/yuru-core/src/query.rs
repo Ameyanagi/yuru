@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use crate::{KeyKind, LangMode, LanguageBackend, QueryVariantKind};
 
@@ -81,11 +81,16 @@ pub fn dedup_and_limit_variants(
     variants: Vec<QueryVariant>,
     max_query_variants: usize,
 ) -> Vec<QueryVariant> {
-    let mut seen = HashSet::new();
+    let mut seen_coverage_by_text = HashMap::new();
     let mut out = Vec::new();
 
     for variant in variants {
-        if seen.insert(variant.text.clone()) {
+        let coverage = key_kind_coverage(variant.kind);
+        let seen_coverage = seen_coverage_by_text
+            .entry(variant.text.clone())
+            .or_insert(0u16);
+        if coverage & !*seen_coverage != 0 {
+            *seen_coverage |= coverage;
             out.push(variant);
         }
         if out.len() >= max_query_variants {
@@ -94,6 +99,26 @@ pub fn dedup_and_limit_variants(
     }
 
     out
+}
+
+fn key_kind_coverage(kind: QueryVariantKind) -> u16 {
+    const ORIGINAL: u16 = 1 << 0;
+    const NORMALIZED: u16 = 1 << 1;
+    const KANA_READING: u16 = 1 << 2;
+    const ROMAJI_READING: u16 = 1 << 3;
+    const PINYIN_FULL: u16 = 1 << 4;
+    const PINYIN_JOINED: u16 = 1 << 5;
+    const PINYIN_INITIALS: u16 = 1 << 6;
+    const LEARNED_ALIAS: u16 = 1 << 7;
+
+    match kind {
+        QueryVariantKind::Original | QueryVariantKind::Normalized => {
+            ORIGINAL | NORMALIZED | ROMAJI_READING | PINYIN_FULL | PINYIN_JOINED | LEARNED_ALIAS
+        }
+        QueryVariantKind::RomajiToKana => KANA_READING,
+        QueryVariantKind::Pinyin => PINYIN_FULL | PINYIN_JOINED,
+        QueryVariantKind::Initials => PINYIN_INITIALS | LEARNED_ALIAS,
+    }
 }
 
 pub fn key_kind_allowed(variant: &QueryVariant, kind: KeyKind) -> bool {
@@ -153,5 +178,22 @@ mod tests {
         assert!(key_kind_allowed(&variant, KeyKind::PinyinInitials));
         assert!(key_kind_allowed(&variant, KeyKind::LearnedAlias));
         assert!(!key_kind_allowed(&variant, KeyKind::KanaReading));
+    }
+
+    #[test]
+    fn dedup_preserves_same_text_when_it_adds_key_coverage() {
+        let variants = dedup_and_limit_variants(
+            vec![
+                QueryVariant::original("bjdx"),
+                QueryVariant::initials("bjdx"),
+                QueryVariant::pinyin("bjdx"),
+                QueryVariant::initials("bjdx"),
+            ],
+            8,
+        );
+
+        assert_eq!(variants.len(), 2);
+        assert_eq!(variants[0].kind, QueryVariantKind::Original);
+        assert_eq!(variants[1].kind, QueryVariantKind::Initials);
     }
 }

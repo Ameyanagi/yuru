@@ -9,4 +9,5 @@ keywords = ["fuzzy", "japanese", "romaji", "kana"]
 categories = ["text-processing"]
 
 [dependencies]
+lindera.workspace = true
 yuru-core.workspace = true

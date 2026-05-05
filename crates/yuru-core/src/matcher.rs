@@ -1,4 +1,5 @@
 use crate::{query::key_kind_allowed, QueryVariant, SearchKey};
+use nucleo_matcher::{Matcher, Utf32Str};
 
 pub trait MatcherBackend {
     fn score(&mut self, pattern: &str, text: &str) -> Option<i64>;
@@ -10,6 +11,13 @@ pub struct GreedyMatcher;
 #[derive(Clone, Debug, Default)]
 pub struct ExactMatcher;
 
+#[derive(Clone, Debug, Default)]
+pub struct NucleoMatcher {
+    matcher: Matcher,
+    pattern_buf: Vec<char>,
+    text_buf: Vec<char>,
+}
+
 impl MatcherBackend for GreedyMatcher {
     fn score(&mut self, pattern: &str, text: &str) -> Option<i64> {
         score_text(pattern, text)
@@ -19,6 +27,14 @@ impl MatcherBackend for GreedyMatcher {
 impl MatcherBackend for ExactMatcher {
     fn score(&mut self, pattern: &str, text: &str) -> Option<i64> {
         score_exact_text(pattern, text)
+    }
+}
+
+impl MatcherBackend for NucleoMatcher {
+    fn score(&mut self, pattern: &str, text: &str) -> Option<i64> {
+        let pattern = Utf32Str::new(pattern, &mut self.pattern_buf);
+        let text = Utf32Str::new(text, &mut self.text_buf);
+        self.matcher.fuzzy_match(text, pattern).map(i64::from)
     }
 }
 
@@ -50,29 +66,49 @@ pub fn score_text(pattern: &str, text: &str) -> Option<i64> {
         return score_ascii_text(pattern, text);
     }
 
+    score_unicode_text(pattern, text)
+}
+
+fn score_unicode_text(pattern: &str, text: &str) -> Option<i64> {
     let pattern_chars: Vec<char> = pattern.chars().collect();
-    let text_chars: Vec<char> = text.chars().collect();
-
-    if pattern_chars.len() > text_chars.len() {
-        return None;
-    }
-
-    let mut matched_positions = Vec::with_capacity(pattern_chars.len());
+    let pattern_len = pattern_chars.len();
     let mut pattern_index = 0usize;
+    let mut first = None;
+    let mut last = 0usize;
+    let mut previous_match = None;
+    let mut previous_char = None;
+    let mut consecutive = 0i64;
+    let mut boundaries = 0i64;
+    let mut text_len = 0usize;
+    let mut chars = text.chars().enumerate();
 
-    for (text_index, text_ch) in text_chars.iter().enumerate() {
-        if Some(text_ch) == pattern_chars.get(pattern_index) {
-            matched_positions.push(text_index);
+    for (text_index, text_ch) in chars.by_ref() {
+        text_len = text_index + 1;
+        if pattern_chars.get(pattern_index) == Some(&text_ch) {
+            if first.is_none() {
+                first = Some(text_index);
+            }
+            if previous_match.is_some_and(|previous| text_index == previous + 1) {
+                consecutive += 1;
+            }
+            if is_boundary_after(previous_char) {
+                boundaries += 1;
+            }
+
+            previous_match = Some(text_index);
+            last = text_index;
             pattern_index += 1;
-            if pattern_index == pattern_chars.len() {
+            if pattern_index == pattern_len {
                 break;
             }
         }
+        previous_char = Some(text_ch);
     }
 
-    if pattern_index != pattern_chars.len() {
+    if pattern_index != pattern_len {
         return None;
     }
+    text_len += chars.count();
 
     let exact_bonus = if pattern == text {
         10_000
@@ -84,23 +120,12 @@ pub fn score_text(pattern: &str, text: &str) -> Option<i64> {
         0
     };
 
-    let consecutive_bonus = matched_positions
-        .windows(2)
-        .filter(|window| window[1] == window[0] + 1)
-        .count() as i64
-        * 75;
-    let boundary_bonus = matched_positions
-        .iter()
-        .filter(|&&position| is_boundary(&text_chars, position))
-        .count() as i64
-        * 150;
-    let first = *matched_positions.first().unwrap_or(&0);
-    let last = *matched_positions.last().unwrap_or(&first);
+    let first = first.unwrap_or(0);
     let span = (last - first + 1) as i64;
-    let gaps = span - pattern_chars.len() as i64;
-    let text_len = text_chars.len() as i64;
+    let gaps = span - pattern_len as i64;
+    let text_len = text_len as i64;
 
-    Some(1000 + exact_bonus + consecutive_bonus + boundary_bonus - gaps * 12 - span * 3 - text_len)
+    Some(1000 + exact_bonus + consecutive * 75 + boundaries * 150 - gaps * 12 - span * 3 - text_len)
 }
 
 pub fn match_positions(pattern: &str, text: &str, case_sensitive: bool) -> Option<MatchPositions> {
@@ -330,6 +355,10 @@ fn is_ascii_boundary(text: &[u8], position: usize) -> bool {
     position == 0 || matches!(text[position - 1], b'/' | b'\\' | b'_' | b'-' | b' ' | b'.')
 }
 
+fn is_boundary_after(previous_char: Option<char>) -> bool {
+    previous_char.is_none_or(|ch| matches!(ch, '/' | '\\' | '_' | '-' | ' ' | '.'))
+}
+
 #[cfg(test)]
 fn score_unicode_text_for_test(pattern: &str, text: &str) -> Option<i64> {
     if pattern.is_empty() {
@@ -506,5 +535,13 @@ mod tests {
         .unwrap();
 
         assert!(alias >= reading);
+    }
+
+    #[test]
+    fn nucleo_matcher_scores_subsequence() {
+        let mut matcher = NucleoMatcher::default();
+
+        assert!(matcher.score("rdme", "README.md").is_some());
+        assert!(matcher.score("zz", "README.md").is_none());
     }
 }

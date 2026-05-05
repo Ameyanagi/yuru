@@ -2,6 +2,7 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+. ./scripts/cargo-env
 
 cargo bench --bench search
 

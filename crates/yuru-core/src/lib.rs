@@ -13,10 +13,10 @@ use std::str::FromStr;
 pub use candidate::{
     build_candidate, build_index, dedup_and_limit_keys, Candidate, SearchKey, SourceSpan,
 };
-pub use config::{SearchConfig, Tiebreak};
+pub use config::{MatcherAlgo, SearchConfig, Tiebreak};
 pub use matcher::{
     match_positions, score_exact_text, score_text, ExactMatcher, GreedyMatcher, MatchPositions,
-    MatcherBackend,
+    MatcherBackend, NucleoMatcher,
 };
 pub use query::{
     base_query_variants, dedup_and_limit_variants, key_kind_allowed, PlainBackend, QueryVariant,

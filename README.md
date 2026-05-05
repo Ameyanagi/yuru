@@ -118,6 +118,63 @@ Japanese romaji:
 printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamera
 ```
 
+Auto language mode keeps one backend active per run:
+
+```sh
+printf "北京大学.txt\n" | LANG=zh_CN.UTF-8 yuru --lang auto --filter bjdx
+```
+
+## fzf Compatibility
+
+Yuru supports common fzf scripting/search options such as `--query`,
+`--filter`, `--select-1`, `--exit-0`, `--print-query`, `--read0`,
+`--print0`, `--nth`, `--with-nth`, `--accept-nth`, `--scheme`, `--walker`,
+`--expect`, and a small `--bind` subset (`accept`, `abort`, `clear-query`).
+Unsupported parsed fzf options warn by default:
+
+```sh
+yuru --fzf-compat warn   # default
+yuru --fzf-compat strict # fail on unsupported parsed options
+yuru --fzf-compat ignore # keep quiet
+```
+
+`FZF_DEFAULT_OPTS` is loaded in safe mode by default so UI-heavy fzf options do
+not accidentally break Yuru:
+
+```sh
+yuru --load-fzf-default-opts never|safe|all
+```
+
+## Configuration
+
+Yuru reads `~/.config/yuru/config.toml` after safe fzf defaults and before
+`YURU_DEFAULT_OPTS` and CLI arguments.
+
+```toml
+[defaults]
+lang = "auto"          # plain | ja | zh | auto
+scheme = "path"        # default | path | history
+case = "smart"         # smart | ignore | respect
+limit = 200
+load_fzf_defaults = "safe"
+fzf_compat = "warn"
+
+[matching]
+algo = "greedy"        # greedy | fzf-v1 | fzf-v2 | nucleo
+max_query_variants = 8
+max_search_keys_per_candidate = 8
+max_total_key_bytes_per_candidate = 1024
+
+[ja]
+reading = "lindera"    # none | lindera
+
+[zh]
+pinyin = true
+initials = true
+polyphone = "common"   # none | common | phrase
+script = "auto"        # auto | hans | hant
+```
+
 ## Development
 
 Install local git hooks:
@@ -156,8 +213,8 @@ Create a version tag to publish a release and crates.io packages. The release
 workflow only runs on tags, and the tag must match the crate version.
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 ## License

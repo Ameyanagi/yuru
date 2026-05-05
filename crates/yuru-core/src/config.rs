@@ -10,7 +10,16 @@ pub struct SearchConfig {
     pub case_sensitive: bool,
     pub disabled: bool,
     pub no_sort: bool,
+    pub matcher_algo: MatcherAlgo,
     pub tiebreaks: Vec<Tiebreak>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MatcherAlgo {
+    Greedy,
+    FzfV1,
+    FzfV2,
+    Nucleo,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,6 +45,7 @@ impl Default for SearchConfig {
             case_sensitive: false,
             disabled: false,
             no_sort: false,
+            matcher_algo: MatcherAlgo::Greedy,
             tiebreaks: vec![Tiebreak::Length, Tiebreak::Index],
         }
     }

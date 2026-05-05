@@ -179,8 +179,10 @@ fn match_exact_term(
         }
 
         let haystack = comparable(&key.text, config.case_sensitive);
-        let score = exact_score(term.mode, &needle, &haystack)?;
-        let score = score + i64::from(key.weight);
+        let Some(base_score) = exact_score(term.mode, &needle, &haystack) else {
+            continue;
+        };
+        let score = base_score + i64::from(key.weight);
         if best.as_ref().is_none_or(|(current, _, _)| score > *current) {
             best = Some((score, key.kind, key_index as u32));
         }
@@ -367,7 +369,10 @@ fn split_terms(query: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{build_index, query::PlainBackend, rank::search, GreedyMatcher, SearchConfig};
+    use crate::{
+        build_index, query::PlainBackend, rank::search, Candidate, GreedyMatcher, SearchConfig,
+        SearchKey,
+    };
 
     use super::*;
 
@@ -423,5 +428,33 @@ mod tests {
         assert!(
             score_candidate("", &index[0], &PlainBackend, &mut matcher, &cfg, &mut stats).is_some()
         );
+    }
+
+    #[test]
+    fn exact_term_checks_later_phonetic_keys() {
+        let cfg = SearchConfig::default();
+        let candidate = Candidate {
+            id: 0,
+            display: "北京大学".to_string(),
+            keys: vec![
+                SearchKey::original("北京大学"),
+                SearchKey::normalized("北京大学"),
+                SearchKey::pinyin_initials("bjdx"),
+            ],
+        };
+        let mut matcher = GreedyMatcher;
+        let mut stats = SearchStats::default();
+
+        let scored = score_candidate(
+            "'bjdx",
+            &candidate,
+            &PlainBackend,
+            &mut matcher,
+            &cfg,
+            &mut stats,
+        );
+
+        assert!(scored.is_some());
+        assert_eq!(scored.unwrap().key_index, 2);
     }
 }

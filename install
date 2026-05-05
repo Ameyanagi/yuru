@@ -24,7 +24,7 @@ Options:
   --bin-dir DIR         Install binary into DIR (default: ~/.local/bin)
   --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yuru)
   --version TAG         Release tag to download (default: latest)
-  --default-lang LANG   Configure default language: ask, plain, ja, zh, none (default: ask)
+  --default-lang LANG   Configure default language: ask, plain, ja, zh, auto, none (default: ask)
   --no-config           Do not create or update the user config file
   --from-source         Build yuru from the current checkout with cargo
   -h, --help            Show this help
@@ -118,18 +118,18 @@ config_file() {
   if [ -n "${YURU_CONFIG_FILE:-}" ]; then
     printf '%s' "$YURU_CONFIG_FILE"
   elif [ -n "${XDG_CONFIG_HOME:-}" ]; then
-    printf '%s/yuru/config' "$XDG_CONFIG_HOME"
+    printf '%s/yuru/config.toml' "$XDG_CONFIG_HOME"
   else
-    printf '%s/.config/yuru/config' "$HOME"
+    printf '%s/.config/yuru/config.toml' "$HOME"
   fi
 }
 
 validate_default_lang() {
   case "$1" in
-    ask | plain | ja | zh | none) ;;
+    ask | plain | ja | zh | auto | none) ;;
     *)
       echo "install: unsupported default language: $1" >&2
-      echo "install: expected one of: ask, plain, ja, zh, none" >&2
+      echo "install: expected one of: ask, plain, ja, zh, auto, none" >&2
       exit 2
       ;;
   esac
@@ -147,16 +147,16 @@ prompt_default_lang() {
   fi
 
   while :; do
-    printf 'Choose Yuru default language [plain/ja/zh/none] (plain): ' >/dev/tty
+    printf 'Choose Yuru default language [plain/ja/zh/auto/none] (plain): ' >/dev/tty
     IFS= read -r answer </dev/tty || answer=""
     answer="${answer:-plain}"
     case "$answer" in
-      plain | ja | zh | none)
+      plain | ja | zh | auto | none)
         printf '%s' "$answer"
         return
         ;;
       *)
-        printf 'Please enter plain, ja, zh, or none.\n' >/dev/tty
+        printf 'Please enter plain, ja, zh, auto, or none.\n' >/dev/tty
         ;;
     esac
   done
@@ -175,13 +175,47 @@ install_config() {
   tmp="$file.tmp.$$"
 
   if [ -f "$file" ]; then
-    sed '/^[[:space:]]*--lang\([=[:space:]]\|$\)/d' "$file" >"$tmp"
+    awk -v selected="$selected_lang" '
+      BEGIN { in_defaults = 0; saw_defaults = 0; wrote_lang = 0 }
+      function write_lang() {
+        if (selected != "none" && wrote_lang == 0) {
+          printf "lang = \"%s\"\n", selected
+          wrote_lang = 1
+        }
+      }
+      /^[[:space:]]*\[defaults\][[:space:]]*$/ {
+        print
+        in_defaults = 1
+        saw_defaults = 1
+        write_lang()
+        next
+      }
+      /^[[:space:]]*\[/ {
+        in_defaults = 0
+        print
+        next
+      }
+      in_defaults && /^[[:space:]]*lang[[:space:]]*=/ { next }
+      { print }
+      END {
+        if (saw_defaults == 0) {
+          print ""
+          print "[defaults]"
+          write_lang()
+          print "load_fzf_defaults = \"safe\""
+          print "fzf_compat = \"warn\""
+        }
+      }
+    ' "$file" >"$tmp"
   else
-    : >"$tmp"
-  fi
-
-  if [ "$selected_lang" != "none" ]; then
-    printf -- '--lang %s\n' "$selected_lang" >>"$tmp"
+    {
+      printf '[defaults]\n'
+      if [ "$selected_lang" != "none" ]; then
+        printf 'lang = "%s"\n' "$selected_lang"
+      fi
+      printf 'load_fzf_defaults = "safe"\n'
+      printf 'fzf_compat = "warn"\n'
+    } >"$tmp"
   fi
 
   mv "$tmp" "$file"

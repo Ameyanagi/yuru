@@ -7,8 +7,30 @@ use yuru_core::{
     LangMode, LanguageBackend, QueryVariant, SearchKey, SourceSpan,
 };
 
-#[derive(Clone, Debug, Default)]
-pub struct JapaneseBackend;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JapaneseReadingMode {
+    None,
+    Lindera,
+}
+
+#[derive(Clone, Debug)]
+pub struct JapaneseBackend {
+    reading: JapaneseReadingMode,
+}
+
+impl JapaneseBackend {
+    pub fn new(reading: JapaneseReadingMode) -> Self {
+        Self { reading }
+    }
+}
+
+impl Default for JapaneseBackend {
+    fn default() -> Self {
+        Self {
+            reading: JapaneseReadingMode::Lindera,
+        }
+    }
+}
 
 impl LanguageBackend for JapaneseBackend {
     fn mode(&self) -> LangMode {
@@ -22,10 +44,12 @@ impl LanguageBackend for JapaneseBackend {
             let (hira, source_map) = hiragana_with_source_map(text);
             push_reading_keys_with_map(&mut keys, &hira, &source_map);
         }
-        for reading in reading::kanji_reading_candidates_with_sources(text, 8) {
-            let (hira, source_map) =
-                katakana_to_hiragana_with_source_map(&reading.text, &reading.source_map);
-            push_reading_keys_with_map(&mut keys, &hira, &source_map);
+        if self.reading != JapaneseReadingMode::None {
+            for reading in reading::kanji_reading_candidates_with_sources(text, 8) {
+                let (hira, source_map) =
+                    katakana_to_hiragana_with_source_map(&reading.text, &reading.source_map);
+                push_reading_keys_with_map(&mut keys, &hira, &source_map);
+            }
         }
 
         keys
@@ -95,7 +119,8 @@ mod tests {
 
     #[test]
     fn japanese_mode_does_not_build_pinyin_keys() {
-        let cand = build_candidate(0, "東京駅", &JapaneseBackend, &SearchConfig::default());
+        let backend = JapaneseBackend::default();
+        let cand = build_candidate(0, "東京駅", &backend, &SearchConfig::default());
         assert!(!cand
             .keys
             .iter()
@@ -104,7 +129,8 @@ mod tests {
 
     #[test]
     fn japanese_mode_builds_kana_keys_for_katakana() {
-        let cand = build_candidate(0, "カメラ.txt", &JapaneseBackend, &SearchConfig::default());
+        let backend = JapaneseBackend::default();
+        let cand = build_candidate(0, "カメラ.txt", &backend, &SearchConfig::default());
         assert!(cand
             .keys
             .iter()
@@ -120,11 +146,11 @@ mod tests {
     }
 
     #[test]
-    fn japanese_mode_builds_seed_reading_keys_for_common_kanji() {
+    fn japanese_mode_builds_lindera_reading_keys_for_common_kanji() {
         let cand = build_candidate(
             0,
             "tests/日本語.txt",
-            &JapaneseBackend,
+            &JapaneseBackend::default(),
             &SearchConfig::default(),
         );
 
@@ -143,13 +169,16 @@ mod tests {
         let cand = build_candidate(
             0,
             "tests/日本人の.txt",
-            &JapaneseBackend,
+            &JapaneseBackend::default(),
             &SearchConfig::default(),
         );
         let key = cand
             .keys
             .iter()
-            .find(|key| key.kind == KeyKind::RomajiReading && key.text.contains("nihonjinno"))
+            .find(|key| {
+                key.kind == KeyKind::RomajiReading
+                    && (key.text.contains("nihonjinno") || key.text.contains("nipponjinno"))
+            })
             .unwrap();
         let ni_index = key.text.chars().position(|ch| ch == 'n').unwrap();
         let no_index = key.text.rfind("no").unwrap();
@@ -161,5 +190,16 @@ mod tests {
             source_map[no_char_index],
             Some(SourceSpan { start: 9, end: 10 })
         );
+    }
+
+    #[test]
+    fn japanese_reading_none_skips_lindera_kanji_readings() {
+        let backend = JapaneseBackend::new(JapaneseReadingMode::None);
+        let cand = build_candidate(0, "tests/日本語.txt", &backend, &SearchConfig::default());
+
+        assert!(!cand
+            .keys
+            .iter()
+            .any(|k| k.kind == KeyKind::RomajiReading && k.text.contains("nihongo")));
     }
 }

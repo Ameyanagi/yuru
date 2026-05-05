@@ -3,7 +3,7 @@ param(
     [string]$BinDir,
     [string]$Repo = "Ameyanagi/yuru",
     [string]$Version = "latest",
-    [ValidateSet("ask", "plain", "ja", "zh", "none")]
+    [ValidateSet("ask", "plain", "ja", "zh", "auto", "none")]
     [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ask" }),
     [switch]$NoConfig,
     [switch]$FromSource
@@ -22,8 +22,8 @@ function Write-YuruInstallLog {
 
 function Get-YuruConfigPath {
     if ($env:YURU_CONFIG_FILE) { return $env:YURU_CONFIG_FILE }
-    if ($env:APPDATA) { return (Join-Path $env:APPDATA "yuru\config") }
-    return (Join-Path $HOME ".config\yuru\config")
+    if ($env:APPDATA) { return (Join-Path $env:APPDATA "yuru\config.toml") }
+    return (Join-Path $HOME ".config\yuru\config.toml")
 }
 
 function Read-YuruDefaultLanguage {
@@ -31,14 +31,15 @@ function Read-YuruDefaultLanguage {
     if (-not [Environment]::UserInteractive) { return "none" }
 
     while ($true) {
-        $answer = Read-Host "Choose Yuru default language [plain/ja/zh/none] (plain)"
+        $answer = Read-Host "Choose Yuru default language [plain/ja/zh/auto/none] (plain)"
         if ([string]::IsNullOrWhiteSpace($answer)) { return "plain" }
         switch ($answer.Trim()) {
             "plain" { return "plain" }
             "ja" { return "ja" }
             "zh" { return "zh" }
+            "auto" { return "auto" }
             "none" { return "none" }
-            default { Write-Host "Please enter plain, ja, zh, or none." }
+            default { Write-Host "Please enter plain, ja, zh, auto, or none." }
         }
     }
 }
@@ -58,10 +59,48 @@ function Install-YuruConfig {
 
     $lines = @()
     if (Test-Path -LiteralPath $configPath) {
-        $lines = @(Get-Content -LiteralPath $configPath | Where-Object { $_ -notmatch '^\s*--lang(\s|=|$)' })
-    }
-    if ($selectedLang -ne "none") {
-        $lines += "--lang $selectedLang"
+        $sourceLines = @(Get-Content -LiteralPath $configPath)
+        $inDefaults = $false
+        $sawDefaults = $false
+        $wroteLang = $false
+        foreach ($line in $sourceLines) {
+            if ($line -match '^\s*\[defaults\]\s*$') {
+                $lines += $line
+                $inDefaults = $true
+                $sawDefaults = $true
+                if ($selectedLang -ne "none") {
+                    $lines += "lang = `"$selectedLang`""
+                    $wroteLang = $true
+                }
+                continue
+            }
+            if ($line -match '^\s*\[') {
+                $inDefaults = $false
+                $lines += $line
+                continue
+            }
+            if ($inDefaults -and $line -match '^\s*lang\s*=') {
+                continue
+            }
+            $lines += $line
+        }
+        if (-not $sawDefaults) {
+            $lines += ""
+            $lines += "[defaults]"
+            if ($selectedLang -ne "none") {
+                $lines += "lang = `"$selectedLang`""
+                $wroteLang = $true
+            }
+            $lines += "load_fzf_defaults = `"safe`""
+            $lines += "fzf_compat = `"warn`""
+        }
+    } else {
+        $lines += "[defaults]"
+        if ($selectedLang -ne "none") {
+            $lines += "lang = `"$selectedLang`""
+        }
+        $lines += "load_fzf_defaults = `"safe`""
+        $lines += "fzf_compat = `"warn`""
     }
     Set-Content -LiteralPath $configPath -Value $lines
 

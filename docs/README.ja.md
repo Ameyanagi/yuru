@@ -88,6 +88,18 @@ printf "北京大学.txt\nnotes.txt\n" | yuru --lang zh --filter bjdx
 yuru --walker file,dir,follow,hidden --scheme path
 ```
 
+## fzf 互換と設定
+
+Yuru は `--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect` と、`accept` / `abort` / `clear-query` の `--bind` subset をサポートします。未対応の fzf option は既定で warning になります。
+
+```sh
+yuru --fzf-compat warn
+yuru --fzf-compat strict
+yuru --fzf-compat ignore
+```
+
+`~/.config/yuru/config.toml` では `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[zh] initials = true` などを設定できます。CLI 引数が最優先です。
+
 ## 開発
 
 ```sh
@@ -106,8 +118,8 @@ version tag を push すると GitHub Actions が macOS、Linux、Windows 向け
 release workflow は tag push でだけ動き、tag は crate version と一致している必要があります。
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 ## ライセンス

@@ -1,7 +1,7 @@
 use crate::{
     dedup_and_limit_variants, fzf_query, key_kind_allowed, score_exact_text, score_text,
-    ExactMatcher, GreedyMatcher, LanguageBackend, MatcherBackend, QueryVariant, QueryVariantKind,
-    SearchConfig, SearchStats, Tiebreak,
+    ExactMatcher, GreedyMatcher, LanguageBackend, MatcherAlgo, MatcherBackend, NucleoMatcher,
+    QueryVariant, QueryVariantKind, SearchConfig, SearchStats, Tiebreak,
 };
 use rayon::prelude::*;
 use std::cmp::Ordering;
@@ -44,13 +44,18 @@ pub fn search(
     config: &SearchConfig,
 ) -> Vec<ScoredCandidate> {
     if config.disabled || config.extended && fzf_query::requires_extended_search(query) {
-        if config.exact {
-            let mut matcher = ExactMatcher;
-            return search_with_stats(query, candidates, backend, &mut matcher, config).0;
-        }
+        let mut matcher = matcher_for_config(config);
+        return search_with_stats(query, candidates, backend, matcher.as_mut(), config).0;
+    }
 
-        let mut matcher = GreedyMatcher;
-        return search_with_stats(query, candidates, backend, &mut matcher, config).0;
+    if !config.exact
+        && matches!(
+            config.matcher_algo,
+            MatcherAlgo::FzfV2 | MatcherAlgo::Nucleo
+        )
+    {
+        let mut matcher = matcher_for_config(config);
+        return search_with_stats(query, candidates, backend, matcher.as_mut(), config).0;
     }
 
     let score_mode = if config.exact {
@@ -59,6 +64,17 @@ pub fn search(
         ScoreMode::Greedy
     };
     search_standard(query, candidates, backend, score_mode, config).0
+}
+
+fn matcher_for_config(config: &SearchConfig) -> Box<dyn MatcherBackend> {
+    if config.exact {
+        return Box::new(ExactMatcher);
+    }
+
+    match config.matcher_algo {
+        MatcherAlgo::Greedy | MatcherAlgo::FzfV1 => Box::new(GreedyMatcher),
+        MatcherAlgo::FzfV2 | MatcherAlgo::Nucleo => Box::new(NucleoMatcher::default()),
+    }
 }
 
 fn search_standard(

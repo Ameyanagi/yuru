@@ -9,15 +9,15 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
-use fields::{accept_output, prepare_items, FieldConfig, InputItem};
+use fields::{accept_output, prepare_items, FieldConfig, InputItem, InputRecord, OutputRecord};
+use ignore::{DirEntry, WalkBuilder};
 use shell::ShellKind;
-use walkdir::{DirEntry, WalkDir};
 use yuru_core::{
     build_index, dedup_and_limit_keys, dedup_and_limit_variants, search, LanguageBackend,
-    PlainBackend, SearchConfig, SearchKey, Tiebreak,
+    MatcherAlgo, PlainBackend, SearchConfig, SearchKey, Tiebreak,
 };
-use yuru_ja::JapaneseBackend;
-use yuru_zh::ChineseBackend;
+use yuru_ja::{JapaneseBackend, JapaneseReadingMode};
+use yuru_zh::{ChineseBackend, ChinesePolyphoneMode, ChineseScriptMode};
 
 const DEFAULT_WALKER: &str = "file,follow,hidden";
 const DEFAULT_WALKER_ROOT: &str = ".";
@@ -29,6 +29,7 @@ enum LangArg {
     Plain,
     Ja,
     Zh,
+    Auto,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -36,6 +37,48 @@ enum SchemeArg {
     Default,
     Path,
     History,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum FzfCompatArg {
+    Strict,
+    Warn,
+    Ignore,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum LoadFzfDefaultOptsArg {
+    Never,
+    Safe,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum JaReadingArg {
+    None,
+    Lindera,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum ZhPolyphoneArg {
+    None,
+    Common,
+    Phrase,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum ZhScriptArg {
+    Auto,
+    Hans,
+    Hant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum AlgoArg {
+    Greedy,
+    FzfV1,
+    FzfV2,
+    Nucleo,
 }
 
 #[derive(Debug, Parser)]
@@ -48,6 +91,27 @@ enum SchemeArg {
 struct Args {
     #[arg(long, value_enum, default_value_t = LangArg::Plain)]
     lang: LangArg,
+
+    #[arg(long = "ja-reading", value_enum, default_value_t = JaReadingArg::Lindera)]
+    ja_reading: JaReadingArg,
+
+    #[arg(long = "zh-pinyin", default_value_t = true)]
+    zh_pinyin: bool,
+
+    #[arg(long = "no-zh-pinyin")]
+    no_zh_pinyin: bool,
+
+    #[arg(long = "zh-initials", default_value_t = true)]
+    zh_initials: bool,
+
+    #[arg(long = "no-zh-initials")]
+    no_zh_initials: bool,
+
+    #[arg(long = "zh-polyphone", value_enum, default_value_t = ZhPolyphoneArg::Common)]
+    zh_polyphone: ZhPolyphoneArg,
+
+    #[arg(long = "zh-script", value_enum, default_value_t = ZhScriptArg::Auto)]
+    zh_script: ZhScriptArg,
 
     #[arg(short = 'q', long)]
     query: Option<String>,
@@ -139,8 +203,14 @@ struct Args {
     #[arg(short = 'd', long)]
     delimiter: Option<String>,
 
-    #[arg(long)]
-    algo: Option<String>,
+    #[arg(long, value_enum, default_value_t = AlgoArg::Greedy)]
+    algo: AlgoArg,
+
+    #[arg(long = "fzf-compat", value_enum)]
+    fzf_compat: Option<FzfCompatArg>,
+
+    #[arg(long = "load-fzf-default-opts", value_enum, default_value_t = LoadFzfDefaultOptsArg::Safe)]
+    load_fzf_default_opts: LoadFzfDefaultOptsArg,
 
     #[arg(short = 'm', long)]
     multi: bool,
@@ -233,7 +303,7 @@ fn run() -> Result<ExitCode> {
         print!("{}", shell::script(kind));
         return Ok(ExitCode::SUCCESS);
     }
-    let backend = create_backend(args.lang);
+    enforce_fzf_compat(&args)?;
     let query = effective_query(&args);
     let interactive = should_run_interactive(&args);
     let limit = args
@@ -251,12 +321,9 @@ fn run() -> Result<ExitCode> {
         case_sensitive: case_sensitive(&query, &args),
         disabled: args.disabled,
         no_sort: args.no_sort,
+        matcher_algo: matcher_algo(args.algo),
         tiebreaks,
     };
-
-    if args.debug_query_variants {
-        print_query_variants(&query, backend.as_ref(), &config, args.print0)?;
-    }
 
     let mut raw_items =
         read_input_candidates(&args, walker_requested).context("failed to load candidates")?;
@@ -275,6 +342,10 @@ fn run() -> Result<ExitCode> {
         accept_nth: args.accept_nth.clone(),
     };
     let items = prepare_items(raw_items, &field_config, args.ansi)?;
+    let backend = create_backend(&args, &query, &items);
+    if args.debug_query_variants {
+        print_query_variants(&query, backend.as_ref(), &config, args.print0)?;
+    }
     let mut index = build_index(
         items.iter().map(|item| item.search_text.clone()),
         backend.as_ref(),
@@ -298,7 +369,7 @@ fn run() -> Result<ExitCode> {
 
     let mut output = Vec::new();
     if args.print_query {
-        output.push(query.clone());
+        output.push(OutputRecord::Text(query.clone()));
     }
 
     if args.select_1 && results.len() == 1 {
@@ -322,12 +393,101 @@ fn run() -> Result<ExitCode> {
     }
 }
 
-fn create_backend(lang: LangArg) -> Box<dyn LanguageBackend> {
+fn create_backend(args: &Args, query: &str, items: &[InputItem]) -> Box<dyn LanguageBackend> {
+    let lang = match args.lang {
+        LangArg::Auto => detect_auto_lang(query, items),
+        lang => lang,
+    };
+
     match lang {
         LangArg::Plain => Box::new(PlainBackend),
-        LangArg::Ja => Box::new(JapaneseBackend),
-        LangArg::Zh => Box::new(ChineseBackend),
+        LangArg::Ja => Box::new(JapaneseBackend::new(japanese_reading_mode(args.ja_reading))),
+        LangArg::Zh => Box::new(ChineseBackend::new(
+            args.zh_pinyin && !args.no_zh_pinyin,
+            args.zh_initials && !args.no_zh_initials,
+            chinese_polyphone_mode(args.zh_polyphone),
+            chinese_script_mode(args.zh_script),
+        )),
+        LangArg::Auto => unreachable!("auto language mode is resolved before backend creation"),
     }
+}
+
+fn japanese_reading_mode(value: JaReadingArg) -> JapaneseReadingMode {
+    match value {
+        JaReadingArg::None => JapaneseReadingMode::None,
+        JaReadingArg::Lindera => JapaneseReadingMode::Lindera,
+    }
+}
+
+fn chinese_polyphone_mode(value: ZhPolyphoneArg) -> ChinesePolyphoneMode {
+    match value {
+        ZhPolyphoneArg::None => ChinesePolyphoneMode::None,
+        ZhPolyphoneArg::Common => ChinesePolyphoneMode::Common,
+        ZhPolyphoneArg::Phrase => ChinesePolyphoneMode::Phrase,
+    }
+}
+
+fn chinese_script_mode(value: ZhScriptArg) -> ChineseScriptMode {
+    match value {
+        ZhScriptArg::Auto => ChineseScriptMode::Auto,
+        ZhScriptArg::Hans => ChineseScriptMode::Hans,
+        ZhScriptArg::Hant => ChineseScriptMode::Hant,
+    }
+}
+
+fn matcher_algo(value: AlgoArg) -> MatcherAlgo {
+    match value {
+        AlgoArg::Greedy => MatcherAlgo::Greedy,
+        AlgoArg::FzfV1 => MatcherAlgo::FzfV1,
+        AlgoArg::FzfV2 => MatcherAlgo::FzfV2,
+        AlgoArg::Nucleo => MatcherAlgo::Nucleo,
+    }
+}
+
+fn detect_auto_lang(query: &str, items: &[InputItem]) -> LangArg {
+    if yuru_core::normalize::contains_kana(query) {
+        return LangArg::Ja;
+    }
+
+    let ascii_query = query.chars().any(|ch| ch.is_ascii_alphabetic())
+        && query.chars().all(|ch| ch.is_ascii() || ch.is_whitespace());
+    if !ascii_query {
+        return LangArg::Plain;
+    }
+
+    let locale = locale_hint();
+    let sample = items.iter().take(256);
+    let mut sample_has_kana = false;
+    let mut sample_has_han = false;
+    for item in sample {
+        sample_has_kana |= yuru_core::normalize::contains_kana(&item.search_text);
+        sample_has_han |= contains_han(&item.search_text);
+        if sample_has_kana && sample_has_han {
+            break;
+        }
+    }
+
+    if locale.starts_with("ja") && (sample_has_kana || sample_has_han) {
+        LangArg::Ja
+    } else if locale.starts_with("zh") && sample_has_han {
+        LangArg::Zh
+    } else {
+        LangArg::Plain
+    }
+}
+
+fn locale_hint() -> String {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+fn contains_han(text: &str) -> bool {
+    text.chars().any(|ch| {
+        ('\u{3400}'..='\u{4dbf}').contains(&ch) || ('\u{4e00}'..='\u{9fff}').contains(&ch)
+    })
 }
 
 fn run_interactive_mode(
@@ -342,16 +502,22 @@ fn run_interactive_mode(
     let options = yuru_tui::TuiOptions {
         initial_query: query,
         prompt: args.prompt.clone().unwrap_or_else(|| "> ".to_string()),
+        header: args.header.clone(),
+        expect_keys: parse_expect_keys(args.expect.as_deref()),
+        bindings: parse_bindings(&args.bind),
         height: parse_tui_height(args),
         cycle: args.cycle,
         multi: args.multi && !args.no_multi,
     };
 
     match yuru_tui::run_interactive(index, backend, config, options)? {
-        yuru_tui::TuiOutcome::Accepted { ids, query } => {
+        yuru_tui::TuiOutcome::Accepted { ids, query, expect } => {
             let mut output = Vec::new();
+            if args.expect.is_some() {
+                output.push(OutputRecord::Text(expect.unwrap_or_default()));
+            }
             if args.print_query {
-                output.push(query);
+                output.push(OutputRecord::Text(query));
             }
             for id in ids {
                 output.push(accept_output(&items[id], field_config, id)?);
@@ -444,7 +610,119 @@ fn parse_tui_height(args: &Args) -> Option<usize> {
         .filter(|height| *height > 0)
 }
 
-fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<String>> {
+fn parse_expect_keys(raw: Option<&str>) -> Vec<String> {
+    raw.into_iter()
+        .flat_map(|keys| keys.split(','))
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(|key| key.to_ascii_lowercase())
+        .collect()
+}
+
+fn parse_bindings(raw: &[String]) -> Vec<yuru_tui::KeyBinding> {
+    raw.iter()
+        .flat_map(|bindings| bindings.split(','))
+        .filter_map(parse_supported_binding)
+        .collect()
+}
+
+fn parse_supported_binding(raw: &str) -> Option<yuru_tui::KeyBinding> {
+    let (key, action) = raw.split_once(':')?;
+    let action = match action.trim() {
+        "accept" => yuru_tui::BindingAction::Accept,
+        "abort" => yuru_tui::BindingAction::Abort,
+        "clear-query" | "clear" => yuru_tui::BindingAction::ClearQuery,
+        _ => return None,
+    };
+
+    Some(yuru_tui::KeyBinding {
+        key: key.trim().to_ascii_lowercase(),
+        action,
+    })
+}
+
+fn has_unsupported_bindings(raw: &[String]) -> bool {
+    raw.iter()
+        .flat_map(|bindings| bindings.split(','))
+        .map(str::trim)
+        .filter(|binding| !binding.is_empty())
+        .any(|binding| parse_supported_binding(binding).is_none())
+}
+
+fn enforce_fzf_compat(args: &Args) -> Result<()> {
+    let mode = effective_fzf_compat(args)?;
+    let ignored = ignored_fzf_options(args);
+    if ignored.is_empty() || mode == FzfCompatArg::Ignore {
+        return Ok(());
+    }
+
+    match mode {
+        FzfCompatArg::Strict => {
+            bail!(
+                "unsupported fzf option(s): {}. Use --fzf-compat=warn or --fzf-compat=ignore to allow them",
+                ignored.join(", ")
+            );
+        }
+        FzfCompatArg::Warn => {
+            for option in ignored {
+                eprintln!("yuru: warning: ignoring unsupported fzf option {option}");
+            }
+        }
+        FzfCompatArg::Ignore => {}
+    }
+
+    Ok(())
+}
+
+fn effective_fzf_compat(args: &Args) -> Result<FzfCompatArg> {
+    if let Some(mode) = args.fzf_compat {
+        return Ok(mode);
+    }
+
+    match std::env::var("YURU_FZF_COMPAT") {
+        Ok(value) => parse_fzf_compat_env(&value),
+        Err(std::env::VarError::NotPresent) => Ok(FzfCompatArg::Warn),
+        Err(error) => Err(error).context("failed to read YURU_FZF_COMPAT"),
+    }
+}
+
+fn parse_fzf_compat_env(value: &str) -> Result<FzfCompatArg> {
+    match value.trim() {
+        "strict" => Ok(FzfCompatArg::Strict),
+        "warn" => Ok(FzfCompatArg::Warn),
+        "ignore" => Ok(FzfCompatArg::Ignore),
+        other => bail!("unsupported YURU_FZF_COMPAT value: {other}"),
+    }
+}
+
+fn ignored_fzf_options(args: &Args) -> Vec<&'static str> {
+    let mut out = Vec::new();
+
+    if has_unsupported_bindings(&args.bind) {
+        out.push("--bind");
+    }
+    if args.preview.is_some() {
+        out.push("--preview");
+    }
+    if args.preview_window.is_some() {
+        out.push("--preview-window");
+    }
+    if args.layout.is_some() {
+        out.push("--layout");
+    }
+    if args.border.is_some() {
+        out.push("--border");
+    }
+    if args.header_lines.is_some() {
+        out.push("--header-lines");
+    }
+    if !args.color.is_empty() {
+        out.push("--color");
+    }
+    out
+}
+
+fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<InputRecord>> {
     if let Some(path) = &args.input {
         return read_file_candidates(path, args.read0);
     }
@@ -476,29 +754,56 @@ fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<Stri
     run_walker(args)
 }
 
-fn read_stdin_candidates(read0: bool) -> Result<Vec<String>> {
+fn read_stdin_candidates(read0: bool) -> Result<Vec<InputRecord>> {
     let mut input = Vec::new();
     io::stdin().read_to_end(&mut input)?;
     Ok(parse_candidate_bytes(&input, read0))
 }
 
-fn read_file_candidates(path: &Path, read0: bool) -> Result<Vec<String>> {
+fn read_file_candidates(path: &Path, read0: bool) -> Result<Vec<InputRecord>> {
     let input =
         fs::read(path).with_context(|| format!("failed to read input file {}", path.display()))?;
     Ok(parse_candidate_bytes(&input, read0))
 }
 
-fn parse_candidate_bytes(input: &[u8], read0: bool) -> Vec<String> {
-    let text = String::from_utf8_lossy(input);
-
+fn parse_candidate_bytes(input: &[u8], read0: bool) -> Vec<InputRecord> {
     if read0 {
-        text.split('\0')
+        input
+            .split(|byte| *byte == b'\0')
             .filter(|item| !item.is_empty())
-            .map(str::to_string)
+            .map(|item| InputRecord::from_raw(item.to_vec()))
             .collect()
     } else {
-        text.lines().map(str::to_owned).collect()
+        parse_line_records(input)
     }
+}
+
+fn parse_line_records(input: &[u8]) -> Vec<InputRecord> {
+    if input.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    for (index, byte) in input.iter().enumerate() {
+        if *byte != b'\n' {
+            continue;
+        }
+        out.push(InputRecord::from_raw(
+            trim_trailing_cr(&input[start..index]).to_vec(),
+        ));
+        start = index + 1;
+    }
+    if start < input.len() {
+        out.push(InputRecord::from_raw(
+            trim_trailing_cr(&input[start..]).to_vec(),
+        ));
+    }
+    out
+}
+
+fn trim_trailing_cr(input: &[u8]) -> &[u8] {
+    input.strip_suffix(b"\r").unwrap_or(input)
 }
 
 fn default_source_command() -> Option<(&'static str, String)> {
@@ -510,11 +815,8 @@ fn default_source_command() -> Option<(&'static str, String)> {
     None
 }
 
-fn run_default_command(env_name: &str, command: &str) -> Result<Vec<String>> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
-    let output = std::process::Command::new(shell)
-        .arg("-c")
-        .arg(command)
+fn run_default_command(env_name: &str, command: &str) -> Result<Vec<InputRecord>> {
+    let output = default_command_process(command)
         .output()
         .with_context(|| format!("failed to run {env_name}: {command}"))?;
 
@@ -522,10 +824,28 @@ fn run_default_command(env_name: &str, command: &str) -> Result<Vec<String>> {
         bail!("{env_name} exited with {}", output.status);
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::to_string)
-        .collect())
+    Ok(parse_candidate_bytes(&output.stdout, false))
+}
+
+#[cfg(not(windows))]
+fn default_command_process(command: &str) -> std::process::Command {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
+    let mut process = std::process::Command::new(shell);
+    process.arg("-c").arg(command);
+    process
+}
+
+#[cfg(windows)]
+fn default_command_process(command: &str) -> std::process::Command {
+    let shell =
+        std::env::var("YURU_WINDOWS_SHELL").unwrap_or_else(|_| "powershell.exe".to_string());
+    let mut process = std::process::Command::new(shell);
+    process
+        .arg("-NoLogo")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg(command);
+    process
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -536,17 +856,25 @@ struct WalkerOptions {
     hidden: bool,
 }
 
-fn run_walker(args: &Args) -> Result<Vec<String>> {
+fn run_walker(args: &Args) -> Result<Vec<InputRecord>> {
     let options = parse_walker_options(&args.walker)?;
     let skips = parse_walker_skip(&args.walker_skip);
     let mut out = Vec::new();
 
     for root in &args.walker_roots {
-        for entry in WalkDir::new(root)
+        let mut builder = WalkBuilder::new(root);
+        builder
             .follow_links(options.follow)
-            .into_iter()
-            .filter_entry(|entry| walker_entry_allowed(entry, &skips, options.hidden))
-        {
+            .hidden(!options.hidden)
+            .ignore(true)
+            .git_ignore(true)
+            .git_global(true)
+            .parents(true)
+            .require_git(false);
+        let skips = skips.clone();
+        builder.filter_entry(move |entry| walker_entry_allowed(entry, &skips, options.hidden));
+
+        for entry in builder.build() {
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(error) if walker_error_is_skippable(&error) => continue,
@@ -556,11 +884,15 @@ fn run_walker(args: &Args) -> Result<Vec<String>> {
                 continue;
             }
 
-            let file_type = entry.file_type();
+            let Some(file_type) = entry.file_type() else {
+                continue;
+            };
             let include =
                 file_type.is_file() && options.files || file_type.is_dir() && options.dirs;
             if include {
-                out.push(display_walked_path(root, entry.path()));
+                out.push(InputRecord::from_raw(
+                    display_walked_path(root, entry.path()).into_bytes(),
+                ));
             }
         }
     }
@@ -568,11 +900,7 @@ fn run_walker(args: &Args) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn walker_error_is_skippable(error: &walkdir::Error) -> bool {
-    if error.depth() == 0 {
-        return false;
-    }
-
+fn walker_error_is_skippable(error: &ignore::Error) -> bool {
     error.io_error().is_some_and(|io_error| {
         matches!(
             io_error.kind(),
@@ -723,16 +1051,19 @@ fn print_query_variants(
     print0: bool,
 ) -> Result<()> {
     let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
-    let mut records = vec![format!("variant_count={}", variants.len())];
+    let mut records = vec![OutputRecord::Text(format!(
+        "variant_count={}",
+        variants.len()
+    ))];
     records.extend(
         variants
             .into_iter()
-            .map(|variant| format!("{}\t{:?}", variant.text, variant.kind)),
+            .map(|variant| OutputRecord::Text(format!("{}\t{:?}", variant.text, variant.kind))),
     );
     write_records(&records, print0)
 }
 
-fn write_records(records: &[String], print0: bool) -> Result<()> {
+fn write_records(records: &[OutputRecord], print0: bool) -> Result<()> {
     let mut stdout = io::stdout().lock();
     let separator = if print0 {
         b"\0".as_slice()
@@ -753,59 +1084,484 @@ fn expanded_args() -> Result<Vec<OsString>> {
     let rest: Vec<_> = args.collect();
 
     if !shell_flags_present(&rest) {
-        if let Some(path) = yuru_config_file() {
-            if path.exists() {
-                let content = std::fs::read_to_string(&path)
-                    .with_context(|| format!("failed to read {}", path.display()))?;
-                expanded.extend(split_shell_words(&content).map(OsString::from));
-            }
+        let config = yuru_config_source();
+        let load_fzf_defaults = preparse_load_fzf_default_opts(&rest, config.as_ref())?;
+        append_fzf_default_opts(&mut expanded, load_fzf_defaults)?;
+        if let Some(config) = &config {
+            expanded.extend(read_yuru_config_args(config)?);
         }
-        if let Ok(path) = std::env::var("YURU_DEFAULT_OPTS_FILE") {
-            let content = std::fs::read_to_string(path)?;
-            expanded.extend(split_shell_words(&content).map(OsString::from));
-        }
-        if let Ok(opts) = std::env::var("YURU_DEFAULT_OPTS") {
-            expanded.extend(split_shell_words(&opts).map(OsString::from));
-        }
-        if let Ok(path) = std::env::var("FZF_DEFAULT_OPTS_FILE") {
-            let content = std::fs::read_to_string(path)?;
-            expanded.extend(split_shell_words(&content).map(OsString::from));
-        }
-        if let Ok(opts) = std::env::var("FZF_DEFAULT_OPTS") {
-            expanded.extend(split_shell_words(&opts).map(OsString::from));
-        }
+        append_shell_word_env(&mut expanded, "YURU_DEFAULT_OPTS_FILE", true)?;
+        append_shell_word_env(&mut expanded, "YURU_DEFAULT_OPTS", false)?;
     }
 
     expanded.extend(rest.into_iter().map(normalize_plus_arg));
     Ok(expanded)
 }
 
-fn yuru_config_file() -> Option<PathBuf> {
+#[derive(Clone, Debug)]
+enum ConfigSource {
+    Toml(PathBuf),
+    Legacy(PathBuf),
+}
+
+fn yuru_config_source() -> Option<ConfigSource> {
     if let Ok(path) = std::env::var("YURU_CONFIG_FILE") {
-        return Some(PathBuf::from(path));
+        let path = PathBuf::from(path);
+        return path.exists().then(|| config_source_for_path(path));
     }
     let mut candidates = Vec::new();
     #[cfg(windows)]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
             let appdata = PathBuf::from(appdata);
+            candidates.push(appdata.join("yuru").join("config.toml"));
             candidates.push(appdata.join("yuru").join("config"));
         }
     }
 
     if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
         let config_home = PathBuf::from(config_home);
+        candidates.push(config_home.join("yuru").join("config.toml"));
         candidates.push(config_home.join("yuru").join("config"));
     } else if let Ok(home) = std::env::var("HOME") {
         let config_home = PathBuf::from(home).join(".config");
+        candidates.push(config_home.join("yuru").join("config.toml"));
         candidates.push(config_home.join("yuru").join("config"));
     }
 
     candidates
-        .iter()
+        .into_iter()
         .find(|path| path.exists())
-        .cloned()
-        .or_else(|| candidates.into_iter().next())
+        .map(config_source_for_path)
+}
+
+fn config_source_for_path(path: PathBuf) -> ConfigSource {
+    if path
+        .extension()
+        .is_some_and(|extension| extension == "toml")
+    {
+        ConfigSource::Toml(path)
+    } else {
+        ConfigSource::Legacy(path)
+    }
+}
+
+fn preparse_load_fzf_default_opts(
+    cli_args: &[OsString],
+    config: Option<&ConfigSource>,
+) -> Result<LoadFzfDefaultOptsArg> {
+    let mut mode = LoadFzfDefaultOptsArg::Safe;
+
+    if let Some(ConfigSource::Toml(path)) = config {
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let value = content
+            .parse::<toml::Value>()
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        if let Some(config_mode) = toml_load_fzf_default_opts(&value)? {
+            mode = config_mode;
+        }
+    }
+
+    if let Some(env_mode) = load_fzf_default_opts_from_yuru_env()? {
+        mode = env_mode;
+    }
+    if let Some(cli_mode) =
+        load_fzf_default_opts_from_args(cli_args.iter().filter_map(|arg| arg.to_str()))?
+    {
+        mode = cli_mode;
+    }
+
+    Ok(mode)
+}
+
+fn load_fzf_default_opts_from_yuru_env() -> Result<Option<LoadFzfDefaultOptsArg>> {
+    let mut mode = None;
+    if let Ok(path) = std::env::var("YURU_DEFAULT_OPTS_FILE") {
+        let content = fs::read_to_string(path)?;
+        mode = load_fzf_default_opts_from_args(split_shell_words(&content))?.or(mode);
+    }
+    if let Ok(opts) = std::env::var("YURU_DEFAULT_OPTS") {
+        mode = load_fzf_default_opts_from_args(split_shell_words(&opts))?.or(mode);
+    }
+    Ok(mode)
+}
+
+fn load_fzf_default_opts_from_args<I, S>(args: I) -> Result<Option<LoadFzfDefaultOptsArg>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut args = args.into_iter().peekable();
+    let mut out = None;
+
+    while let Some(arg) = args.next() {
+        let arg = arg.as_ref();
+        if let Some(value) = arg.strip_prefix("--load-fzf-default-opts=") {
+            out = Some(parse_load_fzf_default_opts(value)?);
+        } else if arg == "--load-fzf-default-opts" {
+            let Some(value) = args.next() else {
+                bail!("--load-fzf-default-opts requires a value");
+            };
+            out = Some(parse_load_fzf_default_opts(value.as_ref())?);
+        }
+    }
+
+    Ok(out)
+}
+
+fn parse_load_fzf_default_opts(value: &str) -> Result<LoadFzfDefaultOptsArg> {
+    match value {
+        "never" => Ok(LoadFzfDefaultOptsArg::Never),
+        "safe" => Ok(LoadFzfDefaultOptsArg::Safe),
+        "all" => Ok(LoadFzfDefaultOptsArg::All),
+        other => bail!("unsupported --load-fzf-default-opts value: {other}"),
+    }
+}
+
+fn toml_load_fzf_default_opts(value: &toml::Value) -> Result<Option<LoadFzfDefaultOptsArg>> {
+    if let Some(raw) = value
+        .get("defaults")
+        .and_then(|defaults| defaults.get("load_fzf_defaults"))
+        .and_then(toml::Value::as_str)
+    {
+        return parse_load_fzf_default_opts(raw).map(Some);
+    }
+
+    Ok(value
+        .get("fzf")
+        .and_then(|fzf| fzf.get("safe_default_opts"))
+        .and_then(toml::Value::as_bool)
+        .map(|safe| {
+            if safe {
+                LoadFzfDefaultOptsArg::Safe
+            } else {
+                LoadFzfDefaultOptsArg::All
+            }
+        }))
+}
+
+fn append_fzf_default_opts(
+    expanded: &mut Vec<OsString>,
+    mode: LoadFzfDefaultOptsArg,
+) -> Result<()> {
+    if mode == LoadFzfDefaultOptsArg::Never {
+        return Ok(());
+    }
+
+    append_fzf_default_opts_env(expanded, "FZF_DEFAULT_OPTS_FILE", true, mode)?;
+    append_fzf_default_opts_env(expanded, "FZF_DEFAULT_OPTS", false, mode)
+}
+
+fn append_fzf_default_opts_env(
+    expanded: &mut Vec<OsString>,
+    env_name: &str,
+    is_file: bool,
+    mode: LoadFzfDefaultOptsArg,
+) -> Result<()> {
+    let Ok(value) = std::env::var(env_name) else {
+        return Ok(());
+    };
+    let content = if is_file {
+        fs::read_to_string(value)?
+    } else {
+        value
+    };
+    let words: Vec<String> = split_shell_words(&content).collect();
+    let words = if mode == LoadFzfDefaultOptsArg::Safe {
+        safe_fzf_default_opts(&words)
+    } else {
+        words
+    };
+    expanded.extend(words.into_iter().map(OsString::from));
+    Ok(())
+}
+
+fn append_shell_word_env(
+    expanded: &mut Vec<OsString>,
+    env_name: &str,
+    is_file: bool,
+) -> Result<()> {
+    let Ok(value) = std::env::var(env_name) else {
+        return Ok(());
+    };
+    let content = if is_file {
+        fs::read_to_string(value)?
+    } else {
+        value
+    };
+    expanded.extend(split_shell_words(&content).map(OsString::from));
+    Ok(())
+}
+
+fn read_yuru_config_args(config: &ConfigSource) -> Result<Vec<OsString>> {
+    match config {
+        ConfigSource::Toml(path) => {
+            let content = fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let value = content
+                .parse::<toml::Value>()
+                .with_context(|| format!("failed to parse {}", path.display()))?;
+            toml_config_args(&value)
+        }
+        ConfigSource::Legacy(path) => {
+            eprintln!(
+                "yuru: warning: legacy shell-word config {} is deprecated; use config.toml",
+                path.display()
+            );
+            let content = fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            Ok(split_shell_words(&content).map(OsString::from).collect())
+        }
+    }
+}
+
+fn toml_config_args(value: &toml::Value) -> Result<Vec<OsString>> {
+    let mut out = Vec::new();
+
+    if let Some(defaults) = value.get("defaults") {
+        push_toml_string_arg(&mut out, defaults, "lang", "--lang");
+        push_toml_string_arg(&mut out, defaults, "scheme", "--scheme");
+        push_toml_usize_arg(&mut out, defaults, "limit", "--limit")?;
+        push_toml_string_arg(
+            &mut out,
+            defaults,
+            "load_fzf_defaults",
+            "--load-fzf-default-opts",
+        );
+        push_toml_string_arg(&mut out, defaults, "fzf_compat", "--fzf-compat");
+        if let Some(case) = defaults.get("case").and_then(toml::Value::as_str) {
+            match case {
+                "smart" => out.push(OsString::from("--smart-case")),
+                "ignore" => out.push(OsString::from("--ignore-case")),
+                "respect" => out.push(OsString::from("--no-ignore-case")),
+                other => bail!("unsupported defaults.case value: {other}"),
+            }
+        }
+    }
+
+    if let Some(matching) = value.get("matching") {
+        push_toml_string_arg(&mut out, matching, "algo", "--algo");
+        push_toml_usize_arg(
+            &mut out,
+            matching,
+            "max_query_variants",
+            "--max-query-variants",
+        )?;
+        push_toml_usize_arg(
+            &mut out,
+            matching,
+            "max_search_keys_per_candidate",
+            "--max-keys-per-candidate",
+        )?;
+        push_toml_usize_arg(
+            &mut out,
+            matching,
+            "max_keys_per_candidate",
+            "--max-keys-per-candidate",
+        )?;
+        push_toml_usize_arg(
+            &mut out,
+            matching,
+            "max_total_key_bytes_per_candidate",
+            "--max-total-key-bytes-per-candidate",
+        )?;
+        push_toml_usize_arg(&mut out, matching, "top_b", "--top-b")?;
+    }
+
+    if let Some(ja) = value.get("ja") {
+        push_toml_string_arg(&mut out, ja, "reading", "--ja-reading");
+    }
+
+    if let Some(zh) = value.get("zh") {
+        push_toml_bool_flag(&mut out, zh, "pinyin", "--zh-pinyin", "--no-zh-pinyin");
+        push_toml_bool_flag(
+            &mut out,
+            zh,
+            "initials",
+            "--zh-initials",
+            "--no-zh-initials",
+        );
+        push_toml_string_arg(&mut out, zh, "polyphone", "--zh-polyphone");
+        push_toml_string_arg(&mut out, zh, "script", "--zh-script");
+    }
+
+    if let Some(fzf) = value.get("fzf") {
+        push_toml_string_arg(&mut out, fzf, "unsupported_options", "--fzf-compat");
+        if let Some(safe) = fzf.get("safe_default_opts").and_then(toml::Value::as_bool) {
+            out.push(OsString::from("--load-fzf-default-opts"));
+            out.push(OsString::from(if safe { "safe" } else { "all" }));
+        }
+    }
+
+    Ok(out)
+}
+
+fn push_toml_string_arg(out: &mut Vec<OsString>, table: &toml::Value, key: &str, arg: &str) {
+    if let Some(value) = table.get(key).and_then(toml::Value::as_str) {
+        out.push(OsString::from(arg));
+        out.push(OsString::from(value));
+    }
+}
+
+fn push_toml_usize_arg(
+    out: &mut Vec<OsString>,
+    table: &toml::Value,
+    key: &str,
+    arg: &str,
+) -> Result<()> {
+    if let Some(value) = table.get(key).and_then(toml::Value::as_integer) {
+        let value =
+            usize::try_from(value).with_context(|| format!("{key} must be non-negative"))?;
+        out.push(OsString::from(arg));
+        out.push(OsString::from(value.to_string()));
+    }
+    Ok(())
+}
+
+fn push_toml_bool_flag(
+    out: &mut Vec<OsString>,
+    table: &toml::Value,
+    key: &str,
+    enabled_arg: &str,
+    disabled_arg: &str,
+) {
+    if let Some(value) = table.get(key).and_then(toml::Value::as_bool) {
+        out.push(OsString::from(if value {
+            enabled_arg
+        } else {
+            disabled_arg
+        }));
+    }
+}
+
+fn safe_fzf_default_opts(words: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut index = 0usize;
+
+    while index < words.len() {
+        let word = &words[index];
+        if safe_fzf_flag(word) {
+            out.push(
+                normalize_plus_arg(OsString::from(word))
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            index += 1;
+            continue;
+        }
+
+        if let Some((name, _)) = word.split_once('=') {
+            if safe_fzf_value_option(name) {
+                out.push(word.clone());
+            }
+            index += 1;
+            continue;
+        }
+
+        if safe_fzf_value_option(word) {
+            if let Some(value) = words.get(index + 1) {
+                out.push(word.clone());
+                out.push(value.clone());
+                index += 2;
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        if unsafe_fzf_value_option(word) {
+            index += 1 + usize::from(
+                words
+                    .get(index + 1)
+                    .is_some_and(|next| !next.starts_with('-')),
+            );
+        } else {
+            index += 1;
+        }
+    }
+
+    out
+}
+
+fn safe_fzf_flag(word: &str) -> bool {
+    matches!(
+        word,
+        "-e" | "--exact"
+            | "+x"
+            | "--no-extended"
+            | "-i"
+            | "--ignore-case"
+            | "+i"
+            | "--no-ignore-case"
+            | "--smart-case"
+            | "+s"
+            | "--no-sort"
+            | "--disabled"
+            | "--tac"
+            | "--read0"
+            | "--print0"
+            | "--ansi"
+            | "--print-query"
+            | "-1"
+            | "--select-1"
+            | "-0"
+            | "--exit-0"
+            | "-m"
+            | "--multi"
+            | "+m"
+            | "--no-multi"
+            | "--cycle"
+            | "--no-height"
+            | "--extended"
+    )
+}
+
+fn safe_fzf_value_option(word: &str) -> bool {
+    matches!(
+        word,
+        "-q" | "--query"
+            | "-f"
+            | "--filter"
+            | "--limit"
+            | "-n"
+            | "--nth"
+            | "--with-nth"
+            | "--accept-nth"
+            | "-d"
+            | "--delimiter"
+            | "--scheme"
+            | "--tail"
+            | "--tiebreak"
+            | "--walker"
+            | "--walker-root"
+            | "--walker-skip"
+            | "--height"
+            | "--prompt"
+    )
+}
+
+fn unsafe_fzf_value_option(word: &str) -> bool {
+    matches!(
+        word,
+        "--preview"
+            | "--preview-window"
+            | "--bind"
+            | "--expect"
+            | "--header"
+            | "--header-lines"
+            | "--layout"
+            | "--border"
+            | "--color"
+            | "--style"
+            | "--margin"
+            | "--padding"
+            | "--tmux"
+            | "--popup"
+            | "--listen"
+            | "--history"
+            | "--with-shell"
+    )
 }
 
 fn shell_flags_present(args: &[OsString]) -> bool {

@@ -88,6 +88,18 @@ printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamer
 yuru --walker file,dir,follow,hidden --scheme path
 ```
 
+## fzf 兼容和配置
+
+Yuru 支持 `--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect`，以及 `accept` / `abort` / `clear-query` 的 `--bind` 子集。尚未支持的 fzf 选项默认会输出 warning。
+
+```sh
+yuru --fzf-compat warn
+yuru --fzf-compat strict
+yuru --fzf-compat ignore
+```
+
+`~/.config/yuru/config.toml` 可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[zh] initials = true` 等。CLI 参数优先级最高。
+
 ## 开发
 
 ```sh
@@ -106,8 +118,8 @@ push version tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的 rele
 release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 ## 许可证

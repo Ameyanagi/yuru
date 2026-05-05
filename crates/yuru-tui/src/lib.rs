@@ -21,6 +21,9 @@ use yuru_core::{
 pub struct TuiOptions {
     pub initial_query: String,
     pub prompt: String,
+    pub header: Option<String>,
+    pub expect_keys: Vec<String>,
+    pub bindings: Vec<KeyBinding>,
     pub height: Option<usize>,
     pub cycle: bool,
     pub multi: bool,
@@ -31,6 +34,9 @@ impl Default for TuiOptions {
         Self {
             initial_query: String::new(),
             prompt: "> ".to_string(),
+            header: None,
+            expect_keys: Vec::new(),
+            bindings: Vec::new(),
             height: None,
             cycle: false,
             multi: false,
@@ -39,8 +45,25 @@ impl Default for TuiOptions {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeyBinding {
+    pub key: String,
+    pub action: BindingAction,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BindingAction {
+    Accept,
+    Abort,
+    ClearQuery,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TuiOutcome {
-    Accepted { ids: Vec<usize>, query: String },
+    Accepted {
+        ids: Vec<usize>,
+        query: String,
+        expect: Option<String>,
+    },
     NoSelection,
     Aborted,
 }
@@ -270,6 +293,7 @@ pub fn run_interactive(
         let render_context = RenderContext {
             candidates,
             prompt: &options.prompt,
+            header: options.header.as_deref(),
             viewport,
             case_sensitive: config.case_sensitive,
             multi: options.multi,
@@ -280,8 +304,8 @@ pub fn run_interactive(
             continue;
         };
 
-        match classify_key(key, viewport.rows) {
-            KeyDecision::Accept => {
+        match classify_key(key, viewport.rows, &options.expect_keys, &options.bindings) {
+            KeyDecision::Accept(expect) => {
                 let ids = state.accepted_ids(&results, options.multi);
                 if ids.is_empty() {
                     return Ok(TuiOutcome::NoSelection);
@@ -289,6 +313,7 @@ pub fn run_interactive(
                 return Ok(TuiOutcome::Accepted {
                     ids,
                     query: state.query().to_string(),
+                    expect,
                 });
             }
             KeyDecision::Abort => return Ok(TuiOutcome::Aborted),
@@ -300,9 +325,27 @@ pub fn run_interactive(
     }
 }
 
-fn classify_key(key: KeyEvent, page_rows: usize) -> KeyDecision {
+fn classify_key(
+    key: KeyEvent,
+    page_rows: usize,
+    expect_keys: &[String],
+    bindings: &[KeyBinding],
+) -> KeyDecision {
+    if let Some(name) = key_name(key) {
+        if expect_keys.iter().any(|expected| expected == &name) {
+            return KeyDecision::Accept(Some(name));
+        }
+        if let Some(binding) = bindings.iter().find(|binding| binding.key == name) {
+            return match binding.action {
+                BindingAction::Accept => KeyDecision::Accept(None),
+                BindingAction::Abort => KeyDecision::Abort,
+                BindingAction::ClearQuery => KeyDecision::Action(TuiAction::ClearQuery),
+            };
+        }
+    }
+
     match (key.code, key.modifiers) {
-        (KeyCode::Enter, _) => KeyDecision::Accept,
+        (KeyCode::Enter, _) => KeyDecision::Accept(None),
         (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => KeyDecision::Abort,
         (KeyCode::Char('u'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::ClearQuery),
         (KeyCode::Char('a'), KeyModifiers::CONTROL) | (KeyCode::Home, _) => {
@@ -334,9 +377,9 @@ fn classify_key(key: KeyEvent, page_rows: usize) -> KeyDecision {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum KeyDecision {
-    Accept,
+    Accept(Option<String>),
     Abort,
     Action(TuiAction),
     Ignore,
@@ -374,14 +417,19 @@ fn render(
         ))
     )?;
 
-    let offset = scroll_offset(state.selected(), results.len(), context.viewport.rows);
-    for (row, result) in results
-        .iter()
-        .skip(offset)
-        .take(context.viewport.rows)
-        .enumerate()
-    {
-        queue!(output, MoveTo(0, (row + 1) as u16))?;
+    let header_rows = usize::from(context.header.is_some());
+    if let Some(header) = context.header {
+        queue!(
+            output,
+            MoveTo(0, 1),
+            Print(truncate_to_width(header, context.viewport.width))
+        )?;
+    }
+
+    let result_rows = context.viewport.rows.saturating_sub(header_rows).max(1);
+    let offset = scroll_offset(state.selected(), results.len(), result_rows);
+    for (row, result) in results.iter().skip(offset).take(result_rows).enumerate() {
+        queue!(output, MoveTo(0, (row + 1 + header_rows) as u16))?;
         let mark = if context.multi && state.marked.contains(&result.id) {
             "*"
         } else {
@@ -422,9 +470,30 @@ fn render(
 struct RenderContext<'a> {
     candidates: &'a [Candidate],
     prompt: &'a str,
+    header: Option<&'a str>,
     viewport: Viewport,
     case_sensitive: bool,
     multi: bool,
+}
+
+fn key_name(key: KeyEvent) -> Option<String> {
+    match (key.code, key.modifiers) {
+        (KeyCode::Enter, _) => Some("enter".to_string()),
+        (KeyCode::Esc, _) => Some("esc".to_string()),
+        (KeyCode::Tab, _) => Some("tab".to_string()),
+        (KeyCode::BackTab, _) => Some("shift-tab".to_string()),
+        (KeyCode::Char(ch), KeyModifiers::CONTROL) => Some(format!("ctrl-{ch}")),
+        (KeyCode::Char(ch), KeyModifiers::ALT) => Some(format!("alt-{ch}")),
+        (KeyCode::Char(ch), modifiers)
+            if modifiers == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
+        {
+            Some(format!("ctrl-{}", ch.to_ascii_lowercase()))
+        }
+        (KeyCode::Char(ch), modifiers) if modifiers == KeyModifiers::ALT | KeyModifiers::SHIFT => {
+            Some(format!("alt-{}", ch.to_ascii_lowercase()))
+        }
+        _ => None,
+    }
 }
 
 fn scroll_offset(selected: usize, len: usize, rows: usize) -> usize {
@@ -753,6 +822,45 @@ mod tests {
         assert!(state.marked().is_empty());
         assert_eq!(state.selected(), 0);
         assert_eq!(state.accepted_ids(&results, false), vec![0]);
+    }
+
+    #[test]
+    fn expected_key_accepts_with_key_name() {
+        let decision = classify_key(
+            KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL),
+            10,
+            &["ctrl-y".to_string()],
+            &[],
+        );
+
+        assert_eq!(decision, KeyDecision::Accept(Some("ctrl-y".to_string())));
+    }
+
+    #[test]
+    fn enter_accepts_without_expected_key_name() {
+        let decision = classify_key(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            10,
+            &[],
+            &[],
+        );
+
+        assert_eq!(decision, KeyDecision::Accept(None));
+    }
+
+    #[test]
+    fn bind_key_can_abort() {
+        let decision = classify_key(
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+            10,
+            &[],
+            &[KeyBinding {
+                key: "ctrl-x".to_string(),
+                action: BindingAction::Abort,
+            }],
+        );
+
+        assert_eq!(decision, KeyDecision::Abort);
     }
 
     #[test]
