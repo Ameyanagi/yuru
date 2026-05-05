@@ -1,0 +1,60 @@
+[package]
+name = "yomi-workspace"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = [
+    "crates/yomi-core",
+    "crates/yomi-ja",
+    "crates/yomi-zh",
+    "crates/yomi-tui",
+    "crates/yomi-cli",
+]
+default-members = [
+    ".",
+    "crates/yomi-core",
+    "crates/yomi-ja",
+    "crates/yomi-zh",
+    "crates/yomi-tui",
+    "crates/yomi-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+anyhow = "1"
+assert_cmd = "2"
+clap = { version = "4.5", features = ["derive"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+crossterm = "0.28"
+pinyin = "0.10"
+predicates = "3"
+proptest = "1"
+regex = "1"
+shlex = "1"
+tempfile = "3"
+unicode-normalization = "0.1"
+walkdir = "2"
+yomi-core = { path = "crates/yomi-core" }
+yomi-ja = { path = "crates/yomi-ja" }
+yomi-tui = { path = "crates/yomi-tui" }
+yomi-zh = { path = "crates/yomi-zh" }
+
+[dev-dependencies]
+assert_cmd.workspace = true
+criterion.workspace = true
+predicates.workspace = true
+proptest.workspace = true
+regex.workspace = true
+yomi-core.workspace = true
+yomi-ja.workspace = true
+yomi-zh.workspace = true
+
+[[bench]]
+name = "search"
+harness = false

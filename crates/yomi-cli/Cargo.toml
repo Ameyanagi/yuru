@@ -1,0 +1,24 @@
+[package]
+name = "yomi-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "yomi"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+regex.workspace = true
+shlex.workspace = true
+walkdir.workspace = true
+yomi-core.workspace = true
+yomi-ja.workspace = true
+yomi-tui.workspace = true
+yomi-zh.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true

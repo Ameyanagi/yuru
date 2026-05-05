@@ -1,0 +1,8 @@
+[package]
+name = "yomi-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+unicode-normalization.workspace = true
+
