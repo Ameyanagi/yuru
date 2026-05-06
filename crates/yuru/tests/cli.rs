@@ -718,6 +718,16 @@ fn cli_uses_yuru_default_command_when_stdin_is_empty() {
 }
 
 #[test]
+fn cli_default_command_respects_read0_print0() {
+    command()
+        .env("YURU_DEFAULT_COMMAND", "printf 'one\\0two\\0'")
+        .args(["--filter", "two", "--read0", "--print0"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("two\0"));
+}
+
+#[test]
 fn cli_yuru_default_command_overrides_fzf_default_command() {
     command()
         .env("YURU_DEFAULT_COMMAND", "printf 'alpha\\n'")

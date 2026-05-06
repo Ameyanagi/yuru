@@ -34,7 +34,7 @@ Options:
   --from-source         Build yuru from the current checkout with cargo
   -h, --help            Show this help
 
-This installer never uses sudo and never writes to system directories.
+This installer defaults to user-space paths and never uses sudo.
 EOF
 }
 
@@ -125,6 +125,14 @@ need() {
     echo "install: required command not found: $1" >&2
     exit 1
   fi
+}
+
+sh_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+fish_quote() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\$/\\$/g')"
 }
 
 config_file() {
@@ -420,6 +428,42 @@ download() {
   fi
 }
 
+verify_asset_checksum() {
+  asset="$1"
+  base_url="$2"
+  sums_url="$base_url/SHA256SUMS"
+  sums_file="$tmp/SHA256SUMS"
+
+  log "downloading SHA256SUMS"
+  download "$sums_url" "$sums_file"
+  expected="$(
+    awk -v asset="$asset" '
+      $2 == asset || $2 == "*" asset { print $1; found = 1; exit }
+      END { if (!found) exit 1 }
+    ' "$sums_file"
+  )" || {
+    echo "install: SHA256SUMS did not contain $asset" >&2
+    exit 1
+  }
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$tmp/$asset" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')"
+  else
+    echo "install: sha256sum or shasum is required to verify release assets" >&2
+    exit 1
+  fi
+
+  if [ "$actual" != "$expected" ]; then
+    echo "install: checksum mismatch for $asset" >&2
+    echo "install: expected $expected" >&2
+    echo "install: actual   $actual" >&2
+    exit 1
+  fi
+  log "verified $asset checksum"
+}
+
 install_from_source() {
   need cargo
   log "building release binary with cargo"
@@ -437,18 +481,18 @@ install_from_release() {
   esac
 
   if [ "$version" = "latest" ]; then
-    url="https://github.com/$repo/releases/latest/download/$asset"
+    base_url="https://github.com/$repo/releases/latest/download"
   else
-    url="https://github.com/$repo/releases/download/$version/$asset"
+    base_url="https://github.com/$repo/releases/download/$version"
   fi
+  url="$base_url/$asset"
 
-  tmp="${TMPDIR:-/tmp}/yuru-install.$$"
-  rm -rf "$tmp"
-  mkdir -p "$tmp"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/yuru-install.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT INT TERM
 
   log "downloading $asset"
   download "$url" "$tmp/$asset"
+  verify_asset_checksum "$asset" "$base_url"
 
   case "$asset" in
     *.zip)
@@ -474,31 +518,52 @@ install_from_release() {
 
 shell_block() {
   shell_name="$1"
+  yuru_bin="$bin_dir/yuru"
+  quoted_bin="$(sh_quote "$yuru_bin")"
+  quoted_dir="$(sh_quote "$bin_dir")"
   case "$shell_name" in
     bash)
-      cat <<'EOF'
+      cat <<EOF
 
 # yuru shell integration
-if command -v yuru >/dev/null 2>&1; then
-  eval "$(yuru --bash)"
+export YURU_BIN=$quoted_bin
+export YURU_BIN_DIR=$quoted_dir
+case ":\$PATH:" in
+  *":\$YURU_BIN_DIR:"*) ;;
+  *) export PATH="\$YURU_BIN_DIR:\$PATH" ;;
+esac
+if [ -x "\$YURU_BIN" ]; then
+  eval "\$("\$YURU_BIN" --bash)"
 fi
 EOF
       ;;
     zsh)
-      cat <<'EOF'
+      cat <<EOF
 
 # yuru shell integration
-if command -v yuru >/dev/null 2>&1; then
-  source <(yuru --zsh)
+export YURU_BIN=$quoted_bin
+export YURU_BIN_DIR=$quoted_dir
+case ":\$PATH:" in
+  *":\$YURU_BIN_DIR:"*) ;;
+  *) export PATH="\$YURU_BIN_DIR:\$PATH" ;;
+esac
+if [ -x "\$YURU_BIN" ]; then
+  source <("\$YURU_BIN" --zsh)
 fi
 EOF
       ;;
     fish)
-      cat <<'EOF'
+      fish_bin="$(fish_quote "$yuru_bin")"
+      fish_dir="$(fish_quote "$bin_dir")"
+      cat <<EOF
 
 # yuru shell integration
-if command -q yuru
-  yuru --fish | source
+set -gx YURU_BIN $fish_bin
+if not contains -- $fish_dir \$PATH
+  set -gx PATH $fish_dir \$PATH
+end
+if test -x "\$YURU_BIN"
+  "\$YURU_BIN" --fish | source
 end
 EOF
       ;;

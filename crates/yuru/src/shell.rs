@@ -72,6 +72,21 @@ __yuru_alt_c_opts__() {
   fi
 }
 
+__yuru_split_opts__() {
+  local raw="$1"
+  [ -n "$raw" ] || return 0
+  "${YURU_BIN:-yuru}" __split-shell-words "$raw" 2>/dev/null
+}
+
+__yuru_read_opts__() {
+  local opt
+  opt_args=()
+  [ -n "$1" ] || return 0
+  while IFS= read -r -d '' opt; do
+    opt_args+=("$opt")
+  done < <(__yuru_split_opts__ "$1")
+}
+
 __yuru_run_with_optional_command__() {
   local command_set="$1" command_text="$2" status
   shift 2
@@ -121,6 +136,15 @@ __yuru_completion_command__() {
   printf '%s' "$cmd"
 }
 
+__yuru_expand_completion_base__() {
+  local value="$1"
+  case "$value" in
+    "~") printf '%s' "$HOME" ;;
+    "~/"*) printf '%s/%s' "$HOME" "${value#~/}" ;;
+    *) printf '%s' "$value" ;;
+  esac
+}
+
 __yuru_completion_dirs_only__() {
   case "$(__yuru_completion_command__)" in
     cd|pushd|rmdir) return 0 ;;
@@ -139,8 +163,7 @@ __yuru_ctrl_t__() {
   [ "$command_set" = 1 ] && [ -z "$command_text" ] && return
 
   opts=$(__yuru_ctrl_t_opts__)
-  opt_args=()
-  [ -n "$opts" ] && eval "opt_args=($opts)"
+  __yuru_read_opts__ "$opts"
   selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore "${opt_args[@]}")
   [ -n "$selected" ] || return
   insert=$(__yuru_join_bash__ "$selected")
@@ -154,8 +177,7 @@ __yuru_ctrl_r__() {
   local selected opts tmp status
   local -a opt_args
   opts=$(__yuru_ctrl_r_opts__)
-  opt_args=()
-  [ -n "$opts" ] && eval "opt_args=($opts)"
+  __yuru_read_opts__ "$opts"
   tmp="${TMPDIR:-/tmp}/yuru-history.$$"
   rm -f "$tmp"
   HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return; }
@@ -179,8 +201,7 @@ __yuru_alt_c__() {
   [ "$command_set" = 1 ] && [ -z "$command_text" ] && return
 
   opts=$(__yuru_alt_c_opts__)
-  opt_args=()
-  [ -n "$opts" ] && eval "opt_args=($opts)"
+  __yuru_read_opts__ "$opts"
   selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore "${opt_args[@]}")
   [ -n "$selected" ] || return
   builtin cd -- "$selected" || return
@@ -203,7 +224,7 @@ __yuru_completion__() {
   fi
 
   base=${token:0:${#token}-${#trigger}}
-  eval "base=$base" 2>/dev/null || true
+  base=$(__yuru_expand_completion_base__ "$base")
   dir=
   if [[ "$base" == */* ]]; then
     dir="$base"
@@ -218,8 +239,7 @@ __yuru_completion__() {
   query=${base#"$root"}
   query=${query#/}
   opts=$(__yuru_completion_opts__)
-  opt_args=()
-  [ -n "$opts" ] && eval "opt_args=($opts)"
+  __yuru_read_opts__ "$opts"
   if __yuru_completion_dirs_only__; then
     walker=dir,hidden
     multi=--no-multi
@@ -379,6 +399,16 @@ __yuru_completion_command__() {
   print -rn -- "${words[1]:-}"
 }
 
+__yuru_expand_completion_base__() {
+  emulate -L zsh
+  local value="$1"
+  case "$value" in
+    "~") print -rn -- "$HOME" ;;
+    "~/"*) print -rn -- "$HOME/${value#~/}" ;;
+    *) print -rn -- "$value" ;;
+  esac
+}
+
 __yuru_completion_dirs_only__() {
   emulate -L zsh
   case "$(__yuru_completion_command__)" in
@@ -460,7 +490,7 @@ __yuru_completion__() {
   fi
 
   base="${token[1,$(( ${#token} - ${#trigger} ))]}"
-  eval "base=$base" 2>/dev/null || true
+  base=$(__yuru_expand_completion_base__ "$base")
   dir=
   if [[ "$base" == */* ]]; then
     dir="$base"
@@ -567,11 +597,10 @@ end
 
 function __yuru_split_opts__
     set -l raw $argv[1]
-    set -l opts
     if test -n "$raw"
-        eval "set opts $raw"
+        set -l yuru_bin (set -q YURU_BIN; and echo $YURU_BIN; or echo yuru)
+        $yuru_bin __split-shell-words "$raw" 2>/dev/null | string split0
     end
-    printf '%s\n' $opts
 end
 
 function __yuru_ctrl_t_opts__
@@ -614,9 +643,9 @@ end
 
 function __yuru_completion_opts__
     if set -q YURU_COMPLETION_OPTS
-        string split ' ' -- $YURU_COMPLETION_OPTS
+        __yuru_split_opts__ "$YURU_COMPLETION_OPTS"
     else if set -q FZF_COMPLETION_OPTS
-        string split ' ' -- $FZF_COMPLETION_OPTS
+        __yuru_split_opts__ "$FZF_COMPLETION_OPTS"
     end
 end
 

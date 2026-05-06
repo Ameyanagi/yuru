@@ -244,14 +244,43 @@ function Install-YuruFromSource {
     Copy-Item -Force "target\release\yuru.exe" (Join-Path $BinDir "yuru.exe")
 }
 
+function Test-YuruAssetChecksum {
+    param(
+        [string]$AssetPath,
+        [string]$AssetName,
+        [string]$BaseUrl,
+        [string]$TempDir
+    )
+
+    $sumsPath = Join-Path $TempDir "SHA256SUMS"
+    Write-YuruInstallLog "downloading SHA256SUMS"
+    Invoke-WebRequest -Uri "$BaseUrl/SHA256SUMS" -OutFile $sumsPath
+
+    $line = Get-Content -Path $sumsPath | Where-Object {
+        $parts = $_ -split '\s+'
+        $parts.Count -ge 2 -and ($parts[1] -eq $AssetName -or $parts[1] -eq "*$AssetName")
+    } | Select-Object -First 1
+    if (-not $line) {
+        throw "SHA256SUMS did not contain $AssetName"
+    }
+
+    $expected = (($line -split '\s+')[0]).ToLowerInvariant()
+    $actual = (Get-FileHash -Algorithm SHA256 -Path $AssetPath).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) {
+        throw "checksum mismatch for ${AssetName}: expected $expected, got $actual"
+    }
+    Write-YuruInstallLog "verified $AssetName checksum"
+}
+
 function Install-YuruFromRelease {
     $target = Get-YuruTarget
     $asset = "yuru-$target.zip"
     if ($Version -eq "latest") {
-        $url = "https://github.com/$Repo/releases/latest/download/$asset"
+        $baseUrl = "https://github.com/$Repo/releases/latest/download"
     } else {
-        $url = "https://github.com/$Repo/releases/download/$Version/$asset"
+        $baseUrl = "https://github.com/$Repo/releases/download/$Version"
     }
+    $url = "$baseUrl/$asset"
 
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("yuru-install-" + [System.Guid]::NewGuid())
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
@@ -259,6 +288,7 @@ function Install-YuruFromRelease {
         $archive = Join-Path $tmp $asset
         Write-YuruInstallLog "downloading $asset"
         Invoke-WebRequest -Uri $url -OutFile $archive
+        Test-YuruAssetChecksum -AssetPath $archive -AssetName $asset -BaseUrl $baseUrl -TempDir $tmp
         Expand-Archive -Force -Path $archive -DestinationPath $tmp
         $binary = Join-Path $tmp "yuru.exe"
         if (-not (Test-Path $binary)) {
@@ -302,11 +332,13 @@ function Install-YuruPowerShellIntegration {
         return
     }
 
+    $installedBinary = (Join-Path $BinDir "yuru.exe").Replace("'", "''")
     Add-Content -Path $profilePath -Value @"
 
 # yuru shell integration
-if (Get-Command yuru -ErrorAction SilentlyContinue) {
-    yuru --powershell | Invoke-Expression
+`$env:YURU_BIN = '$installedBinary'
+if (Test-Path -LiteralPath `$env:YURU_BIN) {
+    & `$env:YURU_BIN --powershell | Invoke-Expression
 }
 "@
     Write-YuruInstallLog "updated $profilePath"

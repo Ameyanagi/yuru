@@ -98,6 +98,13 @@ enum CommandArg {
 
     /// Print environment, config, and shell integration diagnostics.
     Doctor,
+
+    /// Parse shell words for generated shell integrations.
+    #[command(name = "__split-shell-words", hide = true)]
+    SplitShellWords {
+        #[arg(allow_hyphen_values = true)]
+        words: String,
+    },
 }
 
 #[derive(Debug, Parser)]
@@ -793,13 +800,20 @@ fn run() -> Result<ExitCode> {
         print_shell_script(kind)?;
         return Ok(ExitCode::SUCCESS);
     }
-    if matches!(args.command, Some(CommandArg::Configure)) {
-        configure_interactive()?;
-        return Ok(ExitCode::SUCCESS);
-    }
-    if matches!(args.command, Some(CommandArg::Doctor)) {
-        print_doctor_report()?;
-        return Ok(ExitCode::SUCCESS);
+    match &args.command {
+        Some(CommandArg::Configure) => {
+            configure_interactive()?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some(CommandArg::Doctor) => {
+            print_doctor_report()?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some(CommandArg::SplitShellWords { words }) => {
+            print_split_shell_words(words)?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        None => {}
     }
     if explain_mode(&args) && print0_enabled(&args) {
         bail!("--explain cannot be combined with --print0");
@@ -1594,6 +1608,9 @@ mod tests {
     fn configless_preparse_only_matches_leading_subcommands() {
         assert!(configless_command_present(&[OsString::from("doctor")]));
         assert!(configless_command_present(&[OsString::from("configure")]));
+        assert!(configless_command_present(&[OsString::from(
+            "__split-shell-words"
+        )]));
         assert!(!configless_command_present(&[
             OsString::from("--filter"),
             OsString::from("doctor")
@@ -1623,6 +1640,35 @@ alt_c_opts = "--preview 'ls {}'"
         assert!(shell_config_prefix(ShellKind::Zsh, &config).contains("YURU_SHELL_BINDINGS"));
         assert!(shell_config_prefix(ShellKind::Fish, &config)
             .contains("set -gx YURU_CTRL_T_OPTS \"--preview 'cat {}'\""));
+    }
+
+    #[test]
+    fn generated_shell_scripts_avoid_eval_for_completion_paths_and_option_parsing() {
+        for kind in [ShellKind::Bash, ShellKind::Zsh, ShellKind::Fish] {
+            let script = shell::script(kind);
+            assert!(!script.contains("eval \"base=$base\""));
+            assert!(!script.contains("eval \"opt_args=($opts)\""));
+            assert!(!script.contains("eval \"set opts $raw\""));
+        }
+    }
+
+    #[test]
+    fn hidden_shell_word_splitter_accepts_hyphen_values() {
+        let args = Args::parse_from([
+            "yuru",
+            "__split-shell-words",
+            "--preview 'file {}' --bind ctrl-j:preview-down",
+        ]);
+
+        match args.command {
+            Some(CommandArg::SplitShellWords { words }) => {
+                assert_eq!(
+                    parse_shell_words(&words).unwrap(),
+                    vec!["--preview", "file {}", "--bind", "ctrl-j:preview-down"]
+                );
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 
     #[test]
@@ -2310,7 +2356,7 @@ fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<Inpu
 
     if let Some((env_name, command)) = default_source_command() {
         if !command.trim().is_empty() {
-            return run_default_command(env_name, &command);
+            return run_default_command(env_name, &command, read0_enabled(args));
         }
     }
 
@@ -2386,7 +2432,7 @@ fn non_empty_default_source_command() -> Option<(&'static str, String)> {
     default_source_command().filter(|(_, command)| !command.trim().is_empty())
 }
 
-fn run_default_command(env_name: &str, command: &str) -> Result<Vec<InputRecord>> {
+fn run_default_command(env_name: &str, command: &str, read0: bool) -> Result<Vec<InputRecord>> {
     let output = default_command_process(command)
         .output()
         .with_context(|| format!("failed to run {env_name}: {command}"))?;
@@ -2395,7 +2441,7 @@ fn run_default_command(env_name: &str, command: &str) -> Result<Vec<InputRecord>
         bail!("{env_name} exited with {}", output.status);
     }
 
-    Ok(parse_candidate_bytes(&output.stdout, false))
+    Ok(parse_candidate_bytes(&output.stdout, read0))
 }
 
 #[cfg(not(windows))]
@@ -3532,6 +3578,15 @@ fn profile_has_shell_integration(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn print_split_shell_words(words: &str) -> Result<()> {
+    let mut stdout = io::stdout().lock();
+    for word in parse_shell_words(words)? {
+        stdout.write_all(word.as_bytes())?;
+        stdout.write_all(&[0])?;
+    }
+    Ok(())
+}
+
 fn expanded_args() -> Result<Vec<OsString>> {
     let mut args = std::env::args_os();
     let program = args.next().unwrap_or_else(|| OsString::from("yuru"));
@@ -3556,7 +3611,7 @@ fn expanded_args() -> Result<Vec<OsString>> {
 fn configless_command_present(args: &[OsString]) -> bool {
     matches!(
         args.first().and_then(|arg| arg.to_str()),
-        Some("doctor" | "configure")
+        Some("doctor" | "configure" | "__split-shell-words")
     )
 }
 
@@ -4063,6 +4118,10 @@ fn walker_flags_present(args: &[OsString]) -> bool {
 
 fn split_shell_words(input: &str) -> impl Iterator<Item = String> + '_ {
     shlex::split(input).unwrap_or_default().into_iter()
+}
+
+fn parse_shell_words(input: &str) -> Result<Vec<String>> {
+    shlex::split(input).with_context(|| "failed to parse shell words")
 }
 
 fn normalize_plus_arg(arg: OsString) -> OsString {
