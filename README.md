@@ -30,8 +30,6 @@ been done primarily through agentic coding. The implementation, tests,
 installers, shell integrations, and documentation are heavily shaped by that
 agentic workflow, with the project maintainer steering what the tool should do.
 
-![Yuru demo](docs/assets/yuru-demo.svg)
-
 ## Why Yuru instead of fzf?
 
 | Feature | fzf | Yuru |
