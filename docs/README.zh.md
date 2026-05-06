@@ -3,6 +3,12 @@
 Yuru 是一个快速的命令行 fuzzy finder，支持日文读音搜索和中文拼音搜索。
 它的使用方式接近 fzf，同时针对 CJK 文本提供更准确的 phonetic match 高亮。
 
+## Demo Video
+
+[观看 Yuru command demo](../demo.mp4)
+
+<video src="../demo.mp4" controls muted playsinline width="100%"></video>
+
 ## 安装
 
 Yuru 默认安装到用户目录，不需要 `sudo`。
@@ -15,12 +21,16 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
 `YURU_INSTALL_BIN_DIR` 修改安装目录。`--all` 会为当前 shell 添加集成配置。
-安装器会询问默认语言，并写入 `~/.config/yuru/config.toml`。
+安装器会在交互环境中询问默认语言，并写入 `~/.config/yuru/config.toml`。
+直接按 Enter，或在非交互环境中运行时，会使用 `ja`。
+它也会询问 preview command。默认值 `auto` 会在文本预览中优先使用 `bat`，图片则使用内部 preview。
+它也会询问图片 preview protocol。默认值 `none` 会保留自动检测。
+安装 shell 集成时也会询问 shell path backend。默认值 `auto` 会依次尝试 `fd`、`fdfind` 和 fallback。
 
-安装器默认把语言写成 `ja`。无需提示直接指定语言和快捷键:
+无需提示直接指定语言和快捷键:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang zh --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
 ```
 
 之后可以运行 `yuru configure` 重新配置。
@@ -33,7 +43,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
-可以使用 `-DefaultLang zh` 或 `-Bindings ask` 写入 `%APPDATA%\yuru\config.toml`。
+交互环境中会询问默认语言、preview command、图片 preview protocol 和 shell path backend。可以使用 `-DefaultLang zh`、`-PreviewCommand auto`、`-PreviewImageProtocol none`、`-PathBackend auto` 或 `-Bindings ask` 无需提示地写入 `%APPDATA%\yuru\config.toml`。
 
 只安装二进制文件:
 

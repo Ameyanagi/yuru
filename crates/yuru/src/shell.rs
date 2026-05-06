@@ -54,7 +54,7 @@ __yuru_ctrl_t_opts__() {
   elif [ "${FZF_CTRL_T_OPTS+x}" ]; then
     printf '%s' "$FZF_CTRL_T_OPTS"
   else
-    printf '%s' "--preview 'file {}'"
+    printf '%s' "--preview-auto"
   fi
 }
 
@@ -68,7 +68,7 @@ __yuru_alt_c_opts__() {
   elif [ "${FZF_ALT_C_OPTS+x}" ]; then
     printf '%s' "$FZF_ALT_C_OPTS"
   else
-    printf '%s' "--preview 'ls -la {} 2>/dev/null | head -100'"
+    printf '%s' "--preview-auto"
   fi
 }
 
@@ -99,10 +99,14 @@ __yuru_run_with_optional_command__() {
 }
 
 __yuru_compgen_path__() {
-  local root="${1:-.}"
-  if command -v fd >/dev/null 2>&1; then
+  local root="${1:-.}" backend="${YURU_PATH_BACKEND:-auto}"
+  if [ "$backend" = fd ] && command -v fd >/dev/null 2>&1; then
     command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
-  elif command -v fdfind >/dev/null 2>&1; then
+  elif [ "$backend" = fdfind ] && command -v fdfind >/dev/null 2>&1; then
+    command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [ "$backend" = auto ] && command -v fd >/dev/null 2>&1; then
+    command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [ "$backend" = auto ] && command -v fdfind >/dev/null 2>&1; then
     command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
   else
     command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o \( -type f -o -type d -o -type l \) -print 2>/dev/null | command sed 's#^\./##'
@@ -110,10 +114,14 @@ __yuru_compgen_path__() {
 }
 
 __yuru_compgen_dir__() {
-  local root="${1:-.}"
-  if command -v fd >/dev/null 2>&1; then
+  local root="${1:-.}" backend="${YURU_PATH_BACKEND:-auto}"
+  if [ "$backend" = fd ] && command -v fd >/dev/null 2>&1; then
     command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
-  elif command -v fdfind >/dev/null 2>&1; then
+  elif [ "$backend" = fdfind ] && command -v fdfind >/dev/null 2>&1; then
+    command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [ "$backend" = auto ] && command -v fd >/dev/null 2>&1; then
+    command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [ "$backend" = auto ] && command -v fdfind >/dev/null 2>&1; then
     command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
   else
     command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o -type d -print 2>/dev/null | command sed 's#^\./##'
@@ -328,7 +336,7 @@ __yuru_ctrl_t_opts__() {
   elif (( ${+FZF_CTRL_T_OPTS} )); then
     print -rn -- "$FZF_CTRL_T_OPTS"
   else
-    print -rn -- "--preview 'file {}'"
+    print -rn -- "--preview-auto"
   fi
 }
 
@@ -344,7 +352,7 @@ __yuru_alt_c_opts__() {
   elif (( ${+FZF_ALT_C_OPTS} )); then
     print -rn -- "$FZF_ALT_C_OPTS"
   else
-    print -rn -- "--preview 'ls -la {} 2>/dev/null | head -100'"
+    print -rn -- "--preview-auto"
   fi
 }
 
@@ -362,10 +370,14 @@ __yuru_run_with_optional_command__() {
 
 __yuru_compgen_path__() {
   emulate -L zsh
-  local root="${1:-.}"
-  if command -v fd >/dev/null 2>&1; then
+  local root="${1:-.}" backend="${YURU_PATH_BACKEND:-auto}"
+  if [[ "$backend" == fd ]] && command -v fd >/dev/null 2>&1; then
     command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
-  elif command -v fdfind >/dev/null 2>&1; then
+  elif [[ "$backend" == fdfind ]] && command -v fdfind >/dev/null 2>&1; then
+    command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [[ "$backend" == auto ]] && command -v fd >/dev/null 2>&1; then
+    command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [[ "$backend" == auto ]] && command -v fdfind >/dev/null 2>&1; then
     command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
   else
     command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o \( -type f -o -type d -o -type l \) -print 2>/dev/null | command sed 's#^\./##'
@@ -374,10 +386,14 @@ __yuru_compgen_path__() {
 
 __yuru_compgen_dir__() {
   emulate -L zsh
-  local root="${1:-.}"
-  if command -v fd >/dev/null 2>&1; then
+  local root="${1:-.}" backend="${YURU_PATH_BACKEND:-auto}"
+  if [[ "$backend" == fd ]] && command -v fd >/dev/null 2>&1; then
     command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
-  elif command -v fdfind >/dev/null 2>&1; then
+  elif [[ "$backend" == fdfind ]] && command -v fdfind >/dev/null 2>&1; then
+    command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [[ "$backend" == auto ]] && command -v fd >/dev/null 2>&1; then
+    command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+  elif [[ "$backend" == auto ]] && command -v fdfind >/dev/null 2>&1; then
     command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
   else
     command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o -type d -print 2>/dev/null | command sed 's#^\./##'
@@ -613,7 +629,7 @@ function __yuru_ctrl_t_opts__
     else if set -q FZF_CTRL_T_OPTS
         __yuru_split_opts__ "$FZF_CTRL_T_OPTS"
     else
-        printf '%s\n' --preview 'file {}'
+        printf '%s\n' --preview-auto
     end
 end
 
@@ -631,7 +647,7 @@ function __yuru_alt_c_opts__
     else if set -q FZF_ALT_C_OPTS
         __yuru_split_opts__ "$FZF_ALT_C_OPTS"
     else
-        printf '%s\n' --preview 'ls -la {} 2>/dev/null | head -100'
+        printf '%s\n' --preview-auto
     end
 end
 
@@ -668,9 +684,17 @@ function __yuru_compgen_path__
     if test (count $argv) -gt 0; and test -n "$argv[1]"
         set root $argv[1]
     end
-    if command -q fd
+    set -l backend auto
+    if set -q YURU_PATH_BACKEND; and test -n "$YURU_PATH_BACKEND"
+        set backend $YURU_PATH_BACKEND
+    end
+    if test "$backend" = fd; and command -q fd
         command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
-    else if command -q fdfind
+    else if test "$backend" = fdfind; and command -q fdfind
+        command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else if test "$backend" = auto; and command -q fd
+        command fd --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else if test "$backend" = auto; and command -q fdfind
         command fdfind --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
     else
         command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o \( -type f -o -type d -o -type l \) -print 2>/dev/null | command sed 's#^\./##'
@@ -682,9 +706,17 @@ function __yuru_compgen_dir__
     if test (count $argv) -gt 0; and test -n "$argv[1]"
         set root $argv[1]
     end
-    if command -q fd
+    set -l backend auto
+    if set -q YURU_PATH_BACKEND; and test -n "$YURU_PATH_BACKEND"
+        set backend $YURU_PATH_BACKEND
+    end
+    if test "$backend" = fd; and command -q fd
         command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
-    else if command -q fdfind
+    else if test "$backend" = fdfind; and command -q fdfind
+        command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else if test "$backend" = auto; and command -q fd
+        command fd --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
+    else if test "$backend" = auto; and command -q fdfind
         command fdfind --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . "$root"
     else
         command find "$root" -mindepth 1 \( -name .git -o -name node_modules -o -name target -o -name Library -o -name .rustup -o -name .bun -o -name .cache -o -name .cargo -o -name .npm -o -name .vscode -o -name .Trash \) -prune -o -type d -print 2>/dev/null | command sed 's#^\./##'
@@ -896,7 +928,7 @@ function Split-YuruOptions {
 function Get-YuruCtrlTOptions {
     if ($env:YURU_CTRL_T_OPTS) { return @(Split-YuruOptions $env:YURU_CTRL_T_OPTS) }
     if ($env:FZF_CTRL_T_OPTS) { return @(Split-YuruOptions $env:FZF_CTRL_T_OPTS) }
-    return @("--preview", "Get-Item -LiteralPath {} | Format-List | Out-String")
+    return @("--preview-auto")
 }
 
 function Get-YuruCtrlROptions {
@@ -908,7 +940,7 @@ function Get-YuruCtrlROptions {
 function Get-YuruAltCOptions {
     if ($env:YURU_ALT_C_OPTS) { return @(Split-YuruOptions $env:YURU_ALT_C_OPTS) }
     if ($env:FZF_ALT_C_OPTS) { return @(Split-YuruOptions $env:FZF_ALT_C_OPTS) }
-    return @("--preview", "Get-ChildItem -Force -LiteralPath {} | Select-Object -First 100 | Out-String")
+    return @("--preview-auto")
 }
 
 function Get-YuruCompletionOptions {
@@ -931,8 +963,15 @@ function Test-YuruDirectoryCompletion {
 
 function Get-YuruPathItems {
     param([string]$Root = ".")
-    $fd = Get-Command fd -ErrorAction SilentlyContinue
-    if (-not $fd) { $fd = Get-Command fdfind -ErrorAction SilentlyContinue }
+    $backend = "auto"
+    if ($env:YURU_PATH_BACKEND) { $backend = $env:YURU_PATH_BACKEND.ToLowerInvariant() }
+    $fd = $null
+    if ($backend -eq "fd" -or $backend -eq "auto") {
+        $fd = Get-Command fd -ErrorAction SilentlyContinue
+    }
+    if (-not $fd -and ($backend -eq "fdfind" -or $backend -eq "auto")) {
+        $fd = Get-Command fdfind -ErrorAction SilentlyContinue
+    }
     if ($fd) {
         & $fd.Source --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . $Root
         return
@@ -947,8 +986,15 @@ function Get-YuruPathItems {
 
 function Get-YuruDirItems {
     param([string]$Root = ".")
-    $fd = Get-Command fd -ErrorAction SilentlyContinue
-    if (-not $fd) { $fd = Get-Command fdfind -ErrorAction SilentlyContinue }
+    $backend = "auto"
+    if ($env:YURU_PATH_BACKEND) { $backend = $env:YURU_PATH_BACKEND.ToLowerInvariant() }
+    $fd = $null
+    if ($backend -eq "fd" -or $backend -eq "auto") {
+        $fd = Get-Command fd -ErrorAction SilentlyContinue
+    }
+    if (-not $fd -and ($backend -eq "fdfind" -or $backend -eq "auto")) {
+        $fd = Get-Command fdfind -ErrorAction SilentlyContinue
+    }
     if ($fd) {
         & $fd.Source --type d --hidden --exclude .git --exclude node_modules --exclude target --exclude Library --exclude .rustup --exclude .bun --exclude .cache --exclude .cargo --exclude .npm --exclude .vscode --exclude .Trash --exclude .local/share --exclude go/pkg/mod . $Root
         return

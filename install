@@ -4,9 +4,14 @@ set -eu
 repo="${YURU_INSTALL_REPO:-Ameyanagi/yuru}"
 version="${YURU_INSTALL_VERSION:-latest}"
 bin_dir="${YURU_INSTALL_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
-default_lang="${YURU_INSTALL_DEFAULT_LANG:-ja}"
+default_lang="${YURU_INSTALL_DEFAULT_LANG:-ask}"
+preview_command="${YURU_INSTALL_PREVIEW_COMMAND:-ask}"
+preview_text_extensions="${YURU_INSTALL_PREVIEW_TEXT_EXTENSIONS:-txt,md,markdown,rst,toml,json,jsonl,yaml,yml,csv,tsv,log,rs,py,js,jsx,ts,tsx,go,java,c,h,cpp,hpp,cs,rb,php,sh,bash,zsh,fish,ps1,sql,html,htm,css,scss,xml}"
+preview_image_protocol="${YURU_INSTALL_PREVIEW_IMAGE_PROTOCOL:-ask}"
+path_backend="${YURU_INSTALL_PATH_BACKEND:-ask}"
 bindings="${YURU_INSTALL_BINDINGS:-ask}"
 selected_bindings=""
+selected_path_backend=""
 no_config=0
 shells=""
 from_source=0
@@ -26,7 +31,18 @@ Options:
   --bin-dir DIR         Install binary into DIR (default: ~/.local/bin)
   --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yuru)
   --version TAG         Release tag to download (default: latest)
-  --default-lang LANG   Configure default language: ask, plain, ja, zh, auto, none (default: ja)
+  --default-lang LANG   Configure default language: ask, plain, ja, zh, auto, none (default: ask; no TTY: ja)
+  --preview-command COMMAND
+                        Configure preview command: ask, auto, none, or a shell command
+                        (default: ask; no TTY: auto)
+  --preview-text-extensions LIST
+                        Comma-separated extensions handled by the built-in text preview
+  --preview-image-protocol PROTOCOL
+                        Configure image preview protocol: ask, none, halfblocks, sixel, kitty, iterm2
+                        (default: ask; no TTY: none)
+  --path-backend BACKEND
+                        Shell path search backend: ask, auto, fd, fdfind, find
+                        (default: ask when shell integration is installed; no TTY: auto)
   --bindings LIST       Shell bindings to enable: ask, all, none, ctrl-t, ctrl-r, alt-c, completion
                         Comma-separated lists are accepted, for example: ctrl-t,ctrl-r
                         (default: ask when shell integration is installed)
@@ -88,6 +104,38 @@ while [ "$#" -gt 0 ]; do
       }
       shift 2
       ;;
+    --preview-image-protocol)
+      preview_image_protocol="${2:-}"
+      [ -n "$preview_image_protocol" ] || {
+        echo "install: --preview-image-protocol requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --preview-command)
+      preview_command="${2:-}"
+      [ -n "$preview_command" ] || {
+        echo "install: --preview-command requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --preview-text-extensions)
+      preview_text_extensions="${2:-}"
+      [ -n "$preview_text_extensions" ] || {
+        echo "install: --preview-text-extensions requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
+    --path-backend)
+      path_backend="${2:-}"
+      [ -n "$path_backend" ] || {
+        echo "install: --path-backend requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
     --bindings)
       bindings="${2:-}"
       [ -n "$bindings" ] || {
@@ -135,6 +183,10 @@ fish_quote() {
   printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\$/\\$/g')"
 }
 
+can_prompt() {
+  [ -r /dev/tty ] && [ -w /dev/tty ] && ( : >/dev/tty ) 2>/dev/null
+}
+
 config_file() {
   if [ -n "${YURU_CONFIG_FILE:-}" ]; then
     printf '%s' "$YURU_CONFIG_FILE"
@@ -151,6 +203,28 @@ validate_default_lang() {
     *)
       echo "install: unsupported default language: $1" >&2
       echo "install: expected one of: ask, plain, ja, zh, auto, none" >&2
+      exit 2
+      ;;
+  esac
+}
+
+validate_preview_image_protocol() {
+  case "$1" in
+    ask | none | halfblocks | sixel | kitty | iterm2) ;;
+    *)
+      echo "install: unsupported preview image protocol: $1" >&2
+      echo "install: expected one of: ask, none, halfblocks, sixel, kitty, iterm2" >&2
+      exit 2
+      ;;
+  esac
+}
+
+validate_path_backend() {
+  case "$1" in
+    ask | auto | fd | fdfind | find) ;;
+    *)
+      echo "install: unsupported shell path backend: $1" >&2
+      echo "install: expected one of: ask, auto, fd, fdfind, find" >&2
       exit 2
       ;;
   esac
@@ -209,7 +283,7 @@ prompt_bindings() {
     return
   fi
 
-  if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+  if ! can_prompt; then
     printf 'all'
     return
   fi
@@ -250,7 +324,7 @@ prompt_default_lang() {
     return
   fi
 
-  if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+  if ! can_prompt; then
     printf 'ja'
     return
   fi
@@ -271,6 +345,140 @@ prompt_default_lang() {
   done
 }
 
+prompt_preview_image_protocol() {
+  if [ "$preview_image_protocol" != "ask" ]; then
+    printf '%s' "$preview_image_protocol"
+    return
+  fi
+
+  if ! can_prompt; then
+    printf 'none'
+    return
+  fi
+
+  while :; do
+    printf 'Choose Yuru preview image protocol [none/halfblocks/sixel/kitty/iterm2] (none): ' >/dev/tty
+    IFS= read -r answer </dev/tty || answer=""
+    answer="${answer:-none}"
+    case "$answer" in
+      none | halfblocks | sixel | kitty | iterm2)
+        printf '%s' "$answer"
+        return
+        ;;
+      *)
+        printf 'Please enter none, halfblocks, sixel, kitty, or iterm2.\n' >/dev/tty
+        ;;
+    esac
+  done
+}
+
+prompt_preview_command() {
+  if [ "$preview_command" != "ask" ]; then
+    printf '%s' "$preview_command"
+    return
+  fi
+
+  if ! can_prompt; then
+    printf 'auto'
+    return
+  fi
+
+  while :; do
+    printf 'Choose Yuru preview command [auto/none/custom] (auto): ' >/dev/tty
+    IFS= read -r answer </dev/tty || answer=""
+    answer="${answer:-auto}"
+    case "$answer" in
+      auto | none)
+        printf '%s' "$answer"
+        return
+        ;;
+      custom)
+        printf 'Preview shell command: ' >/dev/tty
+        IFS= read -r custom </dev/tty || custom=""
+        if [ -n "$custom" ]; then
+          printf '%s' "$custom"
+          return
+        fi
+        printf 'Please enter a shell command, auto, or none.\n' >/dev/tty
+        ;;
+      *)
+        printf '%s' "$answer"
+        return
+        ;;
+    esac
+  done
+}
+
+prompt_preview_text_extensions() {
+  if ! can_prompt; then
+    printf '%s' "$preview_text_extensions"
+    return
+  fi
+
+  printf 'Preview text extensions (%s): ' "$preview_text_extensions" >/dev/tty
+  IFS= read -r answer </dev/tty || answer=""
+  printf '%s' "${answer:-$preview_text_extensions}"
+}
+
+prompt_path_backend() {
+  if [ "$path_backend" != "ask" ]; then
+    printf '%s' "$path_backend"
+    return
+  fi
+
+  if ! can_prompt; then
+    printf 'auto'
+    return
+  fi
+
+  while :; do
+    printf 'Choose Yuru shell path backend [auto/fd/fdfind/find] (auto): ' >/dev/tty
+    IFS= read -r answer </dev/tty || answer=""
+    answer="${answer:-auto}"
+    case "$answer" in
+      auto | fd | fdfind | find)
+        printf '%s' "$answer"
+        return
+        ;;
+      *)
+        printf 'Please enter auto, fd, fdfind, or find.\n' >/dev/tty
+        ;;
+    esac
+  done
+}
+
+toml_string_array() {
+  old_ifs="$IFS"
+  IFS=','
+  first=1
+  for item in $1; do
+    IFS="$old_ifs"
+    item="$(printf '%s' "$item" | sed 's/^[[:space:].]*//; s/[[:space:]]*$//')"
+    if [ -n "$item" ]; then
+      item="$(toml_escape_string "$item")"
+      if [ "$first" = "0" ]; then
+        printf ', '
+      fi
+      printf '"%s"' "$item"
+      first=0
+    fi
+    IFS=','
+  done
+  IFS="$old_ifs"
+}
+
+toml_escape_string() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+preview_opts_for_command() {
+  case "$1" in
+    auto) printf '%s' '--preview-auto' ;;
+    none) printf '' ;;
+    *) printf '%s %s' '--preview' "$(sh_quote "$1")" ;;
+  esac
+}
+
 install_config() {
   config_bindings="${1:-}"
   [ "$no_config" = "0" ] || {
@@ -280,18 +488,30 @@ install_config() {
 
   selected_lang="$(prompt_default_lang)"
   validate_default_lang "$selected_lang"
+  selected_preview_image_protocol="$(prompt_preview_image_protocol)"
+  validate_preview_image_protocol "$selected_preview_image_protocol"
+  selected_preview_command="$(prompt_preview_command)"
+  selected_preview_command_toml="$(toml_escape_string "$selected_preview_command")"
+  selected_preview_text_extensions="$(prompt_preview_text_extensions)"
+  selected_preview_text_extensions_toml="$(toml_string_array "$selected_preview_text_extensions")"
+  selected_path_backend=""
+  if [ -n "$config_bindings" ]; then
+    selected_path_backend="$(prompt_path_backend)"
+    validate_path_backend "$selected_path_backend"
+  fi
   ctrl_t_command="__yuru_compgen_path__ ."
-  ctrl_t_opts="--preview 'file {}'"
+  ctrl_t_opts="$(preview_opts_for_command "$selected_preview_command")"
   alt_c_command="__yuru_compgen_dir__ ."
-  alt_c_opts="--preview 'ls -la {} 2>/dev/null | head -100'"
+  alt_c_opts="$(preview_opts_for_command "$selected_preview_command")"
   file="$(config_file)"
   mkdir -p "$(dirname "$file")"
   tmp="$file.tmp.$$"
 
   if [ -f "$file" ]; then
-    awk -v selected="$selected_lang" -v bindings="$config_bindings" -v ctrl_t_command="$ctrl_t_command" -v ctrl_t="$ctrl_t_opts" -v alt_c_command="$alt_c_command" -v alt_c="$alt_c_opts" '
+    awk -v selected="$selected_lang" -v preview_command="$selected_preview_command_toml" -v preview_text_extensions="$selected_preview_text_extensions_toml" -v preview_protocol="$selected_preview_image_protocol" -v bindings="$config_bindings" -v path_backend="$selected_path_backend" -v ctrl_t_command="$ctrl_t_command" -v ctrl_t="$ctrl_t_opts" -v alt_c_command="$alt_c_command" -v alt_c="$alt_c_opts" '
       BEGIN {
         in_defaults = 0; saw_defaults = 0; wrote_lang = 0
+        in_preview = 0; saw_preview = 0; wrote_preview = 0
         in_shell = 0; saw_shell = 0; wrote_shell = 0
       }
       function write_lang() {
@@ -300,9 +520,18 @@ install_config() {
           wrote_lang = 1
         }
       }
+      function write_preview_defaults() {
+        if (wrote_preview == 0) {
+          printf "command = \"%s\"\n", preview_command
+          printf "text_extensions = [%s]\n", preview_text_extensions
+          printf "image_protocol = \"%s\"\n", preview_protocol
+          wrote_preview = 1
+        }
+      }
       function write_shell_defaults() {
         if (bindings != "" && wrote_shell == 0) {
           printf "bindings = \"%s\"\n", bindings
+          printf "path_backend = \"%s\"\n", path_backend
           printf "ctrl_t_command = \"%s\"\n", ctrl_t_command
           printf "ctrl_t_opts = \"%s\"\n", ctrl_t
           printf "alt_c_command = \"%s\"\n", alt_c_command
@@ -313,14 +542,25 @@ install_config() {
       /^[[:space:]]*\[defaults\][[:space:]]*$/ {
         print
         in_defaults = 1
+        in_preview = 0
         in_shell = 0
         saw_defaults = 1
         write_lang()
         next
       }
+      /^[[:space:]]*\[preview\][[:space:]]*$/ {
+        print
+        in_defaults = 0
+        in_preview = 1
+        in_shell = 0
+        saw_preview = 1
+        write_preview_defaults()
+        next
+      }
       /^[[:space:]]*\[shell\][[:space:]]*$/ {
         print
         in_defaults = 0
+        in_preview = 0
         in_shell = 1
         saw_shell = 1
         write_shell_defaults()
@@ -328,12 +568,17 @@ install_config() {
       }
       /^[[:space:]]*\[/ {
         in_defaults = 0
+        in_preview = 0
         in_shell = 0
         print
         next
       }
       in_defaults && /^[[:space:]]*lang[[:space:]]*=/ { next }
+      in_preview && /^[[:space:]]*command[[:space:]]*=/ { next }
+      in_preview && /^[[:space:]]*text_extensions[[:space:]]*=/ { next }
+      in_preview && /^[[:space:]]*image_protocol[[:space:]]*=/ { next }
       bindings != "" && in_shell && /^[[:space:]]*bindings[[:space:]]*=/ { next }
+      bindings != "" && in_shell && /^[[:space:]]*path_backend[[:space:]]*=/ { next }
       bindings != "" && in_shell && /^[[:space:]]*ctrl_t_command[[:space:]]*=/ { next }
       bindings != "" && in_shell && /^[[:space:]]*ctrl_t_opts[[:space:]]*=/ { next }
       bindings != "" && in_shell && /^[[:space:]]*alt_c_command[[:space:]]*=/ { next }
@@ -346,6 +591,11 @@ install_config() {
           write_lang()
           print "load_fzf_defaults = \"safe\""
           print "fzf_compat = \"warn\""
+        }
+        if (saw_preview == 0) {
+          print ""
+          print "[preview]"
+          write_preview_defaults()
         }
         if (bindings != "" && saw_shell == 0) {
           print ""
@@ -362,9 +612,14 @@ install_config() {
       fi
       printf 'load_fzf_defaults = "safe"\n'
       printf 'fzf_compat = "warn"\n'
+      printf '\n[preview]\n'
+      printf 'command = "%s"\n' "$selected_preview_command_toml"
+      printf 'text_extensions = [%s]\n' "$selected_preview_text_extensions_toml"
+      printf 'image_protocol = "%s"\n' "$selected_preview_image_protocol"
       if [ -n "$config_bindings" ]; then
         printf '\n[shell]\n'
         printf 'bindings = "%s"\n' "$config_bindings"
+        printf 'path_backend = "%s"\n' "$selected_path_backend"
         printf 'ctrl_t_command = "%s"\n' "$ctrl_t_command"
         printf 'ctrl_t_opts = "%s"\n' "$ctrl_t_opts"
         printf 'alt_c_command = "%s"\n' "$alt_c_command"
@@ -381,7 +636,10 @@ install_config() {
   fi
   if [ -n "$config_bindings" ]; then
     log "configured shell bindings '$config_bindings' in $file"
+    log "configured shell path backend '$selected_path_backend' in $file"
   fi
+  log "configured preview command '$selected_preview_command' in $file"
+  log "configured preview image protocol '$selected_preview_image_protocol' in $file"
 }
 
 detect_target() {
@@ -631,6 +889,42 @@ install_shell() {
   IFS="$old_ifs"
 }
 
+bindings_use_fd() {
+  normalized=",$(printf '%s' "$1" | tr '[:space:]' ',')"
+  normalized="$normalized,"
+  case "$normalized" in
+    *,all,* | *,ctrl-t,* | *,alt-c,* | *,completion,* | *,tab,* | *,path-completion,*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+suggest_fd() {
+  [ -n "${1:-}" ] || return
+  bindings_use_fd "$1" || return
+  backend="${2:-auto}"
+
+  if [ "$backend" = "find" ]; then
+    log "using find for shell path search"
+    return
+  fi
+
+  if [ "$backend" != "fdfind" ] && command -v fd >/dev/null 2>&1; then
+    log "found fd for faster shell path search"
+  elif [ "$backend" != "fd" ] && command -v fdfind >/dev/null 2>&1; then
+    log "found fdfind for faster shell path search"
+  elif [ "$backend" = "fd" ]; then
+    log "suggestion: install fd for the selected shell path backend; Yuru falls back to find"
+  elif [ "$backend" = "fdfind" ]; then
+    log "suggestion: install fdfind for the selected shell path backend; Yuru falls back to find"
+  else
+    log "suggestion: install fd (fdfind on some Linux distributions) for faster CTRL-T, ALT-C, and completion; Yuru falls back to find"
+  fi
+}
+
 if [ "$from_source" = "1" ]; then
   install_from_source
 else
@@ -639,11 +933,14 @@ fi
 
 log "installed binary into $bin_dir"
 validate_default_lang "$default_lang"
+validate_preview_image_protocol "$preview_image_protocol"
+validate_path_backend "$path_backend"
 validate_bindings "$bindings"
 if [ -n "$shells" ] || [ "$bindings" != "ask" ]; then
   selected_bindings="$(prompt_bindings)"
 fi
 install_config "$selected_bindings"
+suggest_fd "$selected_bindings" "$selected_path_backend"
 
 case ":$PATH:" in
   *":$bin_dir:"*) ;;

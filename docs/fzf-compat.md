@@ -25,6 +25,7 @@ yuru --fzf-compat ignore
 | `--walker`, `--walker-root`, `--walker-skip` | Supported | Built-in walker respects `.gitignore`. |
 | `--layout default|reverse|reverse-list`, `--reverse` | Supported | `default` places the prompt at the bottom and paints results bottom-up; `reverse` places prompt/results at the top; `reverse-list` places the prompt at the bottom with a top-down list. |
 | `--preview` | Supported | Text preview pane; `{}` is replaced with the selected item. With the default `image` feature, preview commands that emit image bytes are rendered through `ratatui-image`. Scroll text with `shift-up`, `shift-down`, `shift-page-up`, and `shift-page-down`. |
+| `--preview-auto` | Yuru extension | Built-in preview: render images internally, use `bat` for configured text extensions or ASCII text files when available, and fall back to `cat`-style plain text. |
 | `--with-shell` | Supported for preview | Preview commands use the configured shell command. |
 | `--multi[=MAX]`, `--multi MAX`, `-mMAX`, `--pointer`, `--marker`, `--ellipsis`, `--footer`, `--no-input` | Supported | Implemented in the current crossterm TUI. |
 | `--color` | Partial | Supports `pointer`, `hl`, and `hl+` hex colors. Other entries are accepted and ignored. |
@@ -46,13 +47,22 @@ yuru --preview 'cat {}' --bind 'ctrl-b:preview-page-up,ctrl-f:preview-page-down'
 Image preview:
 
 ```sh
+yuru --preview-auto
 yuru --preview 'cat {}'
 YURU_PREVIEW_IMAGE_PROTOCOL=sixel yuru --preview 'cat {}'
 YURU_PREVIEW_IMAGE_PROTOCOL=kitty yuru --preview 'file {}'
 ```
 
 `YURU_PREVIEW_IMAGE_PROTOCOL` accepts `halfblocks`, `sixel`, `kitty`, and `iterm2`.
-Without it, Yuru uses safe environment hints and falls back to halfblocks.
+`[preview] command = "auto"` enables built-in preview, and
+`[preview] text_extensions = [...]` controls which extensions use the `bat` /
+`cat` text path. Files outside that list also use the text path when their
+contents look like ASCII text.
+The TOML config option `[preview] image_protocol = "none"` is the default and
+leaves this environment override plus automatic detection enabled. Set it to
+`halfblocks`, `sixel`, `kitty`, or `iterm2` to force a protocol from config.
+Without a forced protocol, Yuru uses safe environment hints and falls back to
+halfblocks.
 Ghostty is detected as Kitty protocol even inside tmux when `GHOSTTY_*` env vars
 are present and tmux passthrough is enabled. Yuru also renders the selected file
 directly when it is a raster image or SVG, so preview commands like `file {}` can

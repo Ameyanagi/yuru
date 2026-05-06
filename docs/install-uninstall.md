@@ -19,12 +19,29 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 
 The Unix installer writes the binary to `~/.local/bin` unless `XDG_BIN_HOME`, `YURU_INSTALL_BIN_DIR`, or `--bin-dir` overrides it. The Windows installer writes to `%LOCALAPPDATA%\Yuru\bin`.
 
-`--all` can also add shell integration and write config. The default language is
-Japanese (`ja`) when prompts are empty or unavailable. Use
-`--default-lang ask|plain|ja|zh|auto|none` or `-DefaultLang` to override it.
+`--all` can also add shell integration and write config. Interactive installs
+ask for the default language. Pressing Enter, or running without an interactive
+prompt, uses Japanese (`ja`). Use `--default-lang ask|plain|ja|zh|auto|none` or
+`-DefaultLang` to override it or skip the prompt.
+Interactive installs also ask whether to force an image preview protocol; the
+default `none` leaves automatic detection enabled. Use
+`--preview-image-protocol none|halfblocks|sixel|kitty|iterm2` or
+`-PreviewImageProtocol` to set it without a prompt.
+They also ask for the preview command. The default `auto` uses Yuru's built-in
+preview with `bat` or `cat`-style fallback for configured text extensions and
+internal image rendering. Use `--preview-command auto|none|COMMAND`,
+`--preview-text-extensions txt,md,json,...`, `-PreviewCommand`, or
+`-PreviewTextExtensions` to set this without prompts.
 Use `--bindings ask|all|none|ctrl-t,ctrl-r,alt-c,completion` or `-Bindings` to
 choose which shell bindings are enabled. `yuru configure` can update the same
 user config later.
+Shell path search defaults to `auto`, which tries `fd`, then `fdfind`, then the
+portable fallback. Use `--path-backend auto|fd|fdfind|find` or `-PathBackend`
+to choose this without a prompt.
+
+When shell bindings use path search and neither `fd` nor `fdfind` is available,
+the installer suggests installing `fd`. Yuru still works and falls back to
+`find` on Unix or `Get-ChildItem` on Windows.
 
 ## Update
 

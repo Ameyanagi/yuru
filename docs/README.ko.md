@@ -3,6 +3,12 @@
 Yuru는 일본어 읽기 검색과 중국어 병음 검색을 지원하는 빠른 명령줄 fuzzy finder입니다.
 fzf와 비슷한 사용감을 유지하면서 CJK 텍스트의 phonetic match와 정확한 하이라이트를 목표로 합니다.
 
+## Demo Video
+
+[Yuru command demo 보기](../demo.mp4)
+
+<video src="../demo.mp4" controls muted playsinline width="100%"></video>
+
 ## 설치
 
 Yuru는 기본적으로 사용자 영역에 설치됩니다. `sudo`가 필요하지 않습니다.
@@ -15,12 +21,16 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 
 기본 설치 위치는 `~/.local/bin`입니다. `XDG_BIN_HOME` 또는 `YURU_INSTALL_BIN_DIR`로 변경할 수 있습니다.
 `--all`을 사용하면 현재 shell 설정에 통합 스크립트도 추가합니다.
-설치기는 기본 언어를 물어보고 `~/.config/yuru/config.toml`에 저장합니다.
+설치기는 대화형 환경에서 기본 언어를 물어보고 `~/.config/yuru/config.toml`에 저장합니다.
+Enter만 누르거나 비대화형 환경에서는 `ja`를 사용합니다.
+preview command도 물어봅니다. 기본값 `auto`는 text preview에 `bat`이 있으면 쓰고, 이미지는 내부 preview를 사용합니다.
+이미지 preview protocol도 물어봅니다. 기본값 `none`은 자동 감지를 그대로 둡니다.
+shell 통합을 설치할 때는 shell path backend도 물어봅니다. 기본값 `auto`는 `fd`, `fdfind`, fallback 순서로 사용합니다.
 
-installer는 기본으로 `ja`를 설정합니다. 프롬프트 없이 언어와 key binding을 지정하려면:
+프롬프트 없이 언어와 key binding을 지정하려면:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
 ```
 
 나중에 바꾸려면 `yuru configure`를 실행합니다.
@@ -33,7 +43,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin`에 `yuru.exe`를 설치하고, 사용자 PATH와 PowerShell profile을 업데이트합니다.
-`-DefaultLang ja`나 `-Bindings ask`처럼 지정하면 `%APPDATA%\yuru\config.toml`에 기본값을 씁니다.
+대화형 환경에서는 기본 언어, preview command, 이미지 preview protocol, shell path backend를 물어봅니다. `-DefaultLang ja`, `-PreviewCommand auto`, `-PreviewImageProtocol none`, `-PathBackend auto`, `-Bindings ask`처럼 지정하면 프롬프트 없이 `%APPDATA%\yuru\config.toml`에 기본값을 씁니다.
 
 바이너리만 설치:
 

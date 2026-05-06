@@ -3,6 +3,12 @@
 Yuru は、日本語と中国語の音読み検索に対応した高速なコマンドライン fuzzy finder です。
 fzf に近い操作感を保ちながら、CJK テキストの phonetic match と正確なハイライトを重視しています。
 
+## Demo Video
+
+[Yuru command demo を見る](../demo.mp4)
+
+<video src="../demo.mp4" controls muted playsinline width="100%"></video>
+
 ## インストール
 
 Yuru はデフォルトでユーザー領域にインストールされます。`sudo` は不要です。
@@ -15,12 +21,16 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 
 通常は `~/.local/bin` に `yuru` を配置します。`XDG_BIN_HOME` または
 `YURU_INSTALL_BIN_DIR` を設定すると変更できます。`--all` を付けると現在の shell の設定にも統合を追加します。
-インストーラーはデフォルト言語を尋ね、`~/.config/yuru/config.toml` に保存します。
+インストーラーは対話環境ではデフォルト言語を尋ね、`~/.config/yuru/config.toml` に保存します。
+Enter のみ、または非対話環境では `ja` を使います。
+preview command も尋ねます。既定の `auto` は text では `bat` があれば使い、画像は内部 preview を使います。
+画像 preview protocol も尋ねます。既定の `none` は自動判定のままにします。
+shell 統合を入れる場合は shell path backend も尋ねます。既定の `auto` は `fd`、`fdfind`、fallback の順に使います。
 
-installer は既定で `ja` を `~/.config/yuru/config.toml` に書きます。プロンプトなしで言語や key binding を指定する場合:
+プロンプトなしで言語や key binding を指定する場合:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
 ```
 
 あとから変更する場合は `yuru configure` を実行します。
@@ -33,7 +43,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin` に `yuru.exe` を配置し、ユーザー PATH と PowerShell profile を更新します。
-`-DefaultLang ja` や `-Bindings ask` のように指定すると `%APPDATA%\yuru\config.toml` に既定値を書き込みます。
+対話環境ではデフォルト言語、preview command、画像 preview protocol、shell path backend を尋ねます。`-DefaultLang ja`、`-PreviewCommand auto`、`-PreviewImageProtocol none`、`-PathBackend auto`、`-Bindings ask` のように指定すると、プロンプトなしで `%APPDATA%\yuru\config.toml` に既定値を書き込みます。
 
 バイナリだけを入れる場合:
 

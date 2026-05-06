@@ -1,5 +1,15 @@
 # Yuru
 
+## Demo Video
+
+[Watch the Yuru command demo](demo.mp4)
+
+<video src="demo.mp4" controls muted playsinline width="100%"></video>
+
+<p align="center">
+  <img src="docs/assets/yuru-icon.svg" alt="Yuru icon" width="128">
+</p>
+
 [![CI](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml/badge.svg)](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Ameyanagi/yuru)](https://github.com/Ameyanagi/yuru/releases/latest)
 [![crates.io](https://img.shields.io/crates/v/yuru.svg)](https://crates.io/crates/yuru)
@@ -10,6 +20,15 @@
 Yuru is a fast command-line fuzzy finder with Japanese and Chinese phonetic search.
 It is designed to feel familiar to fzf users while adding multilingual matching and
 source-span highlighting for CJK text.
+
+The name comes from `ゆるい`, meaning loose or relaxed. In this project it points
+to forgiving fuzzy matching: the query can be a little loose, and Yuru tries to
+find the intended multilingual text.
+
+Yuru's direction and fuzzy-finder behavior are human-led, while the coding has
+been done primarily through agentic coding. The implementation, tests,
+installers, shell integrations, and documentation are heavily shaped by that
+agentic workflow, with the project maintainer steering what the tool should do.
 
 ![Yuru demo](docs/assets/yuru-demo.svg)
 
@@ -23,6 +42,17 @@ source-span highlighting for CJK text.
 | fzf-like shell bindings | Yes | Yes |
 | Full fzf option compatibility | Yes | Partial, evolving |
 | CJK source-span highlighting | Limited | Yes |
+
+Multilingual fuzzy finding has problems that are different from plain fzf-style
+matching. A single visible candidate may need original text, normalized text,
+Japanese kana and romaji readings, Chinese pinyin and initials, and source-span
+maps for highlighting. Yuru keeps those as typed search keys and expands each
+query into a small set of compatible variants, so a romaji query can match kana
+or kanji readings without turning every search into an unbounded cross-product.
+
+See [architecture and optimization details](docs/internals.md) for how indexing,
+searching, streaming input, lazy candidate construction, async search workers,
+and preview workers are organized.
 
 Localized documentation:
 
@@ -42,13 +72,19 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 
 This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
 `YURU_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
-shell. The installer writes user-space defaults to `~/.config/yuru/config.toml`;
-empty language prompts default to Japanese (`ja`).
+shell. The installer writes user-space defaults to `~/.config/yuru/config.toml`.
+Interactive installs ask for the default language; pressing Enter, or running
+without an interactive prompt, uses Japanese (`ja`).
+They also ask for the preview command; the default `auto` uses Yuru's built-in
+preview with `bat` when available for configured text extensions. The image
+preview protocol defaults to `none`, which keeps automatic detection. When shell
+integration is installed, they ask which path search backend to use; the default
+`auto` tries `fd`, then `fdfind`, then the portable fallback.
 
-To choose language or key bindings explicitly:
+To choose language or key bindings explicitly without prompts:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
 ```
 
 `--bindings` accepts `all`, `none`, `ask`, or a comma-separated list such as
@@ -65,10 +101,15 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
 the user PATH, adds PowerShell integration to your user profile, and can write
 the default language and shell bindings to `%APPDATA%\yuru\config.toml`.
+Interactive installs ask for the default language; use `-DefaultLang` to skip
+that prompt. Use `-PreviewCommand auto|none|COMMAND`,
+`-PreviewImageProtocol none|halfblocks|sixel|kitty|iterm2`, and
+`-PathBackend auto|fd|fdfind|find` to set preview and shell path behavior
+without prompts.
 
 ```powershell
 $script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.4 -DefaultLang ja"
+Invoke-Expression "& { $script } -All -Version v0.1.4 -DefaultLang ja -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto"
 ```
 
 To install only the binary:
@@ -203,11 +244,17 @@ not accidentally break Yuru:
 yuru --load-fzf-default-opts never|safe|all
 ```
 
-Preview commands that emit image bytes, or select image files directly, are
-rendered through the default `image` feature with `ratatui-image`; raster images
-and SVG files are supported. Ghostty uses the Kitty graphics protocol, including
-inside tmux when passthrough is enabled. Set
-`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` to force a protocol.
+`[preview] command = "auto"` enables Yuru's built-in preview: images are
+rendered internally, configured text extensions use `bat` when available and
+fall back to `cat`-style plain text output. Files outside the configured
+extension list also use the text path when their contents look like ASCII text.
+Preview commands that emit image bytes,
+or select image files directly, are rendered through the default `image` feature
+with `ratatui-image`; raster images and SVG files are supported. Ghostty uses
+the Kitty graphics protocol, including inside tmux when passthrough is enabled. Set
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` or
+`[preview] image_protocol = "kitty"` in config to force a protocol. The config
+default `none` leaves automatic detection enabled.
 
 See the full [fzf compatibility matrix](docs/fzf-compat.md).
 
@@ -224,6 +271,14 @@ case = "smart"         # smart | ignore | respect
 limit = 200
 load_fzf_defaults = "safe"
 fzf_compat = "warn"
+
+[preview]
+command = "auto"        # auto | none | shell command
+text_extensions = [
+  "txt", "md", "markdown", "toml", "json", "yaml", "yml", "csv", "tsv",
+  "log", "rs", "py", "js", "ts", "tsx", "sh", "ps1", "sql", "html", "css",
+]
+image_protocol = "none" # none | halfblocks | sixel | kitty | iterm2
 
 [matching]
 algo = "greedy"        # greedy | fzf-v1 | fzf-v2 | nucleo
@@ -242,10 +297,11 @@ script = "auto"        # auto | hans | hant
 
 [shell]
 bindings = "all"       # all | none | ctrl-t,ctrl-r,alt-c,completion
+path_backend = "auto"  # auto | fd | fdfind | find
 ctrl_t_command = "__yuru_compgen_path__ ."
-ctrl_t_opts = "--preview 'file {}'"
+ctrl_t_opts = "--preview-auto"
 alt_c_command = "__yuru_compgen_dir__ ."
-alt_c_opts = "--preview 'ls -la {} 2>/dev/null | head -100'"
+alt_c_opts = "--preview-auto"
 ```
 
 See [configuration details](docs/config.md) and

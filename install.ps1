@@ -4,13 +4,20 @@ param(
     [string]$Repo = "Ameyanagi/yuru",
     [string]$Version = "latest",
     [ValidateSet("ask", "plain", "ja", "zh", "auto", "none")]
-    [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ja" }),
+    [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ask" }),
+    [string]$PreviewCommand = $(if ($env:YURU_INSTALL_PREVIEW_COMMAND) { $env:YURU_INSTALL_PREVIEW_COMMAND } else { "ask" }),
+    [string]$PreviewTextExtensions = $(if ($env:YURU_INSTALL_PREVIEW_TEXT_EXTENSIONS) { $env:YURU_INSTALL_PREVIEW_TEXT_EXTENSIONS } else { "txt,md,markdown,rst,toml,json,jsonl,yaml,yml,csv,tsv,log,rs,py,js,jsx,ts,tsx,go,java,c,h,cpp,hpp,cs,rb,php,sh,bash,zsh,fish,ps1,sql,html,htm,css,scss,xml" }),
+    [ValidateSet("ask", "none", "halfblocks", "sixel", "kitty", "iterm2")]
+    [string]$PreviewImageProtocol = $(if ($env:YURU_INSTALL_PREVIEW_IMAGE_PROTOCOL) { $env:YURU_INSTALL_PREVIEW_IMAGE_PROTOCOL } else { "ask" }),
+    [ValidateSet("ask", "auto", "fd", "fdfind", "find")]
+    [string]$PathBackend = $(if ($env:YURU_INSTALL_PATH_BACKEND) { $env:YURU_INSTALL_PATH_BACKEND } else { "ask" }),
     [string]$Bindings = $(if ($env:YURU_INSTALL_BINDINGS) { $env:YURU_INSTALL_BINDINGS } else { "ask" }),
     [switch]$NoConfig,
     [switch]$FromSource
 )
 
 $ErrorActionPreference = "Stop"
+$script:YuruSelectedPathBackend = ""
 
 if (-not $BinDir -or $BinDir.Trim().Length -eq 0) {
     $BinDir = Join-Path $env:LOCALAPPDATA "Yuru\bin"
@@ -27,9 +34,18 @@ function Get-YuruConfigPath {
     return (Join-Path $HOME ".config\yuru\config.toml")
 }
 
+function Test-YuruCanPrompt {
+    if (-not [Environment]::UserInteractive) { return $false }
+    try {
+        return -not [Console]::IsInputRedirected
+    } catch {
+        return $true
+    }
+}
+
 function Read-YuruDefaultLanguage {
     if ($DefaultLang -ne "ask") { return $DefaultLang }
-    if (-not [Environment]::UserInteractive) { return "ja" }
+    if (-not (Test-YuruCanPrompt)) { return "ja" }
 
     while ($true) {
         $answer = Read-Host "Choose Yuru default language [plain/ja/zh/auto/none] (ja)"
@@ -41,6 +57,68 @@ function Read-YuruDefaultLanguage {
             "auto" { return "auto" }
             "none" { return "none" }
             default { Write-Host "Please enter plain, ja, zh, auto, or none." }
+        }
+    }
+}
+
+function Read-YuruPreviewImageProtocol {
+    if ($PreviewImageProtocol -ne "ask") { return $PreviewImageProtocol }
+    if (-not (Test-YuruCanPrompt)) { return "none" }
+
+    while ($true) {
+        $answer = Read-Host "Choose Yuru preview image protocol [none/halfblocks/sixel/kitty/iterm2] (none)"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return "none" }
+        switch ($answer.Trim().ToLowerInvariant()) {
+            "none" { return "none" }
+            "halfblocks" { return "halfblocks" }
+            "sixel" { return "sixel" }
+            "kitty" { return "kitty" }
+            "iterm2" { return "iterm2" }
+            default { Write-Host "Please enter none, halfblocks, sixel, kitty, or iterm2." }
+        }
+    }
+}
+
+function Read-YuruPreviewCommand {
+    if ($PreviewCommand -ne "ask") { return $PreviewCommand }
+    if (-not (Test-YuruCanPrompt)) { return "auto" }
+
+    while ($true) {
+        $answer = Read-Host "Choose Yuru preview command [auto/none/custom] (auto)"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return "auto" }
+        switch ($answer.Trim().ToLowerInvariant()) {
+            "auto" { return "auto" }
+            "none" { return "none" }
+            "custom" {
+                $custom = Read-Host "Preview shell command"
+                if (-not [string]::IsNullOrWhiteSpace($custom)) { return $custom }
+                Write-Host "Please enter a shell command, auto, or none."
+            }
+            default { return $answer.Trim() }
+        }
+    }
+}
+
+function Read-YuruPreviewTextExtensions {
+    if (-not (Test-YuruCanPrompt)) { return $PreviewTextExtensions }
+    $answer = Read-Host "Preview text extensions ($PreviewTextExtensions)"
+    if ([string]::IsNullOrWhiteSpace($answer)) { return $PreviewTextExtensions }
+    return $answer.Trim()
+}
+
+function Read-YuruPathBackend {
+    if ($PathBackend -ne "ask") { return $PathBackend }
+    if (-not (Test-YuruCanPrompt)) { return "auto" }
+
+    while ($true) {
+        $answer = Read-Host "Choose Yuru shell path backend [auto/fd/fdfind/find] (auto)"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return "auto" }
+        switch ($answer.Trim().ToLowerInvariant()) {
+            "auto" { return "auto" }
+            "fd" { return "fd" }
+            "fdfind" { return "fdfind" }
+            "find" { return "find" }
+            default { Write-Host "Please enter auto, fd, fdfind, or find." }
         }
     }
 }
@@ -82,7 +160,7 @@ function Read-YuruShellBindings {
         throw "unsupported shell bindings '$Bindings'; expected ask, all, none, or a comma-separated list of ctrl-t, ctrl-r, alt-c, completion"
     }
     if ($Bindings -ne "ask") { return $Bindings }
-    if (-not [Environment]::UserInteractive) { return "all" }
+    if (-not (Test-YuruCanPrompt)) { return "all" }
 
     while ($true) {
         $answer = Read-Host "Choose Yuru shell bindings [all/custom/none] (all)"
@@ -107,6 +185,37 @@ function Read-YuruShellBindings {
     }
 }
 
+function ConvertTo-YuruTomlString {
+    param([string]$Value)
+    return $Value.Replace('\', '\\').Replace('"', '\"')
+}
+
+function ConvertTo-YuruTomlStringArray {
+    param([string]$Value)
+    $items = @()
+    foreach ($item in ($Value -split ",")) {
+        $trimmed = $item.Trim().TrimStart(".")
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+            $items += '"' + (ConvertTo-YuruTomlString $trimmed) + '"'
+        }
+    }
+    return ($items -join ", ")
+}
+
+function ConvertTo-YuruPowerShellSingleQuoted {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Get-YuruPreviewOptions {
+    param([string]$Command)
+    switch ($Command.Trim().ToLowerInvariant()) {
+        "auto" { return "--preview-auto" }
+        "none" { return "" }
+        default { return "--preview " + (ConvertTo-YuruPowerShellSingleQuoted $Command) }
+    }
+}
+
 function Install-YuruConfig {
     param([string]$ConfigBindings = "")
     if ($NoConfig) {
@@ -115,10 +224,20 @@ function Install-YuruConfig {
     }
 
     $selectedLang = Read-YuruDefaultLanguage
+    $selectedPreviewCommand = Read-YuruPreviewCommand
+    $selectedPreviewCommandToml = ConvertTo-YuruTomlString $selectedPreviewCommand
+    $selectedPreviewTextExtensions = Read-YuruPreviewTextExtensions
+    $selectedPreviewTextExtensionsToml = ConvertTo-YuruTomlStringArray $selectedPreviewTextExtensions
+    $selectedPreviewImageProtocol = Read-YuruPreviewImageProtocol
+    $selectedPathBackend = ""
+    if ($ConfigBindings) {
+        $selectedPathBackend = Read-YuruPathBackend
+    }
+    $script:YuruSelectedPathBackend = $selectedPathBackend
     $ctrlTCommand = "Get-YuruPathItems ."
-    $ctrlTOpts = "--preview 'Get-Item -LiteralPath {} | Format-List | Out-String'"
+    $ctrlTOpts = Get-YuruPreviewOptions $selectedPreviewCommand
     $altCCommand = "Get-YuruDirItems ."
-    $altCOpts = "--preview 'Get-ChildItem -Force -LiteralPath {} | Select-Object -First 100 | Out-String'"
+    $altCOpts = Get-YuruPreviewOptions $selectedPreviewCommand
     $configPath = Get-YuruConfigPath
     $configDir = Split-Path -Parent $configPath
     if (-not [string]::IsNullOrWhiteSpace($configDir)) {
@@ -131,6 +250,9 @@ function Install-YuruConfig {
         $inDefaults = $false
         $sawDefaults = $false
         $wroteLang = $false
+        $inPreview = $false
+        $sawPreview = $false
+        $wrotePreview = $false
         $inShell = $false
         $sawShell = $false
         $wroteShell = $false
@@ -138,6 +260,7 @@ function Install-YuruConfig {
             if ($line -match '^\s*\[defaults\]\s*$') {
                 $lines += $line
                 $inDefaults = $true
+                $inPreview = $false
                 $inShell = $false
                 $sawDefaults = $true
                 if ($selectedLang -ne "none") {
@@ -146,13 +269,27 @@ function Install-YuruConfig {
                 }
                 continue
             }
+            if ($line -match '^\s*\[preview\]\s*$') {
+                $lines += $line
+                $inDefaults = $false
+                $inPreview = $true
+                $inShell = $false
+                $sawPreview = $true
+                $lines += "command = `"$selectedPreviewCommandToml`""
+                $lines += "text_extensions = [$selectedPreviewTextExtensionsToml]"
+                $lines += "image_protocol = `"$selectedPreviewImageProtocol`""
+                $wrotePreview = $true
+                continue
+            }
             if ($line -match '^\s*\[shell\]\s*$') {
                 $lines += $line
                 $inDefaults = $false
+                $inPreview = $false
                 $inShell = $true
                 $sawShell = $true
                 if ($ConfigBindings) {
                     $lines += "bindings = `"$ConfigBindings`""
+                    $lines += "path_backend = `"$selectedPathBackend`""
                     $lines += "ctrl_t_command = `"$ctrlTCommand`""
                     $lines += "ctrl_t_opts = `"$ctrlTOpts`""
                     $lines += "alt_c_command = `"$altCCommand`""
@@ -163,6 +300,7 @@ function Install-YuruConfig {
             }
             if ($line -match '^\s*\[') {
                 $inDefaults = $false
+                $inPreview = $false
                 $inShell = $false
                 $lines += $line
                 continue
@@ -170,7 +308,19 @@ function Install-YuruConfig {
             if ($inDefaults -and $line -match '^\s*lang\s*=') {
                 continue
             }
+            if ($inPreview -and $line -match '^\s*command\s*=') {
+                continue
+            }
+            if ($inPreview -and $line -match '^\s*text_extensions\s*=') {
+                continue
+            }
+            if ($inPreview -and $line -match '^\s*image_protocol\s*=') {
+                continue
+            }
             if ($ConfigBindings -and $inShell -and $line -match '^\s*(bindings|ctrl_t_command|ctrl_t_opts|alt_c_command|alt_c_opts)\s*=') {
+                continue
+            }
+            if ($ConfigBindings -and $inShell -and $line -match '^\s*path_backend\s*=') {
                 continue
             }
             $lines += $line
@@ -185,10 +335,18 @@ function Install-YuruConfig {
             $lines += "load_fzf_defaults = `"safe`""
             $lines += "fzf_compat = `"warn`""
         }
+        if (-not $sawPreview) {
+            $lines += ""
+            $lines += "[preview]"
+            $lines += "command = `"$selectedPreviewCommandToml`""
+            $lines += "text_extensions = [$selectedPreviewTextExtensionsToml]"
+            $lines += "image_protocol = `"$selectedPreviewImageProtocol`""
+        }
         if ($ConfigBindings -and -not $sawShell) {
             $lines += ""
             $lines += "[shell]"
             $lines += "bindings = `"$ConfigBindings`""
+            $lines += "path_backend = `"$selectedPathBackend`""
             $lines += "ctrl_t_command = `"$ctrlTCommand`""
             $lines += "ctrl_t_opts = `"$ctrlTOpts`""
             $lines += "alt_c_command = `"$altCCommand`""
@@ -201,10 +359,16 @@ function Install-YuruConfig {
         }
         $lines += "load_fzf_defaults = `"safe`""
         $lines += "fzf_compat = `"warn`""
+        $lines += ""
+        $lines += "[preview]"
+        $lines += "command = `"$selectedPreviewCommandToml`""
+        $lines += "text_extensions = [$selectedPreviewTextExtensionsToml]"
+        $lines += "image_protocol = `"$selectedPreviewImageProtocol`""
         if ($ConfigBindings) {
             $lines += ""
             $lines += "[shell]"
             $lines += "bindings = `"$ConfigBindings`""
+            $lines += "path_backend = `"$selectedPathBackend`""
             $lines += "ctrl_t_command = `"$ctrlTCommand`""
             $lines += "ctrl_t_opts = `"$ctrlTOpts`""
             $lines += "alt_c_command = `"$altCCommand`""
@@ -220,7 +384,10 @@ function Install-YuruConfig {
     }
     if ($ConfigBindings) {
         Write-YuruInstallLog "configured shell bindings '$ConfigBindings' in $configPath"
+        Write-YuruInstallLog "configured shell path backend '$selectedPathBackend' in $configPath"
     }
+    Write-YuruInstallLog "configured preview command '$selectedPreviewCommand' in $configPath"
+    Write-YuruInstallLog "configured preview image protocol '$selectedPreviewImageProtocol' in $configPath"
 }
 
 function Get-YuruTarget {
@@ -344,6 +511,40 @@ if (Test-Path -LiteralPath `$env:YURU_BIN) {
     Write-YuruInstallLog "updated $profilePath"
 }
 
+function Test-YuruBindingsUseFd {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    $items = @($Value -split '[,\s]+' | Where-Object { $_ })
+    foreach ($item in $items) {
+        if ($item -in @("all", "ctrl-t", "alt-c", "completion", "tab", "path-completion")) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Show-YuruFdSuggestion {
+    param(
+        [string]$ConfigBindings,
+        [string]$PathBackend = "auto"
+    )
+    if (-not (Test-YuruBindingsUseFd $ConfigBindings)) { return }
+
+    if ($PathBackend -eq "find") {
+        Write-YuruInstallLog "using Get-ChildItem for shell path search"
+    } elseif ($PathBackend -ne "fdfind" -and (Get-Command fd -ErrorAction SilentlyContinue)) {
+        Write-YuruInstallLog "found fd for faster shell path search"
+    } elseif ($PathBackend -ne "fd" -and (Get-Command fdfind -ErrorAction SilentlyContinue)) {
+        Write-YuruInstallLog "found fdfind for faster shell path search"
+    } elseif ($PathBackend -eq "fd") {
+        Write-YuruInstallLog "suggestion: install fd for the selected shell path backend; Yuru falls back to Get-ChildItem"
+    } elseif ($PathBackend -eq "fdfind") {
+        Write-YuruInstallLog "suggestion: install fdfind for the selected shell path backend; Yuru falls back to Get-ChildItem"
+    } else {
+        Write-YuruInstallLog "suggestion: install fd for faster CTRL-T, ALT-C, and completion; Yuru falls back to Get-ChildItem"
+    }
+}
+
 if ($FromSource) {
     Install-YuruFromSource
 } else {
@@ -357,6 +558,7 @@ if ($All -or $Bindings -ne "ask") {
     $configBindings = Read-YuruShellBindings
 }
 Install-YuruConfig -ConfigBindings $configBindings
+Show-YuruFdSuggestion -ConfigBindings $configBindings -PathBackend $script:YuruSelectedPathBackend
 
 if ($All) {
     Install-YuruPowerShellIntegration

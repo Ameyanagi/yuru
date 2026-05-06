@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Yuru icon</title>
+  <desc id="desc">A soft search lens with fuzzy matching dots and a Y-shaped path.</desc>
+  <defs>
+    <linearGradient id="bg" x1="74" y1="52" x2="438" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f7f3e8"/>
+      <stop offset="0.58" stop-color="#d9f1df"/>
+      <stop offset="1" stop-color="#c5e8ef"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="150" y1="132" x2="362" y2="362" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1c7468"/>
+      <stop offset="1" stop-color="#233142"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1a2d34" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <g filter="url(#soft-shadow)">
+    <circle cx="236" cy="226" r="122" fill="#ffffff" opacity="0.84"/>
+    <circle cx="236" cy="226" r="98" fill="none" stroke="url(#lens)" stroke-width="28"/>
+    <path d="M306 306 393 393" fill="none" stroke="#233142" stroke-linecap="round" stroke-width="38"/>
+  </g>
+
+  <path
+    d="M180 172c26 39 50 58 72 58 24 0 47-20 70-60"
+    fill="none"
+    stroke="#ef6f5a"
+    stroke-linecap="round"
+    stroke-width="25"/>
+  <path
+    d="M251 231v74"
+    fill="none"
+    stroke="#ef6f5a"
+    stroke-linecap="round"
+    stroke-width="25"/>
+
+  <circle cx="123" cy="139" r="15" fill="#ef6f5a"/>
+  <circle cx="382" cy="134" r="12" fill="#1c7468"/>
+  <circle cx="124" cy="332" r="11" fill="#233142"/>
+  <circle cx="366" cy="272" r="10" fill="#ef6f5a"/>
+  <circle cx="318" cy="102" r="8" fill="#233142" opacity="0.62"/>
+  <circle cx="165" cy="399" r="8" fill="#1c7468" opacity="0.7"/>
+</svg>

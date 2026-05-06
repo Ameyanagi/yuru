@@ -28,6 +28,11 @@ const DEFAULT_WALKER: &str = "file,follow,hidden";
 const DEFAULT_WALKER_ROOT: &str = ".";
 const DEFAULT_WALKER_SKIP: &str = ".git,node_modules";
 const DEFAULT_INTERACTIVE_LIMIT: usize = 1000;
+const DEFAULT_PREVIEW_TEXT_EXTENSIONS: &[&str] = &[
+    "txt", "md", "markdown", "rst", "toml", "json", "jsonl", "yaml", "yml", "csv", "tsv", "log",
+    "rs", "py", "js", "jsx", "ts", "tsx", "go", "java", "c", "h", "cpp", "hpp", "cs", "rb", "php",
+    "sh", "bash", "zsh", "fish", "ps1", "sql", "html", "htm", "css", "scss", "xml",
+];
 #[cfg(windows)]
 const WINDOWS_MAIN_STACK_SIZE: usize = 8 * 1024 * 1024;
 
@@ -81,6 +86,15 @@ enum ZhScriptArg {
     Auto,
     Hans,
     Hant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum PreviewImageProtocolArg {
+    None,
+    Halfblocks,
+    Sixel,
+    Kitty,
+    Iterm2,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -320,6 +334,15 @@ struct Args {
 
     #[arg(long = "no-preview")]
     no_preview: bool,
+
+    #[arg(long = "preview-auto")]
+    preview_auto: bool,
+
+    #[arg(long = "preview-text-extensions")]
+    preview_text_extensions: Option<String>,
+
+    #[arg(long = "preview-image-protocol", value_enum, default_value_t = PreviewImageProtocolArg::None)]
+    preview_image_protocol: PreviewImageProtocolArg,
 
     #[arg(long)]
     preview_window: Option<String>,
@@ -1091,6 +1114,7 @@ fn run_interactive_mode(
         layout: parse_tui_layout(args)?,
         preview: preview_command(args),
         preview_shell: args.with_shell.clone(),
+        preview_image_protocol: preview_image_protocol(args),
         style: parse_tui_style(&args.color),
         cycle: cycle_enabled(args),
         multi: multi_enabled(args),
@@ -1147,6 +1171,7 @@ fn run_interactive_streaming_mode(
         layout: parse_tui_layout(args)?,
         preview: preview_command(args),
         preview_shell: args.with_shell.clone(),
+        preview_image_protocol: preview_image_protocol(args),
         style: parse_tui_style(&args.color),
         cycle: cycle_enabled(args),
         multi: multi_enabled(args),
@@ -1473,8 +1498,48 @@ fn expect_arg(args: &Args) -> Option<&str> {
         .flatten()
 }
 
-fn preview_command(args: &Args) -> Option<String> {
-    (!args.no_preview).then_some(args.preview.clone()).flatten()
+fn preview_command(args: &Args) -> Option<yuru_tui::PreviewCommand> {
+    if args.no_preview {
+        return None;
+    }
+    if let Some(command) = &args.preview {
+        return Some(yuru_tui::PreviewCommand::Shell(command.clone()));
+    }
+    args.preview_auto
+        .then(|| yuru_tui::PreviewCommand::Builtin {
+            text_extensions: preview_text_extensions(args),
+        })
+}
+
+fn preview_text_extensions(args: &Args) -> Vec<String> {
+    args.preview_text_extensions
+        .as_deref()
+        .map(parse_preview_text_extensions)
+        .unwrap_or_else(default_preview_text_extensions)
+}
+
+fn parse_preview_text_extensions(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|item| item.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
+fn default_preview_text_extensions() -> Vec<String> {
+    DEFAULT_PREVIEW_TEXT_EXTENSIONS
+        .iter()
+        .map(|extension| (*extension).to_string())
+        .collect()
+}
+
+fn preview_image_protocol(args: &Args) -> Option<yuru_tui::ImagePreviewProtocol> {
+    match args.preview_image_protocol {
+        PreviewImageProtocolArg::None => None,
+        PreviewImageProtocolArg::Halfblocks => Some(yuru_tui::ImagePreviewProtocol::Halfblocks),
+        PreviewImageProtocolArg::Sixel => Some(yuru_tui::ImagePreviewProtocol::Sixel),
+        PreviewImageProtocolArg::Kitty => Some(yuru_tui::ImagePreviewProtocol::Kitty),
+        PreviewImageProtocolArg::Iterm2 => Some(yuru_tui::ImagePreviewProtocol::Iterm2),
+    }
 }
 
 fn header_lines_count(args: &Args) -> usize {
@@ -1652,6 +1717,7 @@ mod tests {
         let value = r#"
 [shell]
 bindings = "ctrl-t,ctrl-r"
+path_backend = "find"
 ctrl_t_command = "__yuru_compgen_path__ ."
 ctrl_t_opts = "--preview 'cat {}'"
 alt_c_command = "__yuru_compgen_dir__ ."
@@ -1663,13 +1729,38 @@ alt_c_opts = "--preview 'ls {}'"
         let config = shell_config_from_value(&value);
 
         assert_eq!(config.bindings, "ctrl-t,ctrl-r");
+        assert_eq!(config.path_backend, "find");
         assert_eq!(config.ctrl_t_command, "__yuru_compgen_path__ .");
         assert_eq!(config.ctrl_t_opts, "--preview 'cat {}'");
         assert_eq!(config.alt_c_command, "__yuru_compgen_dir__ .");
         assert_eq!(config.alt_c_opts, "--preview 'ls {}'");
         assert!(shell_config_prefix(ShellKind::Zsh, &config).contains("YURU_SHELL_BINDINGS"));
+        assert!(shell_config_prefix(ShellKind::Bash, &config).contains("YURU_PATH_BACKEND"));
         assert!(shell_config_prefix(ShellKind::Fish, &config)
             .contains("set -gx YURU_CTRL_T_OPTS \"--preview 'cat {}'\""));
+    }
+
+    #[test]
+    fn toml_config_supports_preview_options() {
+        let value = r#"
+[preview]
+command = "auto"
+text_extensions = ["txt", "md"]
+image_protocol = "sixel"
+"#
+        .parse::<toml::Value>()
+        .unwrap();
+
+        assert_eq!(
+            toml_config_args(&value).unwrap(),
+            vec![
+                OsString::from("--preview-auto"),
+                OsString::from("--preview-text-extensions"),
+                OsString::from("txt,md"),
+                OsString::from("--preview-image-protocol"),
+                OsString::from("sixel")
+            ]
+        );
     }
 
     #[test]
@@ -2185,6 +2276,7 @@ fn accepted_fzf_option_count(args: &Args) -> usize {
         no_multi,
         no_expect,
         no_preview,
+        preview_auto,
         no_preview_border,
         no_height,
         no_popup,
@@ -2265,6 +2357,7 @@ fn accepted_fzf_option_count(args: &Args) -> usize {
         expect,
         toggle_sort,
         preview,
+        preview_text_extensions,
         preview_window,
         preview_border,
         preview_label,
@@ -2949,6 +3042,7 @@ fn char_slice(text: &str, start: usize, end: usize) -> String {
 #[derive(Clone, Debug)]
 struct ShellConfigDefaults {
     bindings: String,
+    path_backend: String,
     ctrl_t_command: String,
     ctrl_t_opts: String,
     alt_c_command: String,
@@ -2959,6 +3053,7 @@ impl Default for ShellConfigDefaults {
     fn default() -> Self {
         Self {
             bindings: "all".to_string(),
+            path_backend: "auto".to_string(),
             ctrl_t_command: default_ctrl_t_command().to_string(),
             ctrl_t_opts: default_ctrl_t_opts().to_string(),
             alt_c_command: default_alt_c_command().to_string(),
@@ -2981,11 +3076,11 @@ fn default_ctrl_t_command() -> &'static str {
 fn default_ctrl_t_opts() -> &'static str {
     #[cfg(windows)]
     {
-        "--preview 'Get-Item -LiteralPath {} | Format-List | Out-String'"
+        "--preview-auto"
     }
     #[cfg(not(windows))]
     {
-        "--preview 'file {}'"
+        "--preview-auto"
     }
 }
 
@@ -3003,11 +3098,11 @@ fn default_alt_c_command() -> &'static str {
 fn default_alt_c_opts() -> &'static str {
     #[cfg(windows)]
     {
-        "--preview 'Get-ChildItem -Force -LiteralPath {} | Select-Object -First 100 | Out-String'"
+        "--preview-auto"
     }
     #[cfg(not(windows))]
     {
-        "--preview 'ls -la {} 2>/dev/null | head -100'"
+        "--preview-auto"
     }
 }
 
@@ -3035,6 +3130,9 @@ fn shell_config_defaults() -> Result<ShellConfigDefaults> {
         if let Some(bindings) = shell.get("bindings").and_then(toml::Value::as_str) {
             defaults.bindings = bindings.to_string();
         }
+        if let Some(path_backend) = shell.get("path_backend").and_then(toml::Value::as_str) {
+            defaults.path_backend = path_backend.to_string();
+        }
         if let Some(command) = shell.get("ctrl_t_command").and_then(toml::Value::as_str) {
             defaults.ctrl_t_command = command.to_string();
         }
@@ -3056,11 +3154,13 @@ fn shell_config_prefix(kind: ShellKind, config: &ShellConfigDefaults) -> String 
         ShellKind::Bash | ShellKind::Zsh => format!(
             "# yuru config defaults\n\
              if [ -z \"${{YURU_SHELL_BINDINGS+x}}\" ]; then export YURU_SHELL_BINDINGS={}; fi\n\
+             if [ -z \"${{YURU_PATH_BACKEND+x}}\" ]; then export YURU_PATH_BACKEND={}; fi\n\
              if [ -z \"${{YURU_CTRL_T_COMMAND+x}}\" ]; then export YURU_CTRL_T_COMMAND={}; fi\n\
              if [ -z \"${{YURU_CTRL_T_OPTS+x}}\" ]; then export YURU_CTRL_T_OPTS={}; fi\n\
              if [ -z \"${{YURU_ALT_C_COMMAND+x}}\" ]; then export YURU_ALT_C_COMMAND={}; fi\n\
              if [ -z \"${{YURU_ALT_C_OPTS+x}}\" ]; then export YURU_ALT_C_OPTS={}; fi\n\n",
             sh_quote(&config.bindings),
+            sh_quote(&config.path_backend),
             sh_quote(&config.ctrl_t_command),
             sh_quote(&config.ctrl_t_opts),
             sh_quote(&config.alt_c_command),
@@ -3069,11 +3169,13 @@ fn shell_config_prefix(kind: ShellKind, config: &ShellConfigDefaults) -> String 
         ShellKind::Fish => format!(
             "# yuru config defaults\n\
              if not set -q YURU_SHELL_BINDINGS\n  set -gx YURU_SHELL_BINDINGS {}\nend\n\
+             if not set -q YURU_PATH_BACKEND\n  set -gx YURU_PATH_BACKEND {}\nend\n\
              if not set -q YURU_CTRL_T_COMMAND\n  set -gx YURU_CTRL_T_COMMAND {}\nend\n\
              if not set -q YURU_CTRL_T_OPTS\n  set -gx YURU_CTRL_T_OPTS {}\nend\n\
              if not set -q YURU_ALT_C_COMMAND\n  set -gx YURU_ALT_C_COMMAND {}\nend\n\
              if not set -q YURU_ALT_C_OPTS\n  set -gx YURU_ALT_C_OPTS {}\nend\n\n",
             fish_quote(&config.bindings),
+            fish_quote(&config.path_backend),
             fish_quote(&config.ctrl_t_command),
             fish_quote(&config.ctrl_t_opts),
             fish_quote(&config.alt_c_command),
@@ -3082,11 +3184,13 @@ fn shell_config_prefix(kind: ShellKind, config: &ShellConfigDefaults) -> String 
         ShellKind::PowerShell => format!(
             "# yuru config defaults\n\
              if (-not $env:YURU_SHELL_BINDINGS) {{ $env:YURU_SHELL_BINDINGS = {} }}\n\
+             if (-not $env:YURU_PATH_BACKEND) {{ $env:YURU_PATH_BACKEND = {} }}\n\
              if (-not $env:YURU_CTRL_T_COMMAND) {{ $env:YURU_CTRL_T_COMMAND = {} }}\n\
              if (-not $env:YURU_CTRL_T_OPTS) {{ $env:YURU_CTRL_T_OPTS = {} }}\n\
              if (-not $env:YURU_ALT_C_COMMAND) {{ $env:YURU_ALT_C_COMMAND = {} }}\n\
              if (-not $env:YURU_ALT_C_OPTS) {{ $env:YURU_ALT_C_OPTS = {} }}\n\n",
             ps_quote(&config.bindings),
+            ps_quote(&config.path_backend),
             ps_quote(&config.ctrl_t_command),
             ps_quote(&config.ctrl_t_opts),
             ps_quote(&config.alt_c_command),
@@ -3138,6 +3242,14 @@ fn configure_interactive() -> Result<()> {
     let current_fzf_compat = config_string(&value, &["defaults", "fzf_compat"])
         .or_else(|| config_string(&value, &["fzf", "unsupported_options"]))
         .unwrap_or_else(|| "warn".to_string());
+    let current_preview_command =
+        config_string(&value, &["preview", "command"]).unwrap_or_else(|| "auto".to_string());
+    let current_preview_text_extensions =
+        config_string_list(&value, &["preview", "text_extensions"])
+            .unwrap_or_else(default_preview_text_extensions)
+            .join(",");
+    let current_preview_image_protocol =
+        config_string(&value, &["preview", "image_protocol"]).unwrap_or_else(|| "none".to_string());
     let current_shell = shell_config_from_value(&value);
 
     println!("Yuru configure");
@@ -3158,6 +3270,23 @@ fn configure_interactive() -> Result<()> {
         "Unsupported fzf options",
         &current_fzf_compat,
         &["strict", "warn", "ignore"],
+    )?;
+    let preview_image_protocol = prompt_choice(
+        "Preview image protocol",
+        &current_preview_image_protocol,
+        &["none", "halfblocks", "sixel", "kitty", "iterm2"],
+    )?;
+    let preview_command = prompt_preview_command(&current_preview_command)?;
+    let preview_text_extensions = prompt_string(
+        "Preview text extensions",
+        &current_preview_text_extensions,
+        "Comma-separated extensions used by the built-in preview command.",
+    )?
+    .unwrap_or_else(|| current_preview_text_extensions.clone());
+    let path_backend = prompt_choice(
+        "Shell path backend",
+        &current_shell.path_backend,
+        &["auto", "fd", "fdfind", "find"],
     )?;
     let bindings = prompt_bindings_value(&current_shell.bindings)?;
     let ctrl_t_command = prompt_string(
@@ -3196,8 +3325,30 @@ fn configure_interactive() -> Result<()> {
     }
 
     {
+        let preview = ensure_toml_table(&mut value, "preview");
+        preview.insert("command".to_string(), toml::Value::String(preview_command));
+        preview.insert(
+            "text_extensions".to_string(),
+            toml::Value::Array(
+                parse_preview_text_extensions(&preview_text_extensions)
+                    .into_iter()
+                    .map(toml::Value::String)
+                    .collect(),
+            ),
+        );
+        preview.insert(
+            "image_protocol".to_string(),
+            toml::Value::String(preview_image_protocol),
+        );
+    }
+
+    {
         let shell = ensure_toml_table(&mut value, "shell");
         shell.insert("bindings".to_string(), toml::Value::String(bindings));
+        shell.insert(
+            "path_backend".to_string(),
+            toml::Value::String(path_backend),
+        );
         set_optional_toml_string(shell, "ctrl_t_command", ctrl_t_command);
         set_optional_toml_string(shell, "ctrl_t_opts", ctrl_t_opts);
         set_optional_toml_string(shell, "alt_c_command", alt_c_command);
@@ -3259,6 +3410,9 @@ fn shell_config_from_value(value: &toml::Value) -> ShellConfigDefaults {
         if let Some(bindings) = shell.get("bindings").and_then(toml::Value::as_str) {
             config.bindings = bindings.to_string();
         }
+        if let Some(path_backend) = shell.get("path_backend").and_then(toml::Value::as_str) {
+            config.path_backend = path_backend.to_string();
+        }
         if let Some(command) = shell.get("ctrl_t_command").and_then(toml::Value::as_str) {
             config.ctrl_t_command = command.to_string();
         }
@@ -3312,6 +3466,23 @@ fn config_string(value: &toml::Value, path: &[&str]) -> Option<String> {
         current = current.get(*key)?;
     }
     current.as_str().map(str::to_string)
+}
+
+fn config_string_list(value: &toml::Value, path: &[&str]) -> Option<Vec<String>> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    if let Some(raw) = current.as_str() {
+        return Some(parse_preview_text_extensions(raw));
+    }
+    current.as_array().map(|items| {
+        items
+            .iter()
+            .filter_map(toml::Value::as_str)
+            .map(str::to_string)
+            .collect()
+    })
 }
 
 fn config_bool(value: &toml::Value, path: &[&str]) -> Option<bool> {
@@ -3420,6 +3591,22 @@ fn prompt_string(prompt: &str, current: &str, help: &str) -> Result<Option<Strin
     }
 }
 
+fn prompt_preview_command(current: &str) -> Result<String> {
+    println!(
+        "Use 'auto' for built-in bat/cat text preview, 'none' to disable, or a shell command."
+    );
+    print!("Preview command ({current}): ");
+    io::stdout().flush()?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    let answer = answer.trim();
+    if answer.is_empty() {
+        Ok(current.to_string())
+    } else {
+        Ok(answer.to_string())
+    }
+}
+
 fn print_doctor_report() -> Result<()> {
     let mut stdout = io::stdout().lock();
     let exe = std::env::current_exe().context("failed to resolve current executable")?;
@@ -3459,6 +3646,11 @@ fn print_doctor_report() -> Result<()> {
         "info fzf default opts: {}",
         doctor_fzf_defaults(&fzf_mode)
     )?;
+    writeln!(
+        stdout,
+        "info preview image protocol: {}",
+        doctor_preview_image_protocol(config.as_ref())
+    )?;
     writeln!(stdout, "info locale: {}", doctor_locale())?;
     writeln!(stdout, "info default command: {}", doctor_default_command())?;
     writeln!(
@@ -3497,6 +3689,21 @@ fn toml_config_default_lang(path: &Path) -> Option<String> {
 fn shell_word_default_lang(path: &Path) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     find_option_value(split_shell_words(&content), "--lang")
+}
+
+fn doctor_preview_image_protocol(config: Option<&ConfigSource>) -> String {
+    let Some(ConfigSource::Toml(path)) = config else {
+        return "none".to_string();
+    };
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return "unreadable".to_string(),
+    };
+    let value = match content.parse::<toml::Value>() {
+        Ok(value) => value,
+        Err(_) => return "unreadable".to_string(),
+    };
+    config_string(&value, &["preview", "image_protocol"]).unwrap_or_else(|| "none".to_string())
 }
 
 fn find_option_value<I>(args: I, option: &str) -> Option<String>
@@ -3943,7 +4150,53 @@ fn toml_config_args(value: &toml::Value) -> Result<Vec<OsString>> {
         }
     }
 
+    if let Some(preview) = value.get("preview") {
+        if let Some(command) = preview.get("command").and_then(toml::Value::as_str) {
+            match command {
+                "auto" => out.push(OsString::from("--preview-auto")),
+                "none" => out.push(OsString::from("--no-preview")),
+                command => {
+                    out.push(OsString::from("--preview"));
+                    out.push(OsString::from(command));
+                }
+            }
+        }
+        push_toml_string_list_arg(
+            &mut out,
+            preview,
+            "text_extensions",
+            "--preview-text-extensions",
+        );
+        push_toml_string_arg(
+            &mut out,
+            preview,
+            "image_protocol",
+            "--preview-image-protocol",
+        );
+    }
+
     Ok(out)
+}
+
+fn push_toml_string_list_arg(out: &mut Vec<OsString>, table: &toml::Value, key: &str, arg: &str) {
+    let Some(value) = table.get(key) else {
+        return;
+    };
+    let items = if let Some(raw) = value.as_str() {
+        parse_preview_text_extensions(raw)
+    } else if let Some(array) = value.as_array() {
+        array
+            .iter()
+            .filter_map(toml::Value::as_str)
+            .flat_map(parse_preview_text_extensions)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if !items.is_empty() {
+        out.push(OsString::from(arg));
+        out.push(OsString::from(items.join(",")));
+    }
 }
 
 fn push_toml_string_arg(out: &mut Vec<OsString>, table: &toml::Value, key: &str, arg: &str) {

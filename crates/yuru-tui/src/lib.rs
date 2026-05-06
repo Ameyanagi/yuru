@@ -5,8 +5,9 @@
 
 use std::collections::HashSet;
 use std::io::{self, Write};
+use std::path::Path;
 #[cfg(feature = "image")]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{
     mpsc::{self, Receiver, TryRecvError},
@@ -46,6 +47,7 @@ const PREVIEW_DEBOUNCE: Duration = Duration::from_millis(50);
 const PREVIEW_WORKER_POLL: Duration = Duration::from_millis(25);
 const SEARCH_WORKER_POLL: Duration = Duration::from_millis(16);
 const PREVIEW_LOADING: &str = "loading preview...";
+const ASCII_TEXT_SNIFF_BYTES: usize = 8192;
 #[cfg(feature = "image")]
 const IMAGE_PREVIEW_LOADING: &str = "loading image preview...";
 
@@ -59,8 +61,9 @@ pub struct TuiOptions {
     pub bindings: Vec<KeyBinding>,
     pub height: Option<usize>,
     pub layout: TuiLayout,
-    pub preview: Option<String>,
+    pub preview: Option<PreviewCommand>,
     pub preview_shell: Option<String>,
+    pub preview_image_protocol: Option<ImagePreviewProtocol>,
     pub style: TuiStyle,
     pub cycle: bool,
     pub multi: bool,
@@ -84,6 +87,7 @@ impl Default for TuiOptions {
             layout: TuiLayout::default(),
             preview: None,
             preview_shell: None,
+            preview_image_protocol: None,
             style: TuiStyle::default(),
             cycle: false,
             multi: false,
@@ -94,6 +98,31 @@ impl Default for TuiOptions {
             ellipsis: "..".to_string(),
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PreviewCommand {
+    Shell(String),
+    Builtin { text_extensions: Vec<String> },
+}
+
+impl PreviewCommand {
+    fn cache_key(&self) -> String {
+        match self {
+            Self::Shell(command) => format!("shell:{command}"),
+            Self::Builtin { text_extensions } => {
+                format!("builtin:{}", text_extensions.join(","))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImagePreviewProtocol {
+    Halfblocks,
+    Sixel,
+    Kitty,
+    Iterm2,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -639,7 +668,7 @@ pub fn run_interactive(
             options.preview.is_some() && !results.is_empty(),
         );
         preview_cache.request_for_selection(
-            options.preview.as_deref(),
+            options.preview.as_ref(),
             options.preview_shell.as_deref(),
             &results,
             &state,
@@ -648,6 +677,7 @@ pub fn run_interactive(
         render_needed |= preview_cache.poll();
         preview_cache.clamp_scroll(viewport.rows);
         render_needed |= preview_cache.prepare_image(
+            options.preview_image_protocol,
             preview_geometry
                 .map(|geometry| geometry.columns)
                 .unwrap_or(0),
@@ -791,7 +821,7 @@ pub fn run_interactive_streaming(
             options.preview.is_some() && !results.is_empty(),
         );
         preview_cache.request_for_selection(
-            options.preview.as_deref(),
+            options.preview.as_ref(),
             options.preview_shell.as_deref(),
             &results,
             &state,
@@ -800,6 +830,7 @@ pub fn run_interactive_streaming(
         let preview_changed = preview_cache.poll();
         render_needed |= preview_changed;
         render_needed |= preview_cache.prepare_image(
+            options.preview_image_protocol,
             preview_geometry
                 .map(|geometry| geometry.columns)
                 .unwrap_or(0),
@@ -970,7 +1001,7 @@ type PreviewKey = (String, String, usize, String, PreviewGeometry);
 
 struct PreviewRequest {
     key: PreviewKey,
-    command: String,
+    command: PreviewCommand,
     shell: Option<String>,
     item: String,
     geometry: PreviewGeometry,
@@ -1024,7 +1055,7 @@ enum ImageEncodeResult {
 impl PreviewCache {
     fn request_for_selection(
         &mut self,
-        command: Option<&str>,
+        command: Option<&PreviewCommand>,
         shell: Option<&str>,
         results: &[ScoredCandidate],
         state: &TuiState,
@@ -1043,7 +1074,7 @@ impl PreviewCache {
             return;
         };
         let key = (
-            command.to_string(),
+            command.cache_key(),
             shell.unwrap_or_default().to_string(),
             selected.id,
             selected.display.clone(),
@@ -1066,7 +1097,7 @@ impl PreviewCache {
             self.worker = None;
             self.pending = Some(PreviewRequest {
                 key,
-                command: command.to_string(),
+                command: command.clone(),
                 shell: shell.map(str::to_string),
                 item: selected.display.clone(),
                 geometry,
@@ -1252,19 +1283,25 @@ impl PreviewCache {
     }
 
     #[cfg(feature = "image")]
-    fn image_picker(&mut self) -> &Picker {
-        self.image_picker.get_or_insert_with(image_picker_from_env)
+    fn image_picker(&mut self, protocol: Option<ImagePreviewProtocol>) -> &Picker {
+        self.image_picker
+            .get_or_insert_with(|| image_picker_from_env(protocol))
     }
 
     #[cfg(feature = "image")]
-    fn prepare_image(&mut self, width: usize, rows: usize) -> bool {
+    fn prepare_image(
+        &mut self,
+        protocol: Option<ImagePreviewProtocol>,
+        width: usize,
+        rows: usize,
+    ) -> bool {
         let mut changed = self.receive_image_result();
         let area = (width as u16, rows as u16);
         if area.0 == 0 || area.1 == 0 {
             return changed;
         }
 
-        let picker = self.image_picker().clone();
+        let picker = self.image_picker(protocol).clone();
         let Some(PreviewContent::Image(image)) = self.content.as_mut() else {
             return changed;
         };
@@ -1297,7 +1334,12 @@ impl PreviewCache {
     }
 
     #[cfg(not(feature = "image"))]
-    fn prepare_image(&mut self, _width: usize, _rows: usize) -> bool {
+    fn prepare_image(
+        &mut self,
+        _protocol: Option<ImagePreviewProtocol>,
+        _width: usize,
+        _rows: usize,
+    ) -> bool {
         false
     }
 
@@ -1360,7 +1402,7 @@ enum PreviewRender<'a> {
 }
 
 fn run_preview_command(
-    template: &str,
+    command: &PreviewCommand,
     shell: Option<&str>,
     item: &str,
     geometry: PreviewGeometry,
@@ -1370,6 +1412,20 @@ fn run_preview_command(
         return PreviewPayload::Image(image);
     }
 
+    match command {
+        PreviewCommand::Shell(template) => {
+            run_shell_preview_command(template, shell, item, geometry)
+        }
+        PreviewCommand::Builtin { text_extensions } => run_builtin_preview(item, text_extensions),
+    }
+}
+
+fn run_shell_preview_command(
+    template: &str,
+    shell: Option<&str>,
+    item: &str,
+    geometry: PreviewGeometry,
+) -> PreviewPayload {
     let command = expand_preview_template(template, item);
     let output = preview_shell_command(&command, shell, geometry).output();
 
@@ -1405,6 +1461,148 @@ fn run_preview_command(
         }
         Err(error) => PreviewPayload::Text(format!("preview failed: {error}")),
     }
+}
+
+fn run_builtin_preview(item: &str, text_extensions: &[String]) -> PreviewPayload {
+    let path = Path::new(item);
+    if item.trim().is_empty() {
+        return PreviewPayload::Text("no selection".to_string());
+    }
+    if path.is_dir() {
+        return PreviewPayload::Text(preview_directory(path));
+    }
+    if !path.exists() {
+        return PreviewPayload::Text(format!("missing: {item}"));
+    }
+    if !path.is_file() {
+        return PreviewPayload::Text(preview_path_metadata(path));
+    }
+    if path.metadata().is_ok_and(|metadata| metadata.len() == 0) {
+        return PreviewPayload::Text(format!("empty file: {item}"));
+    }
+    if is_text_path(path, text_extensions) || is_ascii_text_file(path) {
+        return PreviewPayload::Text(preview_text_file(path));
+    }
+    PreviewPayload::Text(preview_path_metadata(path))
+}
+
+fn preview_directory(path: &Path) -> String {
+    let mut entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| {
+                let suffix = entry
+                    .file_type()
+                    .ok()
+                    .filter(|file_type| file_type.is_dir())
+                    .map(|_| "/")
+                    .unwrap_or_default();
+                format!("{}{}", entry.file_name().to_string_lossy(), suffix)
+            })
+            .collect::<Vec<_>>(),
+        Err(error) => return format!("directory: {}\nerror: {error}", path.display()),
+    };
+    entries.sort();
+    let mut output = format!("directory: {}\n\n", path.display());
+    for entry in entries.into_iter().take(120) {
+        output.push_str(&entry);
+        output.push('\n');
+    }
+    output
+}
+
+fn preview_text_file(path: &Path) -> String {
+    if let Some(output) = preview_text_with_bat(path) {
+        return output;
+    }
+    if let Some(output) = preview_text_with_cat(path) {
+        return limit_preview_lines(&output, 200);
+    }
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            let text = String::from_utf8_lossy(&bytes);
+            limit_preview_lines(&text, 200)
+        }
+        Err(error) => format!("file: {}\nerror: {error}", path.display()),
+    }
+}
+
+fn preview_text_with_bat(path: &Path) -> Option<String> {
+    let output = Command::new("bat")
+        .args([
+            "--style=numbers",
+            "--color=never",
+            "--paging=never",
+            "--line-range",
+            ":200",
+            "--",
+        ])
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn preview_text_with_cat(path: &Path) -> Option<String> {
+    let output = Command::new("cat").arg("--").arg(path).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn limit_preview_lines(text: &str, limit: usize) -> String {
+    let mut output = String::new();
+    for (index, line) in text.lines().enumerate() {
+        if index >= limit {
+            output.push_str("...\n");
+            break;
+        }
+        output.push_str(line);
+        output.push('\n');
+    }
+    output
+}
+
+fn preview_path_metadata(path: &Path) -> String {
+    match path.metadata() {
+        Ok(metadata) => format!(
+            "file: {}\nsize: {} bytes\npreview: no text preview for this file type",
+            path.display(),
+            metadata.len()
+        ),
+        Err(error) => format!("file: {}\nerror: {error}", path.display()),
+    }
+}
+
+fn is_text_path(path: &Path, text_extensions: &[String]) -> bool {
+    let Some(extension) = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+    else {
+        return false;
+    };
+    text_extensions.iter().any(|item| {
+        item.trim_start_matches('.')
+            .eq_ignore_ascii_case(&extension)
+    })
+}
+
+fn is_ascii_text_file(path: &Path) -> bool {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let sample = &bytes[..bytes.len().min(ASCII_TEXT_SNIFF_BYTES)];
+    !sample.is_empty() && sample.iter().all(|byte| is_ascii_text_byte(*byte))
+}
+
+fn is_ascii_text_byte(byte: u8) -> bool {
+    matches!(byte, b'\t' | b'\n' | b'\r' | 0x0c | 0x20..=0x7e)
 }
 
 #[cfg(feature = "image")]
@@ -1547,12 +1745,25 @@ fn is_image_path(path: &Path) -> bool {
 }
 
 #[cfg(feature = "image")]
-fn image_picker_from_env() -> Picker {
+fn image_picker_from_env(protocol: Option<ImagePreviewProtocol>) -> Picker {
     let mut picker = image_picker_from_terminal_size().unwrap_or_else(Picker::halfblocks);
-    if let Some(protocol) = image_protocol_from_env() {
+    if let Some(protocol) = protocol
+        .map(image_protocol_type)
+        .or_else(image_protocol_from_env)
+    {
         picker.set_protocol_type(protocol);
     }
     picker
+}
+
+#[cfg(feature = "image")]
+fn image_protocol_type(protocol: ImagePreviewProtocol) -> ProtocolType {
+    match protocol {
+        ImagePreviewProtocol::Halfblocks => ProtocolType::Halfblocks,
+        ImagePreviewProtocol::Sixel => ProtocolType::Sixel,
+        ImagePreviewProtocol::Kitty => ProtocolType::Kitty,
+        ImagePreviewProtocol::Iterm2 => ProtocolType::Iterm2,
+    }
 }
 
 #[cfg(feature = "image")]
@@ -2888,8 +3099,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn preview_command_returns_stderr_when_stdout_is_empty() {
-        let preview =
-            run_preview_command("printf preview-error >&2", None, "alpha", test_geometry());
+        let preview = run_preview_command(
+            &PreviewCommand::Shell("printf preview-error >&2".to_string()),
+            None,
+            "alpha",
+            test_geometry(),
+        );
 
         assert!(matches!(preview, PreviewPayload::Text(text) if text == "preview-error"));
     }
@@ -2898,7 +3113,7 @@ mod tests {
     #[test]
     fn preview_command_gets_fzf_preview_geometry_env() {
         let preview = run_preview_command(
-            "printf '%s,%s,%s,%s' \"$FZF_PREVIEW_COLUMNS\" \"$FZF_PREVIEW_LINES\" \"$FZF_PREVIEW_LEFT\" \"$FZF_PREVIEW_TOP\"",
+            &PreviewCommand::Shell("printf '%s,%s,%s,%s' \"$FZF_PREVIEW_COLUMNS\" \"$FZF_PREVIEW_LINES\" \"$FZF_PREVIEW_LEFT\" \"$FZF_PREVIEW_TOP\"".to_string()),
             None,
             "alpha",
             PreviewGeometry {
@@ -2910,6 +3125,78 @@ mod tests {
         );
 
         assert!(matches!(preview, PreviewPayload::Text(text) if text == "40,12,41,1"));
+    }
+
+    #[test]
+    fn builtin_preview_reads_configured_text_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "alpha\nbeta\n").unwrap();
+
+        let preview = run_preview_command(
+            &PreviewCommand::Builtin {
+                text_extensions: vec!["md".to_string()],
+            },
+            None,
+            path.to_str().unwrap(),
+            test_geometry(),
+        );
+
+        assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("alpha")));
+    }
+
+    #[test]
+    fn builtin_preview_reads_ascii_text_without_configured_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.unknown");
+        std::fs::write(&path, "ascii alpha\nascii beta\n").unwrap();
+
+        let preview = run_preview_command(
+            &PreviewCommand::Builtin {
+                text_extensions: Vec::new(),
+            },
+            None,
+            path.to_str().unwrap(),
+            test_geometry(),
+        );
+
+        assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("ascii alpha")));
+    }
+
+    #[test]
+    fn builtin_preview_does_not_read_binary_unknown_extension_as_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blob.unknown");
+        std::fs::write(&path, [0, 159, 146, 150]).unwrap();
+
+        let preview = run_preview_command(
+            &PreviewCommand::Builtin {
+                text_extensions: Vec::new(),
+            },
+            None,
+            path.to_str().unwrap(),
+            test_geometry(),
+        );
+
+        assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("no text preview")));
+    }
+
+    #[test]
+    fn builtin_preview_reports_empty_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.txt");
+        std::fs::write(&path, "").unwrap();
+
+        let preview = run_preview_command(
+            &PreviewCommand::Builtin {
+                text_extensions: vec!["txt".to_string()],
+            },
+            None,
+            path.to_str().unwrap(),
+            test_geometry(),
+        );
+
+        assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("empty file")));
     }
 
     #[cfg(feature = "image")]
@@ -2949,7 +3236,7 @@ mod tests {
         std::fs::write(&path, tiny_png_bytes()).unwrap();
 
         let preview = run_preview_command(
-            "printf 'text preview'",
+            &PreviewCommand::Shell("printf 'text preview'".to_string()),
             None,
             path.to_str().unwrap(),
             test_geometry(),

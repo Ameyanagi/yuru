@@ -26,3 +26,8 @@ YURU_BENCH_KANJI_HEAVY=1 ./scripts/bench
 ```
 
 The main hot paths are candidate key construction for language-heavy inputs and fuzzy scoring over large candidate sets. Yuru keeps phonetic work candidate-side and returns `key_index` from search so highlighting is computed only for visible or accepted results.
+
+For the implementation model behind these numbers, see
+[architecture and optimization](internals.md). That document covers bounded
+candidate keys, query variants, lazy/streaming candidate construction,
+background search workers, and preview workers.
