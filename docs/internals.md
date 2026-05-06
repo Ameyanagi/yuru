@@ -47,6 +47,32 @@ batch indexes are parallelized with Rayon, while interactive streaming mode
 builds candidate keys incrementally as records arrive from stdin or the default
 command.
 
+### Index Complexity
+
+Let:
+
+- `N` be the number of candidates
+- `L` be the average visible candidate length in characters
+- `K` be the number of generated search keys per candidate after capping
+- `B` be the total generated key bytes per candidate after capping
+
+Plain indexing is `O(N * L)` for original and normalized keys. The memory cost is
+`O(N * (L + B))`, bounded in practice by `max_search_keys_per_candidate` and
+`max_total_key_bytes_per_candidate`.
+
+Language backends add candidate-side work:
+
+- Japanese kana-only keys are linear in candidate length. Lindera kanji reading
+  generation has tokenizer/dictionary cost and is the heaviest language path.
+- Korean Hangul keys are linear in the number of Hangul syllables. Each syllable
+  is decomposed by Unicode arithmetic and contributes to romanized, initials,
+  and keyboard-layout keys.
+- Chinese pinyin keys are linear in the number of Han characters handled by the
+  pinyin backend, then emitted as full, joined, and initials keys.
+
+The important design choice is that expensive language work happens at indexing
+time, not for every query. Search then operates on already-built keys.
+
 ## Searching
 
 Search is query-side. On each query change Yuru expands the query into a small,
@@ -65,6 +91,75 @@ The hot path has a few guardrails:
 - Larger result sets use partial selection before final sorting.
 - The TUI runs search work on a background worker and ignores stale responses
   using request sequence numbers.
+
+### Search Complexity
+
+Let:
+
+- `V` be the number of query variants after `max_query_variants`
+- `K` be the number of keys on a candidate after key caps
+- `Lk` be the average searchable key length
+- `Q` be query length
+- `M` be the number of matched candidates
+- `R` be the requested result limit
+
+The standard greedy path scores at most `N * V * K` compatible pairs. Yuru's
+default matcher performs a forward subsequence scan and a backward compaction
+pass, so each score is `O(Lk + Q)` and the scan is approximately
+`O(N * V * K * (Lk + Q))`. Because `Q <= Lk` for successful fuzzy matches and
+because `V` and `K` are capped small values, the practical shape is close to
+linear in candidate count and key length.
+
+Exact mode uses contiguous matching and is also linear in key length per checked
+pair. `--algo fzf-v2` and `--algo nucleo` use the `nucleo-matcher` quality path,
+which can spend more work per candidate for better scoring; use the default
+greedy path when predictable latency is more important than best alignment
+quality.
+
+Ranking cost depends on result handling:
+
+- `--no-sort` keeps input order and truncates, so result finalization is
+  `O(M log M)` today because it sorts matched IDs before truncation.
+- Small sorted limits use a bounded top-results buffer of size `R <= 1024`.
+  Current replacement scans that buffer, so finalization is `O(M * R + R log R)`.
+- Larger sorted result sets use partial selection followed by sorting the
+  returned window, approximately `O(M + R log R)`.
+
+Highlighting is intentionally not in the hot search loop. Search stores
+`key_index`, and source-span highlighting is computed only for visible or
+accepted results.
+
+## Comparison With fzf
+
+fzf is optimized for the general case: one input line is one searchable string,
+and the matching algorithm ranks subsequence alignments within that string. Its
+own source describes `FuzzyMatchV1` as a first-match greedy algorithm with
+`O(n)` time, and `FuzzyMatchV2` as a modified Smith-Waterman-style algorithm
+with `O(nm)` time when a match is found and `O(n)` when no match is found, where
+`n` is item length and `m` is pattern length. fzf also falls back to v1 for
+large inputs where the dynamic-programming matrix would be too expensive.
+
+Yuru borrows the line-oriented filter model and fzf-style scoring ideas, but the
+main implementation difference is the key model:
+
+| Area | fzf | Yuru |
+| --- | --- | --- |
+| Candidate representation | one searchable item string | original, normalized, language keys, and aliases |
+| Multilingual matching | mostly direct Unicode text matching | generated Japanese, Korean, and Chinese phonetic keys |
+| Query expansion | fzf query terms and modes | base query variants plus language-aware variants |
+| Highlighting | match positions in the visible item | source maps can project generated-key matches back to CJK text |
+| Latency strategy | highly optimized matcher over the item list | bounded keys/variants, parallel search, streaming index, background workers |
+| Preview strategy | external preview command model | external previews plus built-in text/image preview workers |
+
+The tradeoff is explicit: Yuru does more work per candidate during indexing so a
+single query can match forms that are not visible in the original text. The caps
+on keys, query variants, and generated-key bytes are there to keep that extra
+expressiveness from turning into unbounded search work.
+
+References:
+
+- [fzf README](https://github.com/junegunn/fzf)
+- [fzf matching algorithm source comments](https://github.com/junegunn/fzf/blob/master/src/algo/algo.go)
 
 ## Streaming And Lazy Work
 

@@ -29,5 +29,6 @@ The main hot paths are candidate key construction for language-heavy inputs and 
 
 For the implementation model behind these numbers, see
 [architecture and optimization](internals.md). That document covers bounded
-candidate keys, query variants, lazy/streaming candidate construction,
-background search workers, and preview workers.
+candidate keys, query variants, Big-O estimates, algorithm choices, comparison
+with fzf, lazy/streaming candidate construction, background search workers, and
+preview workers.

@@ -50,9 +50,9 @@ Yuru keeps those as typed search keys and expands each query into a small set of
 compatible variants, so a romanized query can match CJK readings without turning
 every search into an unbounded cross-product.
 
-See [architecture and optimization details](docs/internals.md) for how indexing,
-searching, streaming input, lazy candidate construction, async search workers,
-and preview workers are organized.
+See [architecture and optimization details](docs/internals.md) for the indexing
+model, search algorithms, Big-O estimates, fzf comparison, streaming input, lazy
+candidate construction, async search workers, and preview workers.
 
 Localized documentation:
 
