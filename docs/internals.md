@@ -28,8 +28,9 @@ Multilingual fuzzy finding adds a few constraints beyond plain ASCII matching:
 - Generated reading keys can carry source maps, so a match on a generated
   reading can highlight the original CJK surface text instead of the whole
   candidate.
-- `--lang auto` chooses one backend before indexing. It intentionally does not
-  build Japanese, Korean, and Chinese keys for every candidate at the same time.
+- `--lang auto` chooses one backend before indexing from the query, locale, and
+  currently available candidate sample. It intentionally does not build
+  Japanese, Korean, and Chinese keys for every candidate at the same time.
 
 ## Indexing
 
@@ -40,12 +41,12 @@ Indexing is candidate-side. For each candidate Yuru builds:
 - language-backend keys for Japanese, Korean, or Chinese mode
 - optional learned alias keys
 
-The key set is deduplicated and capped by both key count and total key bytes.
-The original and normalized keys are treated as base keys so ordinary fuzzy
-matching remains available even when language key generation is capped. Large
-batch indexes are parallelized with Rayon, while interactive streaming mode
-builds candidate keys incrementally as records arrive from stdin or the default
-command.
+Generated and other non-base search keys are deduplicated and capped by both key
+count and total key bytes. Required base keys such as original and normalized are
+kept even when those caps are reached, so base-key and display storage still
+scale with candidate length. Large batch indexes are parallelized with Rayon,
+while interactive streaming mode builds candidate keys incrementally as records
+arrive from stdin or the default command.
 
 ### Index Complexity
 
@@ -56,9 +57,10 @@ Let:
 - `K` be the number of generated search keys per candidate after capping
 - `B` be the total generated key bytes per candidate after capping
 
-Plain indexing is `O(N * L)` for original and normalized keys. The memory cost is
-`O(N * (L + B))`, bounded in practice by `max_search_keys_per_candidate` and
-`max_total_key_bytes_per_candidate`.
+Plain indexing is `O(N * L)` for original and normalized keys. Memory is
+`O(N * L)` for display/base-key storage plus `O(N * B)` for capped non-base
+keys. The generated-key part is bounded in practice by
+`max_search_keys_per_candidate` and `max_total_key_bytes_per_candidate`.
 
 Language backends add candidate-side work:
 
@@ -86,9 +88,10 @@ The hot path has a few guardrails:
 - `max_query_variants`, `max_search_keys_per_candidate`, and
   `max_total_key_bytes_per_candidate` bound combinatorial growth.
 - Large searches can run in parallel chunks.
-- Small sorted result limits use a top-results path instead of keeping every
-  match.
+- Sorted searches with `1 <= limit <= STREAMING_TOP_RESULTS_LIMIT` use a
+  top-results path instead of keeping every match.
 - Larger result sets use partial selection before final sorting.
+- `--no-sort` restores matches to input order before truncation.
 - The TUI runs search work on a background worker and ignores stale responses
   using request sequence numbers.
 
@@ -118,9 +121,9 @@ quality.
 
 Ranking cost depends on result handling:
 
-- `--no-sort` keeps input order and truncates, so result finalization is
-  `O(M log M)` today because it sorts matched IDs before truncation.
-- Small sorted limits use a bounded top-results buffer of size `R <= 1024`.
+- `--no-sort` restores input order before truncation, so result finalization is
+  `O(M log M)` today because it sorts matched IDs.
+- Sorted searches with `1 <= R <= 1024` use a bounded top-results buffer.
   Current replacement scans that buffer, so finalization is `O(M * R + R log R)`.
 - Larger sorted result sets use partial selection followed by sorting the
   returned window, approximately `O(M + R log R)`.
@@ -153,8 +156,8 @@ main implementation difference is the key model:
 
 The tradeoff is explicit: Yuru does more work per candidate during indexing so a
 single query can match forms that are not visible in the original text. The caps
-on keys, query variants, and generated-key bytes are there to keep that extra
-expressiveness from turning into unbounded search work.
+on query variants, non-base key count, and generated-key bytes are there to keep
+that extra expressiveness from turning into unbounded search work.
 
 References:
 

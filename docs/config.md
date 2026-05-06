@@ -36,8 +36,8 @@ keyboard = true
 [zh]
 pinyin = true
 initials = true
-polyphone = "common"   # none | common | phrase
-script = "auto"        # auto | hans | hant
+polyphone = "common"   # reserved: none | common | phrase
+script = "auto"        # reserved: auto | hans | hant
 
 [shell]
 bindings = "all"       # all | none | ctrl-t,ctrl-r,alt-c,completion
@@ -54,6 +54,10 @@ alt_c_opts = "--preview-auto"
 Romanization-style keys such as `hangeul`, `initials` enables choseong keys such
 as `ㅎㄱ`, and `keyboard` enables Korean 2-set keyboard-layout keys such as
 `gksrmf`.
+
+`[zh].polyphone` and `[zh].script` are currently parsed and retained as reserved
+or experimental settings. Current candidate-key generation does not yet branch
+on them.
 
 `preview.image_protocol = "none"` leaves image previews on automatic terminal
 detection and still allows `YURU_PREVIEW_IMAGE_PROTOCOL` to override it. Choose

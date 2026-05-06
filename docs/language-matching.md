@@ -59,11 +59,17 @@ printf "北京大学.txt\n" | yuru --lang zh --filter bjdx
 printf "北京大学.txt\n" | yuru --lang zh --filter beijing
 ```
 
-`--no-zh-pinyin` disables pinyin keys. `--no-zh-initials` disables initials. `--zh-polyphone` and `--zh-script` are configuration surfaces for evolving phrase/script behavior; current behavior is intentionally conservative and mostly follows the pinyin crate plus a small phrase override set.
+`--no-zh-pinyin` disables pinyin keys. `--no-zh-initials` disables initials.
+`--zh-polyphone` and `--zh-script` are parsed as reserved configuration surfaces
+for evolving phrase/script behavior, but current candidate-key generation does
+not branch on them. Current pinyin output mostly follows the pinyin crate plus a
+small phrase override set.
 
 ## Auto Mode
 
-`--lang auto` chooses one backend before indexing. Locale and query/candidate characters influence the choice. It does not build Japanese, Korean, and Chinese keys at the same time.
+`--lang auto` chooses one backend before indexing. Locale, query characters, and
+the currently available candidate sample influence the choice. It does not build
+Japanese, Korean, and Chinese keys at the same time.
 
 Use `--explain` to inspect the winning key:
 
