@@ -2,9 +2,9 @@
 
 ## Demo Video
 
-<video src="https://github.com/Ameyanagi/yuru/raw/main/demo.mp4" controls muted playsinline width="100%">
-  <a href="demo.mp4">Watch the Yuru command demo</a>
-</video>
+![Yuru command demo](docs/assets/yuru-demo.gif)
+
+[Watch the full-quality MP4 demo](demo.mp4)
 
 <p align="center">
   <img src="docs/assets/yuru-icon.svg" alt="Yuru icon" width="128">

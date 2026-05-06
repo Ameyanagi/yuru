@@ -1,8 +1,8 @@
 # Demo
 
-[Watch the Yuru command demo](../demo.mp4)
+![Yuru command demo](assets/yuru-demo.gif)
 
-<video src="../demo.mp4" controls muted playsinline width="100%"></video>
+[Watch the full-quality MP4 demo](../demo.mp4)
 
 The demo shows Yuru running as an interactive command-line fuzzy finder with
 phonetic matching, shell-style navigation, and preview behavior.
