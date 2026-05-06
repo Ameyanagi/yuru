@@ -28,6 +28,8 @@ const DEFAULT_WALKER: &str = "file,follow,hidden";
 const DEFAULT_WALKER_ROOT: &str = ".";
 const DEFAULT_WALKER_SKIP: &str = ".git,node_modules";
 const DEFAULT_INTERACTIVE_LIMIT: usize = 1000;
+#[cfg(windows)]
+const WINDOWS_MAIN_STACK_SIZE: usize = 8 * 1024 * 1024;
 
 type SharedInputItems = Arc<Mutex<Vec<InputItem>>>;
 type CandidateStreamReceiver = mpsc::Receiver<yuru_tui::CandidateStreamMessage>;
@@ -782,7 +784,35 @@ struct Args {
     powershell: bool,
 }
 
+#[cfg(windows)]
 fn main() -> ExitCode {
+    // Windows debug binaries get a smaller main-thread stack than Unix-like
+    // platforms. Clap's generated parser for the fzf-compatible option surface
+    // can overflow that stack before command dispatch.
+    let handle = match thread::Builder::new()
+        .name("yuru-main".to_string())
+        .stack_size(WINDOWS_MAIN_STACK_SIZE)
+        .spawn(run_main)
+    {
+        Ok(handle) => handle,
+        Err(error) => {
+            eprintln!("yuru: failed to start main thread: {error}");
+            return ExitCode::from(2);
+        }
+    };
+
+    match handle.join() {
+        Ok(code) => code,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+#[cfg(not(windows))]
+fn main() -> ExitCode {
+    run_main()
+}
+
+fn run_main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(error) => {
