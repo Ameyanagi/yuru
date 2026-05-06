@@ -174,12 +174,14 @@ __yuru_ctrl_t__() {
 }
 
 __yuru_ctrl_r__() {
-  local selected opts tmp status
+  local selected opts tmp status old_umask
   local -a opt_args
   opts=$(__yuru_ctrl_r_opts__)
   __yuru_read_opts__ "$opts"
-  tmp="${TMPDIR:-/tmp}/yuru-history.$$"
-  rm -f "$tmp"
+  old_umask=$(umask)
+  umask 077
+  tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-history.XXXXXX") || { umask "$old_umask"; return; }
+  umask "$old_umask"
   HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return; }
   selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore "${opt_args[@]}")
   status=$?
@@ -443,10 +445,12 @@ __yuru_ctrl_t__() {
 
 __yuru_ctrl_r__() {
   emulate -L zsh
-  local selected opts tmp yuru_status
+  local selected opts tmp yuru_status old_umask
   opts=$(__yuru_ctrl_r_opts__)
-  tmp="${TMPDIR:-/tmp}/yuru-history.$$"
-  rm -f "$tmp"
+  old_umask=$(umask)
+  umask 077
+  tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-history.XXXXXX") || { umask "$old_umask"; return }
+  umask "$old_umask"
   fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return }
   selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$LBUFFER" --input "$tmp" --fzf-compat ignore ${(@Q)${(z)opts}})
   yuru_status=$?

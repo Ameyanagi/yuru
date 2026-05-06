@@ -1649,6 +1649,8 @@ alt_c_opts = "--preview 'ls {}'"
             assert!(!script.contains("eval \"base=$base\""));
             assert!(!script.contains("eval \"opt_args=($opts)\""));
             assert!(!script.contains("eval \"set opts $raw\""));
+            assert!(!script.contains("yuru-history.$$"));
+            assert!(script.contains("mktemp"));
         }
     }
 

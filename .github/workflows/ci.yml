@@ -31,9 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - name: Install MSRV toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal
+        run: rustup toolchain install 1.90.0 --profile minimal
       - name: Check workspace with MSRV
-        run: cargo +1.88.0 check --workspace --all-targets --all-features --locked
+        run: cargo +1.90.0 check --workspace --all-targets --all-features --locked
 
   supply-chain:
     name: audit and dependency policy

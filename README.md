@@ -5,7 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/yuru.svg)](https://crates.io/crates/yuru)
 [![docs.rs](https://docs.rs/yuru/badge.svg)](https://docs.rs/yuru)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](Cargo.toml)
+[![MSRV](https://img.shields.io/badge/MSRV-1.90-blue.svg)](Cargo.toml)
 
 Yuru is a fast command-line fuzzy finder with Japanese and Chinese phonetic search.
 It is designed to feel familiar to fzf users while adding multilingual matching and

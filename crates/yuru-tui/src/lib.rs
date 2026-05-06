@@ -1245,11 +1245,7 @@ impl PreviewCache {
             Some(PreviewContent::Text(text)) => text.lines().count(),
             #[cfg(feature = "image")]
             Some(PreviewContent::Image(image)) => {
-                if image.error.is_some() || image.state.is_none() {
-                    1
-                } else {
-                    0
-                }
+                usize::from(image.error.is_some() || image.state.is_none())
             }
             None => 0,
         }
