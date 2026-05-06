@@ -1,11 +1,5 @@
 # Yuru
 
-## Demo Video
-
-![Yuru command demo](docs/assets/yuru-demo.gif)
-
-[Watch the full-quality MP4 demo](demo.mp4)
-
 <p align="center">
   <img src="docs/assets/yuru-icon.svg" alt="Yuru icon" width="128">
 </p>
@@ -29,6 +23,12 @@ Yuru's direction and fuzzy-finder behavior are human-led, while the coding has
 been done primarily through agentic coding. The implementation, tests,
 installers, shell integrations, and documentation are heavily shaped by that
 agentic workflow, with the project maintainer steering what the tool should do.
+
+## Demo Video
+
+![Yuru command demo](docs/assets/yuru-demo.gif)
+
+[Watch the full-quality MP4 demo](demo.mp4)
 
 ## Why Yuru instead of fzf?
 
