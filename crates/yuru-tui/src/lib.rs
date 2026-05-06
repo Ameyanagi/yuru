@@ -1488,7 +1488,7 @@ fn preview_image_path(text: &str) -> Option<PathBuf> {
         if let Some(path) = preview_image_path_candidate(line) {
             return Some(path);
         }
-        if let Some((left, _)) = line.split_once(':') {
+        if let Some(left) = preview_file_command_path(line) {
             if let Some(path) = preview_image_path_candidate(left) {
                 return Some(path);
             }
@@ -1497,7 +1497,7 @@ fn preview_image_path(text: &str) -> Option<PathBuf> {
             if let Some(path) = preview_image_path_candidate(right) {
                 return Some(path);
             }
-            if let Some((left, _)) = right.split_once(':') {
+            if let Some(left) = preview_file_command_path(right) {
                 if let Some(path) = preview_image_path_candidate(left) {
                     return Some(path);
                 }
@@ -1505,6 +1505,13 @@ fn preview_image_path(text: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(feature = "image")]
+fn preview_file_command_path(line: &str) -> Option<&str> {
+    line.rsplit_once(": ")
+        .or_else(|| line.rsplit_once(':'))
+        .map(|(left, _)| left)
 }
 
 #[cfg(feature = "image")]
@@ -2960,6 +2967,15 @@ mod tests {
         let output = format!("{}: PNG image data, 1 x 1", path.display());
 
         assert!(preview_image_from_output(output.as_bytes()).is_some());
+    }
+
+    #[cfg(feature = "image")]
+    #[test]
+    fn preview_file_command_path_keeps_windows_drive_prefix() {
+        assert_eq!(
+            preview_file_command_path(r"D:\a\yuru\ame image.png: PNG image data, 1 x 1"),
+            Some(r"D:\a\yuru\ame image.png")
+        );
     }
 
     #[cfg(feature = "image")]
