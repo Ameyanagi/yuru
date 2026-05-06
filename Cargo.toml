@@ -10,6 +10,7 @@ publish = false
 members = [
     "crates/yuru-core",
     "crates/yuru-ja",
+    "crates/yuru-ko",
     "crates/yuru-zh",
     "crates/yuru-tui",
     "crates/yuru",
@@ -18,6 +19,7 @@ default-members = [
     ".",
     "crates/yuru-core",
     "crates/yuru-ja",
+    "crates/yuru-ko",
     "crates/yuru-zh",
     "crates/yuru-tui",
     "crates/yuru",
@@ -55,6 +57,7 @@ toml = "0.8"
 unicode-normalization = "0.1"
 yuru-core = { path = "crates/yuru-core", version = "0.1.4" }
 yuru-ja = { path = "crates/yuru-ja", version = "0.1.4" }
+yuru-ko = { path = "crates/yuru-ko", version = "0.1.4" }
 yuru-tui = { path = "crates/yuru-tui", version = "0.1.4", default-features = false }
 yuru-zh = { path = "crates/yuru-zh", version = "0.1.4" }
 
@@ -67,6 +70,7 @@ regex.workspace = true
 tempfile.workspace = true
 yuru-core.workspace = true
 yuru-ja.workspace = true
+yuru-ko.workspace = true
 yuru-zh.workspace = true
 
 [[bench]]

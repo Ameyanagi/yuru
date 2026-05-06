@@ -26,6 +26,7 @@ shlex.workspace = true
 toml.workspace = true
 yuru-core.workspace = true
 yuru-ja.workspace = true
+yuru-ko.workspace = true
 yuru-tui = { workspace = true, default-features = false }
 yuru-zh.workspace = true
 

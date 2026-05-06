@@ -117,15 +117,26 @@ fn key_kind_coverage(kind: QueryVariantKind) -> u16 {
     const PINYIN_FULL: u16 = 1 << 4;
     const PINYIN_JOINED: u16 = 1 << 5;
     const PINYIN_INITIALS: u16 = 1 << 6;
-    const LEARNED_ALIAS: u16 = 1 << 7;
+    const KOREAN_ROMANIZED: u16 = 1 << 7;
+    const KOREAN_INITIALS: u16 = 1 << 8;
+    const KOREAN_KEYBOARD: u16 = 1 << 9;
+    const LEARNED_ALIAS: u16 = 1 << 10;
 
     match kind {
         QueryVariantKind::Original | QueryVariantKind::Normalized => {
-            ORIGINAL | NORMALIZED | ROMAJI_READING | PINYIN_FULL | PINYIN_JOINED | LEARNED_ALIAS
+            ORIGINAL
+                | NORMALIZED
+                | ROMAJI_READING
+                | PINYIN_FULL
+                | PINYIN_JOINED
+                | KOREAN_ROMANIZED
+                | KOREAN_INITIALS
+                | KOREAN_KEYBOARD
+                | LEARNED_ALIAS
         }
         QueryVariantKind::Kana | QueryVariantKind::RomajiToKana => KANA_READING,
         QueryVariantKind::Pinyin => PINYIN_FULL | PINYIN_JOINED,
-        QueryVariantKind::Initials => PINYIN_INITIALS | LEARNED_ALIAS,
+        QueryVariantKind::Initials => PINYIN_INITIALS | KOREAN_INITIALS | LEARNED_ALIAS,
     }
 }
 
@@ -138,6 +149,9 @@ pub fn key_kind_allowed(variant: &QueryVariant, kind: KeyKind) -> bool {
                 | KeyKind::RomajiReading
                 | KeyKind::PinyinFull
                 | KeyKind::PinyinJoined
+                | KeyKind::KoreanRomanized
+                | KeyKind::KoreanInitials
+                | KeyKind::KoreanKeyboard
                 | KeyKind::LearnedAlias
         ),
         QueryVariantKind::Kana | QueryVariantKind::RomajiToKana => {
@@ -145,7 +159,10 @@ pub fn key_kind_allowed(variant: &QueryVariant, kind: KeyKind) -> bool {
         }
         QueryVariantKind::Pinyin => matches!(kind, KeyKind::PinyinFull | KeyKind::PinyinJoined),
         QueryVariantKind::Initials => {
-            matches!(kind, KeyKind::PinyinInitials | KeyKind::LearnedAlias)
+            matches!(
+                kind,
+                KeyKind::PinyinInitials | KeyKind::KoreanInitials | KeyKind::LearnedAlias
+            )
         }
     }
 }
@@ -193,6 +210,7 @@ mod tests {
         };
 
         assert!(key_kind_allowed(&variant, KeyKind::PinyinInitials));
+        assert!(key_kind_allowed(&variant, KeyKind::KoreanInitials));
         assert!(key_kind_allowed(&variant, KeyKind::LearnedAlias));
         assert!(!key_kind_allowed(&variant, KeyKind::KanaReading));
     }

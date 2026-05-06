@@ -227,6 +227,79 @@ fn cli_lang_auto_selects_japanese_for_kana_candidates_without_japanese_locale() 
 }
 
 #[test]
+fn cli_ko_queries_match_hangul_keys() {
+    command()
+        .args(["--lang", "ko", "--filter", "hangeul"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+
+    command()
+        .args(["--lang", "ko", "--filter", "ㅎㄱ"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+
+    command()
+        .args(["--lang", "ko", "--filter", "gksrmf"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+}
+
+#[test]
+fn cli_lang_auto_selects_korean_for_korean_locale_and_hangul_candidates() {
+    command()
+        .env("LC_ALL", "ko_KR.UTF-8")
+        .args(["--lang", "auto", "--filter", "hangeul"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+}
+
+#[test]
+fn cli_lang_auto_selects_korean_for_hangul_jamo_query() {
+    command()
+        .env("LC_ALL", "C")
+        .args(["--lang", "auto", "--filter", "ㅎㄱ"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+}
+
+#[test]
+fn cli_reads_korean_toml_config_options() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(
+        &config,
+        "[defaults]\nlang = \"ko\"\n[ko]\nkeyboard = false\n",
+    )
+    .unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .args(["--filter", "hangeul"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .args(["--filter", "gksrmf"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
+}
+
+#[test]
 fn cli_reads_default_language_from_yuru_config_file() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("config");
@@ -443,6 +516,18 @@ fn cli_explain_reports_chinese_initial_source_span() {
         .stdout(predicate::str::contains("北京大学.txt"))
         .stdout(predicate::str::contains("matched key: PinyinInitials"))
         .stdout(predicate::str::contains("source span: 0..4 \"北京大学\""));
+}
+
+#[test]
+fn cli_explain_reports_korean_romanized_source_span() {
+    command()
+        .args(["--lang", "ko", "--filter", "hg", "--explain"])
+        .write_stdin("한글.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("한글.txt"))
+        .stdout(predicate::str::contains("matched key: KoreanRomanized"))
+        .stdout(predicate::str::contains("source span: 0..2 \"한글\""));
 }
 
 #[test]

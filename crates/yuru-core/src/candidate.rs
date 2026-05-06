@@ -98,6 +98,33 @@ impl SearchKey {
         }
     }
 
+    pub fn korean_romanized(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: KeyKind::KoreanRomanized,
+            weight: 1800,
+            source_map: None,
+        }
+    }
+
+    pub fn korean_initials(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: KeyKind::KoreanInitials,
+            weight: 1850,
+            source_map: None,
+        }
+    }
+
+    pub fn korean_keyboard(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind: KeyKind::KoreanKeyboard,
+            weight: 1750,
+            source_map: None,
+        }
+    }
+
     pub fn learned_alias(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),

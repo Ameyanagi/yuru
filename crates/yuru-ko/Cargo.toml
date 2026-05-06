@@ -1,0 +1,13 @@
+[package]
+name = "yuru-ko"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Korean Hangul matching support for Yuru"
+keywords = ["fuzzy", "korean", "hangul", "romanization"]
+categories = ["text-processing"]
+
+[dependencies]
+yuru-core.workspace = true

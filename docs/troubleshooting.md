@@ -74,7 +74,7 @@ eval "$(yuru --zsh)"
 
 Older Yuru zsh integration declared `status`, which is a zsh read-only special parameter.
 
-## Japanese or Chinese does not match
+## Japanese, Korean, or Chinese does not match
 
 Check the active language:
 
@@ -86,7 +86,10 @@ Try an explicit mode:
 
 ```sh
 yuru --lang ja --filter kamera
+yuru --lang ko --filter hangeul
 yuru --lang zh --filter bjdx
 ```
 
 For Japanese kanji readings, `--ja-reading lindera` must be active.
+For Korean romanized, choseong, or keyboard search, keep
+`--ko-romanization`, `--ko-initials`, or `--ko-keyboard` enabled.

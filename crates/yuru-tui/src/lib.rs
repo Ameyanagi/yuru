@@ -2400,6 +2400,9 @@ fn highlight_segments_for_result(
                 | KeyKind::PinyinFull
                 | KeyKind::PinyinJoined
                 | KeyKind::PinyinInitials
+                | KeyKind::KoreanRomanized
+                | KeyKind::KoreanInitials
+                | KeyKind::KoreanKeyboard
                 | KeyKind::LearnedAlias
         )
     {
@@ -3636,6 +3639,42 @@ mod tests {
                 },
                 HighlightSegment {
                     text: "大学.txt".to_string(),
+                    highlighted: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn highlight_segments_use_source_map_for_korean_romanized_keys() {
+        let display = "한글.txt";
+        let key = SearchKey::korean_romanized("hangeul").with_source_map(vec![
+            Some(SourceSpan { start: 0, end: 1 }),
+            Some(SourceSpan { start: 0, end: 1 }),
+            Some(SourceSpan { start: 0, end: 1 }),
+            Some(SourceSpan { start: 1, end: 2 }),
+            Some(SourceSpan { start: 1, end: 2 }),
+            Some(SourceSpan { start: 1, end: 2 }),
+            Some(SourceSpan { start: 1, end: 2 }),
+        ]);
+        let candidates = vec![Candidate {
+            id: 0,
+            display: display.to_string(),
+            keys: vec![key],
+        }];
+        let result = scored(display, KeyKind::KoreanRomanized);
+
+        let segments = highlight_segments_for_result("hg", &result, &candidates, false, 80);
+
+        assert_eq!(
+            segments,
+            vec![
+                HighlightSegment {
+                    text: "한글".to_string(),
+                    highlighted: true,
+                },
+                HighlightSegment {
+                    text: ".txt".to_string(),
                     highlighted: false,
                 },
             ]

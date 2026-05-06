@@ -31,7 +31,7 @@ Options:
   --bin-dir DIR         Install binary into DIR (default: ~/.local/bin)
   --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yuru)
   --version TAG         Release tag to download (default: latest)
-  --default-lang LANG   Configure default language: ask, plain, ja, zh, auto, none (default: ask; no TTY: ja)
+  --default-lang LANG   Configure default language: ask, plain, ja, ko, zh, auto, none (default: ask; no TTY: ja)
   --preview-command COMMAND
                         Configure preview command: ask, auto, none, or a shell command
                         (default: ask; no TTY: auto)
@@ -199,10 +199,10 @@ config_file() {
 
 validate_default_lang() {
   case "$1" in
-    ask | plain | ja | zh | auto | none) ;;
+    ask | plain | ja | ko | zh | auto | none) ;;
     *)
       echo "install: unsupported default language: $1" >&2
-      echo "install: expected one of: ask, plain, ja, zh, auto, none" >&2
+      echo "install: expected one of: ask, plain, ja, ko, zh, auto, none" >&2
       exit 2
       ;;
   esac
@@ -330,16 +330,16 @@ prompt_default_lang() {
   fi
 
   while :; do
-    printf 'Choose Yuru default language [plain/ja/zh/auto/none] (ja): ' >/dev/tty
+    printf 'Choose Yuru default language [plain/ja/ko/zh/auto/none] (ja): ' >/dev/tty
     IFS= read -r answer </dev/tty || answer=""
     answer="${answer:-ja}"
     case "$answer" in
-      plain | ja | zh | auto | none)
+      plain | ja | ko | zh | auto | none)
         printf '%s' "$answer"
         return
         ;;
       *)
-        printf 'Please enter plain, ja, zh, auto, or none.\n' >/dev/tty
+        printf 'Please enter plain, ja, ko, zh, auto, or none.\n' >/dev/tty
         ;;
     esac
   done

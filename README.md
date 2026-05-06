@@ -11,9 +11,9 @@
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![MSRV](https://img.shields.io/badge/MSRV-1.90-blue.svg)](Cargo.toml)
 
-Yuru is a fast command-line fuzzy finder with Japanese and Chinese phonetic search.
-It is designed to feel familiar to fzf users while adding multilingual matching and
-source-span highlighting for CJK text.
+Yuru is a fast command-line fuzzy finder with Japanese, Korean, and Chinese
+phonetic search. It is designed to feel familiar to fzf users while adding
+multilingual matching and source-span highlighting for CJK text.
 
 The name comes from `ゆるい`, meaning loose or relaxed. In this project it points
 to forgiving fuzzy matching: the query can be a little loose, and Yuru tries to
@@ -36,6 +36,7 @@ agentic workflow, with the project maintainer steering what the tool should do.
 | --- | --- | --- |
 | General fuzzy finding | Yes | Yes |
 | Japanese kana/kanji phonetic matching | Limited | Yes |
+| Korean Hangul romanized/initial matching | Limited | Yes |
 | Chinese pinyin and initials matching | Limited | Yes |
 | fzf-like shell bindings | Yes | Yes |
 | Full fzf option compatibility | Yes | Partial, evolving |
@@ -43,10 +44,11 @@ agentic workflow, with the project maintainer steering what the tool should do.
 
 Multilingual fuzzy finding has problems that are different from plain fzf-style
 matching. A single visible candidate may need original text, normalized text,
-Japanese kana and romaji readings, Chinese pinyin and initials, and source-span
-maps for highlighting. Yuru keeps those as typed search keys and expands each
-query into a small set of compatible variants, so a romaji query can match kana
-or kanji readings without turning every search into an unbounded cross-product.
+Japanese kana and romaji readings, Korean Hangul romanization and choseong
+initials, Chinese pinyin and initials, and source-span maps for highlighting.
+Yuru keeps those as typed search keys and expands each query into a small set of
+compatible variants, so a romanized query can match CJK readings without turning
+every search into an unbounded cross-product.
 
 See [architecture and optimization details](docs/internals.md) for how indexing,
 searching, streaming input, lazy candidate construction, async search workers,
@@ -202,6 +204,14 @@ Japanese romaji:
 printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamera
 ```
 
+Korean Hangul romanization, choseong initials, and 2-set keyboard input:
+
+```sh
+printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter hangeul
+printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter ㅎㄱ
+printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter gksrmf
+```
+
 Auto language mode keeps one backend active per run:
 
 ```sh
@@ -263,7 +273,7 @@ Yuru reads `~/.config/yuru/config.toml` after safe fzf defaults and before
 
 ```toml
 [defaults]
-lang = "auto"          # plain | ja | zh | auto
+lang = "auto"          # plain | ja | ko | zh | auto
 scheme = "path"        # default | path | history
 case = "smart"         # smart | ignore | respect
 limit = 200
@@ -286,6 +296,11 @@ max_total_key_bytes_per_candidate = 1024
 
 [ja]
 reading = "lindera"    # none | lindera
+
+[ko]
+romanization = true
+initials = true
+keyboard = true
 
 [zh]
 pinyin = true

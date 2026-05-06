@@ -4,7 +4,7 @@ Yuru reads `~/.config/yuru/config.toml` on Unix and `%APPDATA%\yuru\config.toml`
 
 ```toml
 [defaults]
-lang = "auto"          # plain | ja | zh | auto
+lang = "auto"          # plain | ja | ko | zh | auto
 scheme = "path"        # default | path | history
 case = "smart"         # smart | ignore | respect
 limit = 200
@@ -28,6 +28,11 @@ max_total_key_bytes_per_candidate = 1024
 [ja]
 reading = "lindera"    # none | lindera
 
+[ko]
+romanization = true
+initials = true
+keyboard = true
+
 [zh]
 pinyin = true
 initials = true
@@ -44,6 +49,11 @@ alt_c_opts = "--preview-auto"
 ```
 
 `lang = "auto"` chooses one active backend per run. It does not build every language key for every candidate.
+
+`[ko]` controls Korean Hangul keys. `romanization` enables deterministic
+Romanization-style keys such as `hangeul`, `initials` enables choseong keys such
+as `ㅎㄱ`, and `keyboard` enables Korean 2-set keyboard-layout keys such as
+`gksrmf`.
 
 `preview.image_protocol = "none"` leaves image previews on automatic terminal
 detection and still allows `YURU_PREVIEW_IMAGE_PROTOCOL` to override it. Choose

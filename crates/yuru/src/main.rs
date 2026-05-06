@@ -22,6 +22,7 @@ use yuru_core::{
     SearchConfig, SearchKey, SourceSpan, Tiebreak,
 };
 use yuru_ja::{JapaneseBackend, JapaneseReadingMode};
+use yuru_ko::KoreanBackend;
 use yuru_zh::{ChineseBackend, ChinesePolyphoneMode, ChineseScriptMode};
 
 const DEFAULT_WALKER: &str = "file,follow,hidden";
@@ -43,6 +44,7 @@ type CandidateStreamReceiver = mpsc::Receiver<yuru_tui::CandidateStreamMessage>;
 enum LangArg {
     Plain,
     Ja,
+    Ko,
     Zh,
     Auto,
 }
@@ -157,6 +159,24 @@ struct Args {
 
     #[arg(long = "zh-script", value_enum, default_value_t = ZhScriptArg::Auto)]
     zh_script: ZhScriptArg,
+
+    #[arg(long = "ko-romanization", default_value_t = true)]
+    ko_romanization: bool,
+
+    #[arg(long = "no-ko-romanization")]
+    no_ko_romanization: bool,
+
+    #[arg(long = "ko-initials", default_value_t = true)]
+    ko_initials: bool,
+
+    #[arg(long = "no-ko-initials")]
+    no_ko_initials: bool,
+
+    #[arg(long = "ko-keyboard", default_value_t = true)]
+    ko_keyboard: bool,
+
+    #[arg(long = "no-ko-keyboard")]
+    no_ko_keyboard: bool,
 
     #[arg(short = 'q', long)]
     query: Option<String>,
@@ -1004,6 +1024,11 @@ fn create_backend(args: &Args, query: &str, items: &[InputItem]) -> Arc<dyn Lang
     match lang {
         LangArg::Plain => Arc::new(PlainBackend),
         LangArg::Ja => Arc::new(JapaneseBackend::new(japanese_reading_mode(args.ja_reading))),
+        LangArg::Ko => Arc::new(KoreanBackend::new(
+            args.ko_romanization && !args.no_ko_romanization,
+            args.ko_initials && !args.no_ko_initials,
+            args.ko_keyboard && !args.no_ko_keyboard,
+        )),
         LangArg::Zh => Arc::new(ChineseBackend::new(
             args.zh_pinyin && !args.no_zh_pinyin,
             args.zh_initials && !args.no_zh_initials,
@@ -1047,6 +1072,10 @@ fn matcher_algo(value: AlgoArg) -> MatcherAlgo {
 }
 
 fn detect_auto_lang(query: &str, items: &[InputItem]) -> LangArg {
+    if contains_hangul(query) {
+        return LangArg::Ko;
+    }
+
     if yuru_core::normalize::contains_kana(query) {
         return LangArg::Ja;
     }
@@ -1061,15 +1090,19 @@ fn detect_auto_lang(query: &str, items: &[InputItem]) -> LangArg {
     let sample = items.iter().take(256);
     let mut sample_has_kana = false;
     let mut sample_has_han = false;
+    let mut sample_has_hangul = false;
     for item in sample {
         sample_has_kana |= yuru_core::normalize::contains_kana(&item.search_text);
         sample_has_han |= contains_han(&item.search_text);
-        if sample_has_kana && sample_has_han {
+        sample_has_hangul |= contains_hangul(&item.search_text);
+        if sample_has_kana && sample_has_han && sample_has_hangul {
             break;
         }
     }
 
-    if sample_has_kana || locale.starts_with("ja") && sample_has_han {
+    if locale.starts_with("ko") && sample_has_hangul {
+        LangArg::Ko
+    } else if sample_has_kana || locale.starts_with("ja") && sample_has_han {
         LangArg::Ja
     } else if locale.starts_with("zh") && sample_has_han {
         LangArg::Zh
@@ -1089,6 +1122,16 @@ fn locale_hint() -> String {
 fn contains_han(text: &str) -> bool {
     text.chars().any(|ch| {
         ('\u{3400}'..='\u{4dbf}').contains(&ch) || ('\u{4e00}'..='\u{9fff}').contains(&ch)
+    })
+}
+
+fn contains_hangul(text: &str) -> bool {
+    text.chars().any(|ch| {
+        ('\u{1100}'..='\u{11ff}').contains(&ch)
+            || ('\u{3130}'..='\u{318f}').contains(&ch)
+            || ('\u{a960}'..='\u{a97f}').contains(&ch)
+            || ('\u{ac00}'..='\u{d7a3}').contains(&ch)
+            || ('\u{d7b0}'..='\u{d7ff}').contains(&ch)
     })
 }
 
@@ -3259,7 +3302,7 @@ fn configure_interactive() -> Result<()> {
     let lang = prompt_choice(
         "Default language",
         &current_lang,
-        &["plain", "ja", "zh", "auto", "none"],
+        &["plain", "ja", "ko", "zh", "auto", "none"],
     )?;
     let load_fzf_defaults = prompt_choice(
         "Load FZF_DEFAULT_OPTS",
@@ -4140,6 +4183,30 @@ fn toml_config_args(value: &toml::Value) -> Result<Vec<OsString>> {
         );
         push_toml_string_arg(&mut out, zh, "polyphone", "--zh-polyphone");
         push_toml_string_arg(&mut out, zh, "script", "--zh-script");
+    }
+
+    if let Some(ko) = value.get("ko") {
+        push_toml_bool_flag(
+            &mut out,
+            ko,
+            "romanization",
+            "--ko-romanization",
+            "--no-ko-romanization",
+        );
+        push_toml_bool_flag(
+            &mut out,
+            ko,
+            "initials",
+            "--ko-initials",
+            "--no-ko-initials",
+        );
+        push_toml_bool_flag(
+            &mut out,
+            ko,
+            "keyboard",
+            "--ko-keyboard",
+            "--no-ko-keyboard",
+        );
     }
 
     if let Some(fzf) = value.get("fzf") {

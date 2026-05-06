@@ -4531,6 +4531,7 @@ dependencies = [
  "toml",
  "yuru-core",
  "yuru-ja",
+ "yuru-ko",
  "yuru-tui",
  "yuru-zh",
 ]
@@ -4550,6 +4551,13 @@ name = "yuru-ja"
 version = "0.1.4"
 dependencies = [
  "lindera",
+ "yuru-core",
+]
+
+[[package]]
+name = "yuru-ko"
+version = "0.1.4"
+dependencies = [
  "yuru-core",
 ]
 
@@ -4579,6 +4587,7 @@ dependencies = [
  "tempfile",
  "yuru-core",
  "yuru-ja",
+ "yuru-ko",
  "yuru-zh",
 ]
 

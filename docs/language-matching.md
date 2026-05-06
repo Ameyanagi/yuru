@@ -1,6 +1,6 @@
 # Language Matching
 
-Yuru always keeps direct fuzzy matching enabled. Japanese and Chinese modes add extra candidate keys, then search chooses the best key.
+Yuru always keeps direct fuzzy matching enabled. Japanese, Korean, and Chinese modes add extra candidate keys, then search chooses the best key.
 
 ## Japanese
 
@@ -23,6 +23,27 @@ printf "2025年8月.pdf\n" | yuru --lang ja --filter gatu
 
 Generated reading keys carry source spans. A romaji match can highlight the original Japanese surface text instead of the whole CJK run.
 
+## Korean
+
+`--lang ko` adds Hangul-derived keys:
+
+- deterministic romanization with spaces
+- joined deterministic romanization
+- choseong initials
+- Korean 2-set keyboard-layout input
+
+Examples:
+
+```sh
+printf "한글.txt\n" | yuru --lang ko --filter hangeul
+printf "한글.txt\n" | yuru --lang ko --filter ㅎㄱ
+printf "한글.txt\n" | yuru --lang ko --filter gksrmf
+```
+
+Korean v1 uses syllable decomposition and deterministic Revised-Romanization-style spelling. It is optimized for fuzzy finder recall and source-span highlighting, not full pronunciation assimilation. For example, `한글` generates `han geul` and `hangeul`; pronunciation-dependent forms such as `같이 -> gachi` or `신라 -> silla` are future work.
+
+`--no-ko-romanization` disables romanized keys. `--no-ko-initials` disables choseong initials. `--no-ko-keyboard` disables Korean 2-set keyboard-layout keys.
+
 ## Chinese
 
 `--lang zh` adds pinyin keys:
@@ -42,7 +63,7 @@ printf "北京大学.txt\n" | yuru --lang zh --filter beijing
 
 ## Auto Mode
 
-`--lang auto` chooses one backend before indexing. Locale and query/candidate characters influence the choice. It does not build Japanese and Chinese keys at the same time.
+`--lang auto` chooses one backend before indexing. Locale and query/candidate characters influence the choice. It does not build Japanese, Korean, and Chinese keys at the same time.
 
 Use `--explain` to inspect the winning key:
 

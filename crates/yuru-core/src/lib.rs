@@ -1,8 +1,9 @@
 //! Core candidate indexing, fuzzy matching, ranking, and source-span data types
 //! for Yuru.
 //!
-//! This crate is intentionally language-neutral. Japanese and Chinese phonetic
-//! keys are supplied by separate backend crates through [`LanguageBackend`].
+//! This crate is intentionally language-neutral. Japanese, Korean, and Chinese
+//! phonetic keys are supplied by separate backend crates through
+//! [`LanguageBackend`].
 
 pub mod candidate;
 pub mod config;
@@ -34,6 +35,7 @@ pub use stats::SearchStats;
 pub enum LangMode {
     Plain,
     Japanese,
+    Korean,
     Chinese,
 }
 
@@ -42,6 +44,7 @@ impl fmt::Display for LangMode {
         match self {
             LangMode::Plain => f.write_str("plain"),
             LangMode::Japanese => f.write_str("ja"),
+            LangMode::Korean => f.write_str("ko"),
             LangMode::Chinese => f.write_str("zh"),
         }
     }
@@ -54,6 +57,7 @@ impl FromStr for LangMode {
         match value {
             "plain" => Ok(LangMode::Plain),
             "ja" | "japanese" => Ok(LangMode::Japanese),
+            "ko" | "korean" => Ok(LangMode::Korean),
             "zh" | "chinese" => Ok(LangMode::Chinese),
             other => Err(format!("unsupported language mode: {other}")),
         }
@@ -69,6 +73,9 @@ pub enum KeyKind {
     PinyinFull,
     PinyinJoined,
     PinyinInitials,
+    KoreanRomanized,
+    KoreanInitials,
+    KoreanKeyboard,
     LearnedAlias,
 }
 

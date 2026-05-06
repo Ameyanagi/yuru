@@ -1,6 +1,6 @@
 # Yuru
 
-Yuru 是一个快速的命令行 fuzzy finder，支持日文读音搜索和中文拼音搜索。
+Yuru 是一个快速的命令行 fuzzy finder，支持日文读音、韩文 Hangul 和中文拼音搜索。
 它的使用方式接近 fzf，同时针对 CJK 文本提供更准确的 phonetic match 高亮。
 
 ## Demo Video
@@ -99,6 +99,14 @@ printf "北京大学.txt\nnotes.txt\n" | yuru --lang zh --filter bjdx
 printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamera
 ```
 
+韩文 Hangul romanization / 初声 / 2-set keyboard:
+
+```sh
+printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter hangeul
+printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter ㅎㄱ
+printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter gksrmf
+```
+
 文件搜索:
 
 ```sh
@@ -120,7 +128,7 @@ yuru --fzf-compat ignore
 图片 preview 由默认启用的 `image` feature 提供。如需更小的源码构建，可使用
 `cargo install yuru --no-default-features`。
 
-`~/.config/yuru/config.toml` 可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[zh] initials = true` 等。CLI 参数优先级最高。
+`~/.config/yuru/config.toml` 可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[ko] initials = true`、`[zh] initials = true` 等。CLI 参数优先级最高。
 
 详细兼容性见 [fzf compatibility](fzf-compat.md)，语言匹配行为见 [language matching](language-matching.md)。
 

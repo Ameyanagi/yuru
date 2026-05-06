@@ -3,7 +3,8 @@
 Yuru is shaped by a problem that fzf mostly avoids: a candidate can have more
 than one searchable form. A visible path such as `資料/東京駅.pdf` may need direct
 matching, normalized-width matching, kana readings, romaji readings, source-span
-highlighting, and shell-friendly path ranking at the same time.
+highlighting, Korean Hangul romanization, choseong initials, and shell-friendly
+path ranking at the same time.
 
 ## Agentic Coding
 
@@ -19,7 +20,7 @@ Multilingual fuzzy finding adds a few constraints beyond plain ASCII matching:
 
 - Candidate text is indexed into multiple search keys: original text,
   normalized text, and language-specific keys such as Japanese kana/romaji or
-  Chinese pinyin/initials.
+  Korean Hangul romanization/initials or Chinese pinyin/initials.
 - Query text is expanded into query variants, then each variant is allowed to
   match only compatible key kinds. This prevents accidental cross-language
   matches while still allowing `kamera` to match `カメラ` or `bjdx` to match
@@ -28,7 +29,7 @@ Multilingual fuzzy finding adds a few constraints beyond plain ASCII matching:
   reading can highlight the original CJK surface text instead of the whole
   candidate.
 - `--lang auto` chooses one backend before indexing. It intentionally does not
-  build Japanese and Chinese keys for every candidate at the same time.
+  build Japanese, Korean, and Chinese keys for every candidate at the same time.
 
 ## Indexing
 
@@ -36,7 +37,7 @@ Indexing is candidate-side. For each candidate Yuru builds:
 
 - an original key
 - a normalized key when normalization is enabled
-- language-backend keys for Japanese or Chinese mode
+- language-backend keys for Japanese, Korean, or Chinese mode
 - optional learned alias keys
 
 The key set is deduplicated and capped by both key count and total key bytes.

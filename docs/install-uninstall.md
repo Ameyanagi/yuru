@@ -21,7 +21,7 @@ The Unix installer writes the binary to `~/.local/bin` unless `XDG_BIN_HOME`, `Y
 
 `--all` can also add shell integration and write config. Interactive installs
 ask for the default language. Pressing Enter, or running without an interactive
-prompt, uses Japanese (`ja`). Use `--default-lang ask|plain|ja|zh|auto|none` or
+prompt, uses Japanese (`ja`). Use `--default-lang ask|plain|ja|ko|zh|auto|none` or
 `-DefaultLang` to override it or skip the prompt.
 Interactive installs also ask whether to force an image preview protocol; the
 default `none` leaves automatic detection enabled. Use
