@@ -1,8 +1,15 @@
 #!/usr/bin/env sh
 
 if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
-  if [ -z "${CC+x}" ] && [ -x /usr/bin/cc ]; then
-    export CC=/usr/bin/cc
+  if [ -z "${CC+x}" ]; then
+    if command -v xcrun >/dev/null 2>&1; then
+      clang=$(xcrun -f clang 2>/dev/null || true)
+      if [ -n "$clang" ]; then
+        export CC=$clang
+      fi
+    elif [ -x /usr/bin/clang ]; then
+      export CC=/usr/bin/clang
+    fi
   fi
 
   if [ -z "${SDKROOT+x}" ] && command -v xcrun >/dev/null 2>&1; then

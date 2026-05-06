@@ -4,7 +4,8 @@ param(
     [string]$Repo = "Ameyanagi/yuru",
     [string]$Version = "latest",
     [ValidateSet("ask", "plain", "ja", "zh", "auto", "none")]
-    [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ask" }),
+    [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ja" }),
+    [string]$Bindings = $(if ($env:YURU_INSTALL_BINDINGS) { $env:YURU_INSTALL_BINDINGS } else { "ask" }),
     [switch]$NoConfig,
     [switch]$FromSource
 )
@@ -28,11 +29,11 @@ function Get-YuruConfigPath {
 
 function Read-YuruDefaultLanguage {
     if ($DefaultLang -ne "ask") { return $DefaultLang }
-    if (-not [Environment]::UserInteractive) { return "none" }
+    if (-not [Environment]::UserInteractive) { return "ja" }
 
     while ($true) {
-        $answer = Read-Host "Choose Yuru default language [plain/ja/zh/auto/none] (plain)"
-        if ([string]::IsNullOrWhiteSpace($answer)) { return "plain" }
+        $answer = Read-Host "Choose Yuru default language [plain/ja/zh/auto/none] (ja)"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return "ja" }
         switch ($answer.Trim()) {
             "plain" { return "plain" }
             "ja" { return "ja" }
@@ -44,13 +45,80 @@ function Read-YuruDefaultLanguage {
     }
 }
 
+function Test-YuruBindingList {
+    param([string]$Value)
+    if ($Value -in @("ask", "all", "none")) { return $true }
+    foreach ($item in ($Value -split ",")) {
+        $trimmed = $item.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) { continue }
+        if ($trimmed -notin @("ctrl-t", "ctrl-r", "alt-c", "completion")) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Read-YuruYesNo {
+    param(
+        [string]$Prompt,
+        [bool]$DefaultYes = $true
+    )
+    $suffix = $(if ($DefaultYes) { "Y/n" } else { "y/N" })
+    while ($true) {
+        $answer = Read-Host "$Prompt [$suffix]"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return $DefaultYes }
+        switch ($answer.Trim().ToLowerInvariant()) {
+            "y" { return $true }
+            "yes" { return $true }
+            "n" { return $false }
+            "no" { return $false }
+            default { Write-Host "Please enter yes or no." }
+        }
+    }
+}
+
+function Read-YuruShellBindings {
+    if (-not (Test-YuruBindingList $Bindings)) {
+        throw "unsupported shell bindings '$Bindings'; expected ask, all, none, or a comma-separated list of ctrl-t, ctrl-r, alt-c, completion"
+    }
+    if ($Bindings -ne "ask") { return $Bindings }
+    if (-not [Environment]::UserInteractive) { return "all" }
+
+    while ($true) {
+        $answer = Read-Host "Choose Yuru shell bindings [all/custom/none] (all)"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return "all" }
+        switch ($answer.Trim().ToLowerInvariant()) {
+            "all" { return "all" }
+            "none" { return "none" }
+            "custom" {
+                $selected = New-Object System.Collections.Generic.List[string]
+                if (Read-YuruYesNo "Enable CTRL-T file search?" $true) { $selected.Add("ctrl-t") }
+                if (Read-YuruYesNo "Enable CTRL-R history search?" $true) { $selected.Add("ctrl-r") }
+                if (Read-YuruYesNo "Enable ALT-C directory jump?" $true) { $selected.Add("alt-c") }
+                if (Read-YuruYesNo "Enable **<TAB> path completion?" $true) { $selected.Add("completion") }
+                if ($selected.Count -eq 0) { return "none" }
+                return ($selected -join ",")
+            }
+            default {
+                if (Test-YuruBindingList $answer) { return $answer }
+                Write-Host "Please enter all, custom, none, or a comma-separated binding list."
+            }
+        }
+    }
+}
+
 function Install-YuruConfig {
+    param([string]$ConfigBindings = "")
     if ($NoConfig) {
         Write-YuruInstallLog "skipping user config"
         return
     }
 
     $selectedLang = Read-YuruDefaultLanguage
+    $ctrlTCommand = "Get-YuruPathItems ."
+    $ctrlTOpts = "--preview 'Get-Item -LiteralPath {} | Format-List | Out-String'"
+    $altCCommand = "Get-YuruDirItems ."
+    $altCOpts = "--preview 'Get-ChildItem -Force -LiteralPath {} | Select-Object -First 100 | Out-String'"
     $configPath = Get-YuruConfigPath
     $configDir = Split-Path -Parent $configPath
     if (-not [string]::IsNullOrWhiteSpace($configDir)) {
@@ -63,10 +131,14 @@ function Install-YuruConfig {
         $inDefaults = $false
         $sawDefaults = $false
         $wroteLang = $false
+        $inShell = $false
+        $sawShell = $false
+        $wroteShell = $false
         foreach ($line in $sourceLines) {
             if ($line -match '^\s*\[defaults\]\s*$') {
                 $lines += $line
                 $inDefaults = $true
+                $inShell = $false
                 $sawDefaults = $true
                 if ($selectedLang -ne "none") {
                     $lines += "lang = `"$selectedLang`""
@@ -74,12 +146,31 @@ function Install-YuruConfig {
                 }
                 continue
             }
+            if ($line -match '^\s*\[shell\]\s*$') {
+                $lines += $line
+                $inDefaults = $false
+                $inShell = $true
+                $sawShell = $true
+                if ($ConfigBindings) {
+                    $lines += "bindings = `"$ConfigBindings`""
+                    $lines += "ctrl_t_command = `"$ctrlTCommand`""
+                    $lines += "ctrl_t_opts = `"$ctrlTOpts`""
+                    $lines += "alt_c_command = `"$altCCommand`""
+                    $lines += "alt_c_opts = `"$altCOpts`""
+                    $wroteShell = $true
+                }
+                continue
+            }
             if ($line -match '^\s*\[') {
                 $inDefaults = $false
+                $inShell = $false
                 $lines += $line
                 continue
             }
             if ($inDefaults -and $line -match '^\s*lang\s*=') {
+                continue
+            }
+            if ($ConfigBindings -and $inShell -and $line -match '^\s*(bindings|ctrl_t_command|ctrl_t_opts|alt_c_command|alt_c_opts)\s*=') {
                 continue
             }
             $lines += $line
@@ -94,6 +185,15 @@ function Install-YuruConfig {
             $lines += "load_fzf_defaults = `"safe`""
             $lines += "fzf_compat = `"warn`""
         }
+        if ($ConfigBindings -and -not $sawShell) {
+            $lines += ""
+            $lines += "[shell]"
+            $lines += "bindings = `"$ConfigBindings`""
+            $lines += "ctrl_t_command = `"$ctrlTCommand`""
+            $lines += "ctrl_t_opts = `"$ctrlTOpts`""
+            $lines += "alt_c_command = `"$altCCommand`""
+            $lines += "alt_c_opts = `"$altCOpts`""
+        }
     } else {
         $lines += "[defaults]"
         if ($selectedLang -ne "none") {
@@ -101,6 +201,15 @@ function Install-YuruConfig {
         }
         $lines += "load_fzf_defaults = `"safe`""
         $lines += "fzf_compat = `"warn`""
+        if ($ConfigBindings) {
+            $lines += ""
+            $lines += "[shell]"
+            $lines += "bindings = `"$ConfigBindings`""
+            $lines += "ctrl_t_command = `"$ctrlTCommand`""
+            $lines += "ctrl_t_opts = `"$ctrlTOpts`""
+            $lines += "alt_c_command = `"$altCCommand`""
+            $lines += "alt_c_opts = `"$altCOpts`""
+        }
     }
     Set-Content -LiteralPath $configPath -Value $lines
 
@@ -108,6 +217,9 @@ function Install-YuruConfig {
         Write-YuruInstallLog "left default language unset in $configPath"
     } else {
         Write-YuruInstallLog "configured default language '$selectedLang' in $configPath"
+    }
+    if ($ConfigBindings) {
+        Write-YuruInstallLog "configured shell bindings '$ConfigBindings' in $configPath"
     }
 }
 
@@ -208,7 +320,11 @@ if ($FromSource) {
 
 Write-YuruInstallLog "installed binary into $BinDir"
 Add-YuruToUserPath
-Install-YuruConfig
+$configBindings = ""
+if ($All -or $Bindings -ne "ask") {
+    $configBindings = Read-YuruShellBindings
+}
+Install-YuruConfig -ConfigBindings $configBindings
 
 if ($All) {
     Install-YuruPowerShellIntegration

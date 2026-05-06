@@ -142,7 +142,7 @@ fn match_fuzzy_term(
 
     let mut best: Option<(i64, KeyKind, u32)> = None;
     for variant in variants {
-        if config.case_sensitive && variant.kind == QueryVariantKind::Normalized {
+        if variant_blocked_by_config(variant.kind, config) {
             continue;
         }
 
@@ -170,7 +170,7 @@ fn match_exact_term(
     candidate: &Candidate,
     config: &SearchConfig,
 ) -> Option<(i64, KeyKind, u32)> {
-    let needle = comparable(&term.text, config.case_sensitive);
+    let needle = comparable(&term.text, config);
     let mut best: Option<(i64, KeyKind, u32)> = None;
 
     for (key_index, key) in candidate.keys.iter().enumerate() {
@@ -178,7 +178,7 @@ fn match_exact_term(
             continue;
         }
 
-        let haystack = comparable(&key.text, config.case_sensitive);
+        let haystack = comparable(&key.text, config);
         let Some(base_score) = exact_score(term.mode, &needle, &haystack) else {
             continue;
         };
@@ -239,16 +239,22 @@ fn is_boundary_at(text: &str, byte_index: usize) -> bool {
     }
 }
 
-fn comparable(text: &str, case_sensitive: bool) -> String {
-    if case_sensitive {
+fn comparable(text: &str, config: &SearchConfig) -> String {
+    if config.case_sensitive {
         text.to_string()
-    } else {
+    } else if config.normalize {
         normalize::normalize(text)
+    } else {
+        text.to_lowercase()
     }
 }
 
 fn key_blocked_by_case_mode(kind: KeyKind, config: &SearchConfig) -> bool {
-    config.case_sensitive && kind == KeyKind::Normalized
+    kind == KeyKind::Normalized && (config.case_sensitive || !config.normalize)
+}
+
+fn variant_blocked_by_config(kind: QueryVariantKind, config: &SearchConfig) -> bool {
+    kind == QueryVariantKind::Normalized && (config.case_sensitive || !config.normalize)
 }
 
 impl ExtendedQuery {

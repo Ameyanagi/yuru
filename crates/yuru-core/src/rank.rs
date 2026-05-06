@@ -172,12 +172,12 @@ fn score_standard_candidate(
     let mut best: Option<ScoredCandidate> = None;
 
     for variant in variants {
-        if config.case_sensitive && variant.kind == QueryVariantKind::Normalized {
+        if variant_blocked_by_config(variant.kind, config) {
             continue;
         }
 
         for (key_index, key) in candidate.keys.iter().enumerate() {
-            if config.case_sensitive && key.kind == crate::KeyKind::Normalized {
+            if key_blocked_by_config(key.kind, config) {
                 continue;
             }
 
@@ -268,12 +268,12 @@ fn search_standard_with_matcher(
         let mut best: Option<ScoredCandidate> = None;
 
         for variant in &variants {
-            if config.case_sensitive && variant.kind == QueryVariantKind::Normalized {
+            if variant_blocked_by_config(variant.kind, config) {
                 continue;
             }
 
             for (key_index, key) in candidate.keys.iter().enumerate() {
-                if config.case_sensitive && key.kind == crate::KeyKind::Normalized {
+                if key_blocked_by_config(key.kind, config) {
                     continue;
                 }
 
@@ -600,6 +600,14 @@ fn compare_tiebreak(
 
 fn comparable(text: &str) -> String {
     crate::normalize::normalize(text)
+}
+
+fn key_blocked_by_config(kind: crate::KeyKind, config: &SearchConfig) -> bool {
+    kind == crate::KeyKind::Normalized && (config.case_sensitive || !config.normalize)
+}
+
+fn variant_blocked_by_config(kind: QueryVariantKind, config: &SearchConfig) -> bool {
+    kind == QueryVariantKind::Normalized && (config.case_sensitive || !config.normalize)
 }
 
 fn normalized_query(query: &str) -> String {

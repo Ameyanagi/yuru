@@ -84,13 +84,18 @@ enum ZhScriptArg {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum AlgoArg {
     Greedy,
+    #[value(alias = "v1")]
     FzfV1,
+    #[value(alias = "v2")]
     FzfV2,
     Nucleo,
 }
 
 #[derive(Debug, Subcommand)]
 enum CommandArg {
+    /// Reconfigure user defaults interactively.
+    Configure,
+
     /// Print environment, config, and shell integration diagnostics.
     Doctor,
 }
@@ -154,7 +159,13 @@ struct Args {
     #[arg(short = 'e', long)]
     exact: bool,
 
-    #[arg(long, default_value_t = true)]
+    #[arg(long = "no-exact")]
+    no_exact: bool,
+
+    #[arg(long = "extended-exact")]
+    extended_exact: bool,
+
+    #[arg(short = 'x', long, default_value_t = true)]
     extended: bool,
 
     #[arg(long = "no-extended")]
@@ -172,6 +183,9 @@ struct Args {
     #[arg(long)]
     no_sort: bool,
 
+    #[arg(short = 's', long, num_args = 0..=1)]
+    sort: Option<Option<usize>>,
+
     #[arg(long, default_value = "length")]
     tiebreak: String,
 
@@ -182,19 +196,49 @@ struct Args {
     disabled: bool,
 
     #[arg(long)]
+    phony: bool,
+
+    #[arg(long)]
+    enabled: bool,
+
+    #[arg(long = "no-phony")]
+    no_phony: bool,
+
+    #[arg(long)]
+    literal: bool,
+
+    #[arg(long = "no-literal")]
+    no_literal: bool,
+
+    #[arg(long)]
     tac: bool,
+
+    #[arg(long = "no-tac")]
+    no_tac: bool,
 
     #[arg(long)]
     tail: Option<usize>,
 
+    #[arg(long = "no-tail")]
+    no_tail: bool,
+
     #[arg(long)]
     read0: bool,
+
+    #[arg(long = "no-read0")]
+    no_read0: bool,
 
     #[arg(long)]
     sync: bool,
 
+    #[arg(long = "no-sync", alias = "async")]
+    no_sync: bool,
+
     #[arg(long)]
     print0: bool,
+
+    #[arg(long = "no-print0")]
+    no_print0: bool,
 
     #[arg(long, hide = true)]
     input: Option<PathBuf>,
@@ -202,14 +246,26 @@ struct Args {
     #[arg(long)]
     ansi: bool,
 
+    #[arg(long = "no-ansi")]
+    no_ansi: bool,
+
     #[arg(long)]
     print_query: bool,
+
+    #[arg(long = "no-print-query")]
+    no_print_query: bool,
 
     #[arg(short = '1', long)]
     select_1: bool,
 
+    #[arg(long = "no-select-1")]
+    no_select_1: bool,
+
     #[arg(short = '0', long)]
     exit_0: bool,
+
+    #[arg(long = "no-exit-0")]
+    no_exit_0: bool,
 
     #[arg(short = 'n', long)]
     nth: Option<String>,
@@ -232,8 +288,8 @@ struct Args {
     #[arg(long = "load-fzf-default-opts", value_enum, default_value_t = LoadFzfDefaultOptsArg::Safe)]
     load_fzf_default_opts: LoadFzfDefaultOptsArg,
 
-    #[arg(short = 'm', long)]
-    multi: bool,
+    #[arg(short = 'm', long, num_args = 0..=1)]
+    multi: Option<Option<usize>>,
 
     #[arg(long)]
     no_multi: bool,
@@ -241,14 +297,38 @@ struct Args {
     #[arg(long)]
     expect: Option<String>,
 
+    #[arg(long = "no-expect")]
+    no_expect: bool,
+
     #[arg(long)]
     bind: Vec<String>,
+
+    #[arg(long = "toggle-sort")]
+    toggle_sort: Option<String>,
 
     #[arg(long)]
     preview: Option<String>,
 
+    #[arg(long = "no-preview")]
+    no_preview: bool,
+
     #[arg(long)]
     preview_window: Option<String>,
+
+    #[arg(long, num_args = 0..=1)]
+    preview_border: Option<Option<String>>,
+
+    #[arg(long = "no-preview-border")]
+    no_preview_border: bool,
+
+    #[arg(long)]
+    preview_label: Option<String>,
+
+    #[arg(long)]
+    preview_label_pos: Option<String>,
+
+    #[arg(long)]
+    preview_wrap_sign: Option<String>,
 
     #[arg(long)]
     height: Option<String>,
@@ -257,13 +337,55 @@ struct Args {
     no_height: bool,
 
     #[arg(long)]
+    min_height: Option<String>,
+
+    #[arg(long, num_args = 0..=1)]
+    popup: Option<Option<String>>,
+
+    #[arg(long = "no-popup")]
+    no_popup: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    tmux: Option<Option<String>>,
+
+    #[arg(long = "no-tmux")]
+    no_tmux: bool,
+
+    #[arg(long)]
     layout: Option<String>,
 
     #[arg(long)]
     reverse: bool,
 
+    #[arg(long = "no-reverse")]
+    no_reverse: bool,
+
     #[arg(long)]
-    border: Option<String>,
+    margin: Option<String>,
+
+    #[arg(long)]
+    padding: Option<String>,
+
+    #[arg(long = "no-margin")]
+    no_margin: bool,
+
+    #[arg(long = "no-padding")]
+    no_padding: bool,
+
+    #[arg(long = "no-border")]
+    no_border: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    border: Option<Option<String>>,
+
+    #[arg(long)]
+    border_label: Option<String>,
+
+    #[arg(long)]
+    border_label_pos: Option<String>,
+
+    #[arg(long = "no-border-label")]
+    no_border_label: bool,
 
     #[arg(long)]
     prompt: Option<String>,
@@ -271,14 +393,266 @@ struct Args {
     #[arg(long)]
     header: Option<String>,
 
+    #[arg(long = "no-header")]
+    no_header: bool,
+
     #[arg(long)]
     header_lines: Option<usize>,
 
+    #[arg(long = "no-header-lines")]
+    no_header_lines: bool,
+
     #[arg(long)]
-    color: Vec<String>,
+    header_first: bool,
+
+    #[arg(long = "no-header-first")]
+    no_header_first: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    header_border: Option<Option<String>>,
+
+    #[arg(long = "no-header-border")]
+    no_header_border: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    header_lines_border: Option<Option<String>>,
+
+    #[arg(long = "no-header-lines-border")]
+    no_header_lines_border: bool,
+
+    #[arg(long)]
+    header_label: Option<String>,
+
+    #[arg(long)]
+    header_label_pos: Option<String>,
+
+    #[arg(long = "no-header-label")]
+    no_header_label: bool,
+
+    #[arg(long)]
+    footer: Option<String>,
+
+    #[arg(long = "no-footer")]
+    no_footer: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    footer_border: Option<Option<String>>,
+
+    #[arg(long = "no-footer-border")]
+    no_footer_border: bool,
+
+    #[arg(long)]
+    footer_label: Option<String>,
+
+    #[arg(long)]
+    footer_label_pos: Option<String>,
+
+    #[arg(long = "no-footer-label")]
+    no_footer_label: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    color: Vec<Option<String>>,
+
+    #[arg(long)]
+    no_color: bool,
+
+    #[arg(long = "no-256")]
+    no_256: bool,
+
+    #[arg(long)]
+    bold: bool,
+
+    #[arg(long)]
+    no_bold: bool,
+
+    #[arg(long)]
+    black: bool,
+
+    #[arg(long = "no-black")]
+    no_black: bool,
 
     #[arg(long)]
     cycle: bool,
+
+    #[arg(long = "no-cycle")]
+    no_cycle: bool,
+
+    #[arg(long)]
+    highlight_line: bool,
+
+    #[arg(long = "no-highlight-line")]
+    no_highlight_line: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    wrap: Option<Option<String>>,
+
+    #[arg(long = "no-wrap")]
+    no_wrap: bool,
+
+    #[arg(long = "wrap-word")]
+    wrap_word: bool,
+
+    #[arg(long = "no-wrap-word")]
+    no_wrap_word: bool,
+
+    #[arg(long)]
+    wrap_sign: Option<String>,
+
+    #[arg(long = "multi-line")]
+    multi_line: bool,
+
+    #[arg(long)]
+    no_multi_line: bool,
+
+    #[arg(long)]
+    raw: bool,
+
+    #[arg(long = "no-raw")]
+    no_raw: bool,
+
+    #[arg(long)]
+    track: bool,
+
+    #[arg(long = "no-track")]
+    no_track: bool,
+
+    #[arg(long)]
+    id_nth: Option<String>,
+
+    #[arg(long = "no-id-nth")]
+    no_id_nth: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    gap: Option<Option<usize>>,
+
+    #[arg(long = "no-gap")]
+    no_gap: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    gap_line: Option<Option<String>>,
+
+    #[arg(long = "no-gap-line")]
+    no_gap_line: bool,
+
+    #[arg(long)]
+    freeze_left: Option<usize>,
+
+    #[arg(long)]
+    freeze_right: Option<usize>,
+
+    #[arg(long)]
+    keep_right: bool,
+
+    #[arg(long = "no-keep-right")]
+    no_keep_right: bool,
+
+    #[arg(long)]
+    scroll_off: Option<usize>,
+
+    #[arg(long)]
+    no_hscroll: bool,
+
+    #[arg(long)]
+    hscroll: bool,
+
+    #[arg(long)]
+    hscroll_off: Option<usize>,
+
+    #[arg(long)]
+    jump_labels: Option<String>,
+
+    #[arg(long)]
+    gutter: Option<String>,
+
+    #[arg(long)]
+    gutter_raw: Option<String>,
+
+    #[arg(long)]
+    pointer: Option<String>,
+
+    #[arg(long)]
+    marker: Option<String>,
+
+    #[arg(long)]
+    marker_multi_line: Option<String>,
+
+    #[arg(long)]
+    ellipsis: Option<String>,
+
+    #[arg(long)]
+    tabstop: Option<usize>,
+
+    #[arg(long, num_args = 0..=1)]
+    scrollbar: Option<Option<String>>,
+
+    #[arg(long)]
+    no_scrollbar: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    list_border: Option<Option<String>>,
+
+    #[arg(long = "no-list-border")]
+    no_list_border: bool,
+
+    #[arg(long)]
+    list_label: Option<String>,
+
+    #[arg(long)]
+    list_label_pos: Option<String>,
+
+    #[arg(long = "no-list-label")]
+    no_list_label: bool,
+
+    #[arg(long)]
+    no_input: bool,
+
+    #[arg(long)]
+    info: Option<String>,
+
+    #[arg(long)]
+    info_command: Option<String>,
+
+    #[arg(long = "no-info-command")]
+    no_info_command: bool,
+
+    #[arg(long = "no-info")]
+    no_info: bool,
+
+    #[arg(long = "inline-info")]
+    inline_info: bool,
+
+    #[arg(long = "no-inline-info")]
+    no_inline_info: bool,
+
+    #[arg(long)]
+    separator: Option<String>,
+
+    #[arg(long)]
+    no_separator: bool,
+
+    #[arg(long)]
+    ghost: Option<String>,
+
+    #[arg(long)]
+    filepath_word: bool,
+
+    #[arg(long = "no-filepath-word")]
+    no_filepath_word: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    input_border: Option<Option<String>>,
+
+    #[arg(long = "no-input-border")]
+    no_input_border: bool,
+
+    #[arg(long)]
+    input_label: Option<String>,
+
+    #[arg(long)]
+    input_label_pos: Option<String>,
+
+    #[arg(long = "no-input-label")]
+    no_input_label: bool,
 
     #[arg(long, default_value = DEFAULT_WALKER)]
     walker: String,
@@ -288,6 +662,93 @@ struct Args {
 
     #[arg(long = "walker-skip", default_value = DEFAULT_WALKER_SKIP)]
     walker_skip: String,
+
+    #[arg(long)]
+    with_shell: Option<String>,
+
+    #[arg(long)]
+    style: Option<String>,
+
+    #[arg(long, num_args = 0..=1)]
+    listen: Option<Option<String>>,
+
+    #[arg(long = "no-listen")]
+    no_listen: bool,
+
+    #[arg(long, num_args = 0..=1)]
+    listen_unsafe: Option<Option<String>>,
+
+    #[arg(long = "no-listen-unsafe")]
+    no_listen_unsafe: bool,
+
+    #[arg(long)]
+    history: Option<PathBuf>,
+
+    #[arg(long = "no-history")]
+    no_history: bool,
+
+    #[arg(long)]
+    history_size: Option<usize>,
+
+    #[arg(long)]
+    no_tty_default: bool,
+
+    #[arg(long)]
+    tty_default: Option<String>,
+
+    #[arg(long = "force-tty-in")]
+    force_tty_in: bool,
+
+    #[arg(long = "no-force-tty-in")]
+    no_force_tty_in: bool,
+
+    #[arg(long = "proxy-script")]
+    proxy_script: Option<String>,
+
+    #[arg(long = "no-winpty")]
+    no_winpty: bool,
+
+    #[arg(long)]
+    no_mouse: bool,
+
+    #[arg(long)]
+    no_unicode: bool,
+
+    #[arg(long)]
+    unicode: bool,
+
+    #[arg(long)]
+    ambidouble: bool,
+
+    #[arg(long = "no-ambidouble")]
+    no_ambidouble: bool,
+
+    #[arg(long)]
+    clear: bool,
+
+    #[arg(long)]
+    no_clear: bool,
+
+    #[arg(long)]
+    man: bool,
+
+    #[arg(long)]
+    threads: Option<usize>,
+
+    #[arg(long)]
+    bench: Option<String>,
+
+    #[arg(long = "profile-cpu")]
+    profile_cpu: Option<PathBuf>,
+
+    #[arg(long = "profile-mem")]
+    profile_mem: Option<PathBuf>,
+
+    #[arg(long = "profile-block")]
+    profile_block: Option<PathBuf>,
+
+    #[arg(long = "profile-mutex")]
+    profile_mutex: Option<PathBuf>,
 
     #[arg(long)]
     debug_query_variants: bool,
@@ -329,14 +790,18 @@ fn run() -> Result<ExitCode> {
     let walker_requested = walker_flags_present(&expanded_args);
     let args = Args::parse_from(expanded_args);
     if let Some(kind) = shell_script_kind(&args)? {
-        print!("{}", shell::script(kind));
+        print_shell_script(kind)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if matches!(args.command, Some(CommandArg::Configure)) {
+        configure_interactive()?;
         return Ok(ExitCode::SUCCESS);
     }
     if matches!(args.command, Some(CommandArg::Doctor)) {
         print_doctor_report()?;
         return Ok(ExitCode::SUCCESS);
     }
-    if explain_mode(&args) && args.print0 {
+    if explain_mode(&args) && print0_enabled(&args) {
         bail!("--explain cannot be combined with --print0");
     }
     enforce_fzf_compat(&args)?;
@@ -352,11 +817,12 @@ fn run() -> Result<ExitCode> {
         max_total_key_bytes_per_candidate: args.max_total_key_bytes_per_candidate,
         limit,
         top_b_for_quality_score: args.top_b,
-        exact: args.exact,
-        extended: args.extended && !args.no_extended,
+        exact: exact_enabled(&args),
+        extended: extended_enabled(&args),
         case_sensitive: case_sensitive(&query, &args),
-        disabled: args.disabled,
-        no_sort: args.no_sort,
+        disabled: disabled_enabled(&args),
+        no_sort: no_sort_enabled(&args),
+        normalize: normalize_enabled(&args),
         matcher_algo: matcher_algo(args.algo),
         tiebreaks,
     };
@@ -376,26 +842,27 @@ fn run() -> Result<ExitCode> {
             items,
             &field_config,
             receiver,
-            backend.as_ref(),
+            backend,
             config,
             query,
         );
     }
 
-    let mut raw_items =
+    let raw_items =
         read_input_candidates(&args, walker_requested).context("failed to load candidates")?;
-    if let Some(tail) = args.tail {
+    let (header_records, mut raw_items) = split_header_lines(raw_items, header_lines_count(&args));
+    if let Some(tail) = tail_count(&args) {
         let keep_from = raw_items.len().saturating_sub(tail);
         raw_items = raw_items.split_off(keep_from);
     }
-    if args.tac {
+    if tac_enabled(&args) {
         raw_items.reverse();
     }
 
-    let items = prepare_items(raw_items, &field_config, args.ansi)?;
+    let items = prepare_items(raw_items, &field_config, ansi_enabled(&args))?;
     let backend = create_backend(&args, &query, &items);
     if args.debug_query_variants {
-        print_query_variants(&query, backend.as_ref(), &config, args.print0)?;
+        print_query_variants(&query, backend.as_ref(), &config, print0_enabled(&args))?;
     }
     let mut index = build_index(
         items.iter().map(|item| item.search_text.clone()),
@@ -410,7 +877,8 @@ fn run() -> Result<ExitCode> {
             &items,
             &field_config,
             &index,
-            backend.as_ref(),
+            &header_records,
+            backend,
             config,
             query,
         );
@@ -428,18 +896,18 @@ fn run() -> Result<ExitCode> {
             backend.as_ref(),
             &config,
         )?;
-        if results.is_empty() && !args.exit_0 {
+        if results.is_empty() && !exit_0_enabled(&args) {
             return Ok(ExitCode::from(1));
         }
         return Ok(ExitCode::SUCCESS);
     }
 
     let mut output = Vec::new();
-    if args.print_query {
+    if print_query_enabled(&args) {
         output.push(OutputRecord::Text(query.clone()));
     }
 
-    if args.select_1 && results.len() == 1 {
+    if select_1_enabled(&args) && results.len() == 1 {
         output.push(accept_output(
             &items[results[0].id],
             &field_config,
@@ -451,9 +919,9 @@ fn run() -> Result<ExitCode> {
         }
     }
 
-    write_records(&output, args.print0)?;
+    write_records(&output, print0_enabled(&args))?;
 
-    if results.is_empty() && !args.exit_0 && !args.debug_query_variants {
+    if results.is_empty() && !exit_0_enabled(&args) && !args.debug_query_variants {
         Ok(ExitCode::from(1))
     } else {
         Ok(ExitCode::SUCCESS)
@@ -557,46 +1025,55 @@ fn contains_han(text: &str) -> bool {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_interactive_mode(
     args: &Args,
     items: &[InputItem],
     field_config: &FieldConfig,
     index: &[yuru_core::Candidate],
-    backend: &dyn LanguageBackend,
+    header_records: &[InputRecord],
+    backend: Arc<dyn LanguageBackend>,
     config: SearchConfig,
     query: String,
 ) -> Result<ExitCode> {
     let options = yuru_tui::TuiOptions {
         initial_query: query,
         prompt: args.prompt.clone().unwrap_or_else(|| "> ".to_string()),
-        header: args.header.clone(),
-        expect_keys: parse_expect_keys(args.expect.as_deref()),
+        header: header_text(args, header_records),
+        footer: footer_text(args),
+        expect_keys: parse_expect_keys(expect_arg(args)),
         bindings: parse_bindings(&args.bind),
         height: parse_tui_height(args),
         layout: parse_tui_layout(args)?,
-        preview: args.preview.clone(),
+        preview: preview_command(args),
+        preview_shell: args.with_shell.clone(),
         style: parse_tui_style(&args.color),
-        cycle: args.cycle,
-        multi: args.multi && !args.no_multi,
+        cycle: cycle_enabled(args),
+        multi: multi_enabled(args),
+        multi_limit: multi_limit(args),
+        no_input: args.no_input,
+        pointer: first_line(args.pointer.as_deref().unwrap_or(">")),
+        marker: first_line(args.marker.as_deref().unwrap_or("*")),
+        ellipsis: first_line(args.ellipsis.as_deref().unwrap_or("..")),
     };
 
     match yuru_tui::run_interactive(index, backend, config, options)? {
         yuru_tui::TuiOutcome::Accepted { ids, query, expect } => {
             let mut output = Vec::new();
-            if args.expect.is_some() {
+            if expect_arg(args).is_some() {
                 output.push(OutputRecord::Text(expect.unwrap_or_default()));
             }
-            if args.print_query {
+            if print_query_enabled(args) {
                 output.push(OutputRecord::Text(query));
             }
             for id in ids {
                 output.push(accept_output(&items[id], field_config, id)?);
             }
-            write_records(&output, args.print0)?;
+            write_records(&output, print0_enabled(args))?;
             Ok(ExitCode::SUCCESS)
         }
         yuru_tui::TuiOutcome::NoSelection => {
-            if args.exit_0 {
+            if exit_0_enabled(args) {
                 Ok(ExitCode::SUCCESS)
             } else {
                 Ok(ExitCode::from(1))
@@ -611,22 +1088,29 @@ fn run_interactive_streaming_mode(
     items: SharedInputItems,
     field_config: &FieldConfig,
     receiver: CandidateStreamReceiver,
-    backend: &dyn LanguageBackend,
+    backend: Arc<dyn LanguageBackend>,
     config: SearchConfig,
     query: String,
 ) -> Result<ExitCode> {
     let options = yuru_tui::TuiOptions {
         initial_query: query,
         prompt: args.prompt.clone().unwrap_or_else(|| "> ".to_string()),
-        header: args.header.clone(),
-        expect_keys: parse_expect_keys(args.expect.as_deref()),
+        header: header_text(args, &[]),
+        footer: footer_text(args),
+        expect_keys: parse_expect_keys(expect_arg(args)),
         bindings: parse_bindings(&args.bind),
         height: parse_tui_height(args),
         layout: parse_tui_layout(args)?,
-        preview: args.preview.clone(),
+        preview: preview_command(args),
+        preview_shell: args.with_shell.clone(),
         style: parse_tui_style(&args.color),
-        cycle: args.cycle,
-        multi: args.multi && !args.no_multi,
+        cycle: cycle_enabled(args),
+        multi: multi_enabled(args),
+        multi_limit: multi_limit(args),
+        no_input: args.no_input,
+        pointer: first_line(args.pointer.as_deref().unwrap_or(">")),
+        marker: first_line(args.marker.as_deref().unwrap_or("*")),
+        ellipsis: first_line(args.ellipsis.as_deref().unwrap_or("..")),
     };
 
     match yuru_tui::run_interactive_streaming(receiver, backend, config, options)? {
@@ -635,10 +1119,10 @@ fn run_interactive_streaming_mode(
                 .lock()
                 .map_err(|_| anyhow::anyhow!("streamed candidate store is unavailable"))?;
             let mut output = Vec::new();
-            if args.expect.is_some() {
+            if expect_arg(args).is_some() {
                 output.push(OutputRecord::Text(expect.unwrap_or_default()));
             }
-            if args.print_query {
+            if print_query_enabled(args) {
                 output.push(OutputRecord::Text(query));
             }
             for id in ids {
@@ -647,11 +1131,11 @@ fn run_interactive_streaming_mode(
                 };
                 output.push(accept_output(item, field_config, id)?);
             }
-            write_records(&output, args.print0)?;
+            write_records(&output, print0_enabled(args))?;
             Ok(ExitCode::SUCCESS)
         }
         yuru_tui::TuiOutcome::NoSelection => {
-            if args.exit_0 {
+            if exit_0_enabled(args) {
                 Ok(ExitCode::SUCCESS)
             } else {
                 Ok(ExitCode::from(1))
@@ -662,12 +1146,13 @@ fn run_interactive_streaming_mode(
 }
 
 fn should_stream_interactive(args: &Args, walker_requested: bool) -> bool {
-    if args.sync
+    if sync_enabled(args)
         || args.input.is_some()
-        || args.tac
-        || args.tail.is_some()
-        || args.select_1
-        || args.exit_0
+        || tac_enabled(args)
+        || tail_count(args).is_some()
+        || header_lines_count(args) > 0
+        || select_1_enabled(args)
+        || exit_0_enabled(args)
         || walker_requested
     {
         return false;
@@ -686,8 +1171,8 @@ fn spawn_streaming_candidates(
     let items = Arc::new(Mutex::new(Vec::new()));
     let worker_items = items.clone();
     let worker_field_config = field_config.clone();
-    let read0 = args.read0;
-    let ansi = args.ansi;
+    let read0 = read0_enabled(args);
+    let ansi = ansi_enabled(args);
     let aliases = args.aliases.clone();
     let source = if io::stdin().is_terminal() {
         non_empty_default_source_command()
@@ -870,6 +1355,118 @@ fn default_limit(args: &Args, interactive: bool) -> usize {
     }
 }
 
+fn exact_enabled(args: &Args) -> bool {
+    (args.exact || args.extended_exact) && !args.no_exact
+}
+
+fn extended_enabled(args: &Args) -> bool {
+    (args.extended || args.extended_exact) && !args.no_extended
+}
+
+fn disabled_enabled(args: &Args) -> bool {
+    (args.disabled || args.phony) && !(args.enabled || args.no_phony)
+}
+
+fn no_sort_enabled(args: &Args) -> bool {
+    args.no_sort && args.sort.is_none()
+}
+
+fn normalize_enabled(args: &Args) -> bool {
+    !args.literal || args.no_literal
+}
+
+fn tac_enabled(args: &Args) -> bool {
+    args.tac && !args.no_tac
+}
+
+fn tail_count(args: &Args) -> Option<usize> {
+    (!args.no_tail).then_some(args.tail).flatten()
+}
+
+fn read0_enabled(args: &Args) -> bool {
+    args.read0 && !args.no_read0
+}
+
+fn sync_enabled(args: &Args) -> bool {
+    args.sync && !args.no_sync
+}
+
+fn print0_enabled(args: &Args) -> bool {
+    args.print0 && !args.no_print0
+}
+
+fn ansi_enabled(args: &Args) -> bool {
+    args.ansi && !args.no_ansi
+}
+
+fn print_query_enabled(args: &Args) -> bool {
+    args.print_query && !args.no_print_query
+}
+
+fn select_1_enabled(args: &Args) -> bool {
+    args.select_1 && !args.no_select_1
+}
+
+fn exit_0_enabled(args: &Args) -> bool {
+    args.exit_0 && !args.no_exit_0
+}
+
+fn multi_enabled(args: &Args) -> bool {
+    args.multi.is_some() && !args.no_multi
+}
+
+fn multi_limit(args: &Args) -> Option<usize> {
+    args.multi.flatten()
+}
+
+fn cycle_enabled(args: &Args) -> bool {
+    args.cycle && !args.no_cycle
+}
+
+fn expect_arg(args: &Args) -> Option<&str> {
+    (!args.no_expect)
+        .then_some(args.expect.as_deref())
+        .flatten()
+}
+
+fn preview_command(args: &Args) -> Option<String> {
+    (!args.no_preview).then_some(args.preview.clone()).flatten()
+}
+
+fn header_lines_count(args: &Args) -> usize {
+    (!args.no_header_lines)
+        .then_some(args.header_lines)
+        .flatten()
+        .unwrap_or(0)
+}
+
+fn split_header_lines(
+    mut records: Vec<InputRecord>,
+    count: usize,
+) -> (Vec<InputRecord>, Vec<InputRecord>) {
+    let split_at = count.min(records.len());
+    let candidates = records.split_off(split_at);
+    (records, candidates)
+}
+
+fn header_text(args: &Args, header_records: &[InputRecord]) -> Option<String> {
+    let mut lines = Vec::new();
+    if !args.no_header {
+        if let Some(header) = &args.header {
+            lines.push(header.clone());
+        }
+    }
+    if !args.no_header_lines {
+        lines.extend(header_records.iter().map(|record| record.display.clone()));
+    }
+
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+fn footer_text(args: &Args) -> Option<String> {
+    (!args.no_footer).then_some(args.footer.clone()).flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -913,6 +1510,40 @@ mod tests {
         );
         assert_eq!(default_limit(&batch_args, false), 10);
         assert_eq!(default_limit(&filter_args, false), usize::MAX);
+    }
+
+    #[test]
+    fn header_lines_are_split_from_candidates() {
+        let records = vec![
+            InputRecord::from_raw(b"title".to_vec()),
+            InputRecord::from_raw(b"alpha".to_vec()),
+            InputRecord::from_raw(b"beta".to_vec()),
+        ];
+        let (headers, candidates) = split_header_lines(records, 1);
+
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].display, "title");
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|record| record.display.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta"]
+        );
+    }
+
+    #[test]
+    fn header_text_combines_explicit_header_and_header_lines() {
+        let args = Args::parse_from(["yuru", "--header", "extra", "--header-lines", "2"]);
+        let records = vec![
+            InputRecord::from_raw(b"first".to_vec()),
+            InputRecord::from_raw(b"second".to_vec()),
+        ];
+
+        assert_eq!(
+            header_text(&args, &records).as_deref(),
+            Some("extra\nfirst\nsecond")
+        );
     }
 
     #[test]
@@ -960,12 +1591,319 @@ mod tests {
     }
 
     #[test]
-    fn doctor_preparse_only_matches_leading_subcommand() {
-        assert!(doctor_command_present(&[OsString::from("doctor")]));
-        assert!(!doctor_command_present(&[
+    fn configless_preparse_only_matches_leading_subcommands() {
+        assert!(configless_command_present(&[OsString::from("doctor")]));
+        assert!(configless_command_present(&[OsString::from("configure")]));
+        assert!(!configless_command_present(&[
             OsString::from("--filter"),
             OsString::from("doctor")
         ]));
+    }
+
+    #[test]
+    fn shell_config_from_toml_overrides_generated_defaults() {
+        let value = r#"
+[shell]
+bindings = "ctrl-t,ctrl-r"
+ctrl_t_command = "__yuru_compgen_path__ ."
+ctrl_t_opts = "--preview 'cat {}'"
+alt_c_command = "__yuru_compgen_dir__ ."
+alt_c_opts = "--preview 'ls {}'"
+"#
+        .parse::<toml::Value>()
+        .unwrap();
+
+        let config = shell_config_from_value(&value);
+
+        assert_eq!(config.bindings, "ctrl-t,ctrl-r");
+        assert_eq!(config.ctrl_t_command, "__yuru_compgen_path__ .");
+        assert_eq!(config.ctrl_t_opts, "--preview 'cat {}'");
+        assert_eq!(config.alt_c_command, "__yuru_compgen_dir__ .");
+        assert_eq!(config.alt_c_opts, "--preview 'ls {}'");
+        assert!(shell_config_prefix(ShellKind::Zsh, &config).contains("YURU_SHELL_BINDINGS"));
+        assert!(shell_config_prefix(ShellKind::Fish, &config)
+            .contains("set -gx YURU_CTRL_T_OPTS \"--preview 'cat {}'\""));
+    }
+
+    #[test]
+    fn preview_scroll_bind_actions_are_supported() {
+        let binding = parse_supported_binding("ctrl-j:preview-down").unwrap();
+
+        assert_eq!(binding.key, "ctrl-j");
+        assert_eq!(binding.action, yuru_tui::BindingAction::PreviewDown);
+        assert!(!has_unsupported_bindings(&[
+            "ctrl-k:preview-up,ctrl-j:preview-down".to_string(),
+            "ctrl-b:preview-page-up,ctrl-f:preview-page-down".to_string(),
+            "home:preview-top,end:preview-bottom".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn common_navigation_bind_actions_are_supported() {
+        assert!(!has_unsupported_bindings(&[
+            "ctrl-k:up,ctrl-j:down".to_string(),
+            "home:first,end:last".to_string(),
+            "pgup:page-up,pgdn:page-down".to_string(),
+            "tab:toggle+down,btab:toggle+up".to_string(),
+            "ctrl-a:beginning-of-line,ctrl-e:end-of-line".to_string(),
+            "ctrl-h:backward-delete-char,del:delete-char".to_string(),
+        ]));
+        assert_eq!(normalize_binding_key("btab"), "shift-tab");
+        assert_eq!(normalize_binding_key("pgdn"), "page-down");
+    }
+
+    #[test]
+    fn parses_representative_fzf_option_surface() {
+        let args = Args::parse_from([
+            "yuru",
+            "--extended-exact",
+            "--no-exact",
+            "--literal",
+            "--no-literal",
+            "--algo",
+            "v2",
+            "--scheme",
+            "path",
+            "--expect",
+            "ctrl-y,alt-enter",
+            "--no-expect",
+            "--enabled",
+            "--disabled",
+            "--phony",
+            "--no-phony",
+            "--bind",
+            "ctrl-j:preview-down",
+            "--toggle-sort",
+            "ctrl-s",
+            "--color",
+            "hl:#00ff00,hl+:#00aa00,pointer:#ff0000",
+            "--no-color",
+            "--no-256",
+            "--black",
+            "--no-black",
+            "--bold",
+            "--no-bold",
+            "--layout",
+            "reverse-list",
+            "--reverse",
+            "--no-reverse",
+            "--cycle",
+            "--no-cycle",
+            "--highlight-line",
+            "--no-highlight-line",
+            "--wrap=word",
+            "--no-wrap",
+            "--wrap-word",
+            "--no-wrap-word",
+            "--wrap-sign",
+            ">",
+            "--multi-line",
+            "--no-multi-line",
+            "--raw",
+            "--no-raw",
+            "--track",
+            "--no-track",
+            "--id-nth",
+            "1",
+            "--no-id-nth",
+            "--tac",
+            "--no-tac",
+            "--tail",
+            "10",
+            "--no-tail",
+            "--ansi",
+            "--no-ansi",
+            "--read0",
+            "--no-read0",
+            "--print0",
+            "--no-print0",
+            "--print-query",
+            "--no-print-query",
+            "--select-1",
+            "--no-select-1",
+            "--exit-0",
+            "--no-exit-0",
+            "--sync",
+            "--async",
+            "--multi=3",
+            "--multi",
+            "4",
+            "-m5",
+            "--no-multi",
+            "-x",
+            "--preview",
+            "cat {}",
+            "--no-preview",
+            "--preview-window",
+            "right,60%,wrap",
+            "--preview-border=rounded",
+            "--no-preview-border",
+            "--preview-label",
+            "preview",
+            "--preview-label-pos",
+            "2",
+            "--preview-wrap-sign",
+            ">",
+            "--height",
+            "40%",
+            "--min-height",
+            "10",
+            "--no-height",
+            "--popup=center,50%",
+            "--no-popup",
+            "--tmux=center,50%",
+            "--no-tmux",
+            "--margin",
+            "1,2",
+            "--no-margin",
+            "--padding",
+            "1",
+            "--no-padding",
+            "--border=rounded",
+            "--no-border",
+            "--border-label",
+            "yuru",
+            "--border-label-pos",
+            "center",
+            "--no-border-label",
+            "--header",
+            "head",
+            "--no-header",
+            "--header-lines",
+            "1",
+            "--no-header-lines",
+            "--header-first",
+            "--no-header-first",
+            "--header-border=rounded",
+            "--no-header-border",
+            "--header-lines-border=inline",
+            "--no-header-lines-border",
+            "--header-label",
+            "h",
+            "--header-label-pos",
+            "1",
+            "--no-header-label",
+            "--footer",
+            "foot",
+            "--no-footer",
+            "--footer-border=rounded",
+            "--no-footer-border",
+            "--footer-label",
+            "f",
+            "--footer-label-pos",
+            "1",
+            "--no-footer-label",
+            "--gap=2",
+            "--no-gap",
+            "--gap-line",
+            "-",
+            "--no-gap-line",
+            "--freeze-left",
+            "1",
+            "--freeze-right",
+            "1",
+            "--keep-right",
+            "--no-keep-right",
+            "--scroll-off",
+            "2",
+            "--hscroll",
+            "--no-hscroll",
+            "--hscroll-off",
+            "3",
+            "--jump-labels",
+            "asdf",
+            "--gutter",
+            "|",
+            "--gutter-raw",
+            ":",
+            "--pointer",
+            ">",
+            "--marker",
+            "*",
+            "--marker-multi-line",
+            "|||",
+            "--ellipsis",
+            "..",
+            "--tabstop",
+            "4",
+            "--scrollbar",
+            "|",
+            "--no-scrollbar",
+            "--list-border=rounded",
+            "--no-list-border",
+            "--list-label",
+            "list",
+            "--list-label-pos",
+            "1",
+            "--no-list-label",
+            "--no-input",
+            "--prompt",
+            "> ",
+            "--info",
+            "inline",
+            "--info-command",
+            "echo info",
+            "--no-info-command",
+            "--no-info",
+            "--inline-info",
+            "--no-inline-info",
+            "--separator",
+            "-",
+            "--no-separator",
+            "--ghost",
+            "type",
+            "--filepath-word",
+            "--no-filepath-word",
+            "--input-border=rounded",
+            "--no-input-border",
+            "--input-label",
+            "input",
+            "--input-label-pos",
+            "1",
+            "--no-input-label",
+            "--style",
+            "full",
+            "--with-shell",
+            "sh -c",
+            "--listen=localhost:0",
+            "--no-listen",
+            "--listen-unsafe=localhost:0",
+            "--no-listen-unsafe",
+            "--history",
+            "hist.txt",
+            "--no-history",
+            "--history-size",
+            "100",
+            "--tty-default",
+            "/dev/tty",
+            "--no-tty-default",
+            "--force-tty-in",
+            "--no-force-tty-in",
+            "--proxy-script",
+            "proxy",
+            "--no-winpty",
+            "--no-mouse",
+            "--unicode",
+            "--no-unicode",
+            "--ambidouble",
+            "--no-ambidouble",
+            "--clear",
+            "--no-clear",
+            "--threads",
+            "2",
+            "--bench",
+            "1s",
+            "--profile-cpu",
+            "cpu.prof",
+            "--profile-mem",
+            "mem.prof",
+            "--profile-block",
+            "block.prof",
+            "--profile-mutex",
+            "mutex.prof",
+        ]);
+
+        assert!(accepted_fzf_option_count(&args) > 0);
     }
 }
 
@@ -992,9 +1930,9 @@ fn parse_tui_layout(args: &Args) -> Result<yuru_tui::TuiLayout> {
     }
 }
 
-fn parse_tui_style(raw: &[String]) -> yuru_tui::TuiStyle {
+fn parse_tui_style(raw: &[Option<String>]) -> yuru_tui::TuiStyle {
     let mut style = yuru_tui::TuiStyle::default();
-    for color_set in raw {
+    for color_set in raw.iter().flatten() {
         for entry in color_set.split(',') {
             let Some((name, value)) = entry.split_once(':') else {
                 continue;
@@ -1011,6 +1949,10 @@ fn parse_tui_style(raw: &[String]) -> yuru_tui::TuiStyle {
         }
     }
     style
+}
+
+fn first_line(value: &str) -> String {
+    value.lines().next().unwrap_or_default().to_string()
 }
 
 fn parse_hex_color(value: &str) -> Option<yuru_tui::TuiRgb> {
@@ -1045,14 +1987,44 @@ fn parse_supported_binding(raw: &str) -> Option<yuru_tui::KeyBinding> {
     let action = match action.trim() {
         "accept" => yuru_tui::BindingAction::Accept,
         "abort" => yuru_tui::BindingAction::Abort,
-        "clear-query" | "clear" => yuru_tui::BindingAction::ClearQuery,
+        "clear-query" | "clear" | "unix-line-discard" => yuru_tui::BindingAction::ClearQuery,
+        "up" | "previous" => yuru_tui::BindingAction::MoveSelectionUp,
+        "down" | "next" => yuru_tui::BindingAction::MoveSelectionDown,
+        "first" | "top" => yuru_tui::BindingAction::MoveSelectionFirst,
+        "last" | "bottom" => yuru_tui::BindingAction::MoveSelectionLast,
+        "page-up" => yuru_tui::BindingAction::PageUp,
+        "page-down" => yuru_tui::BindingAction::PageDown,
+        "toggle" => yuru_tui::BindingAction::ToggleMark,
+        "toggle+down" => yuru_tui::BindingAction::ToggleMarkAndDown,
+        "toggle+up" => yuru_tui::BindingAction::ToggleMarkAndUp,
+        "beginning-of-line" => yuru_tui::BindingAction::MoveCursorStart,
+        "end-of-line" => yuru_tui::BindingAction::MoveCursorEnd,
+        "backward-char" => yuru_tui::BindingAction::MoveCursorLeft,
+        "forward-char" => yuru_tui::BindingAction::MoveCursorRight,
+        "backward-delete-char" => yuru_tui::BindingAction::Backspace,
+        "delete-char" => yuru_tui::BindingAction::Delete,
+        "preview-up" => yuru_tui::BindingAction::PreviewUp,
+        "preview-down" => yuru_tui::BindingAction::PreviewDown,
+        "preview-page-up" => yuru_tui::BindingAction::PreviewPageUp,
+        "preview-page-down" => yuru_tui::BindingAction::PreviewPageDown,
+        "preview-top" => yuru_tui::BindingAction::PreviewTop,
+        "preview-bottom" => yuru_tui::BindingAction::PreviewBottom,
         _ => return None,
     };
 
     Some(yuru_tui::KeyBinding {
-        key: key.trim().to_ascii_lowercase(),
+        key: normalize_binding_key(key),
         action,
     })
+}
+
+fn normalize_binding_key(key: &str) -> String {
+    match key.trim().to_ascii_lowercase().as_str() {
+        "btab" => "shift-tab".to_string(),
+        "pgup" => "page-up".to_string(),
+        "pgdn" => "page-down".to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn has_unsupported_bindings(raw: &[String]) -> bool {
@@ -1064,6 +2036,7 @@ fn has_unsupported_bindings(raw: &[String]) -> bool {
 }
 
 fn enforce_fzf_compat(args: &Args) -> Result<()> {
+    let _ = accepted_fzf_option_count(args);
     let mode = effective_fzf_compat(args)?;
     let ignored = ignored_fzf_options(args);
     if ignored.is_empty() || mode == FzfCompatArg::Ignore {
@@ -1086,6 +2059,204 @@ fn enforce_fzf_compat(args: &Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn accepted_fzf_option_count(args: &Args) -> usize {
+    macro_rules! count_bool {
+        ($($field:ident),* $(,)?) => {
+            0 $(+ usize::from(args.$field))*
+        };
+    }
+    macro_rules! count_opt {
+        ($($field:ident),* $(,)?) => {
+            0 $(+ usize::from(args.$field.is_some()))*
+        };
+    }
+
+    count_bool!(
+        no_exact,
+        extended_exact,
+        no_extended,
+        ignore_case,
+        no_ignore_case,
+        smart_case,
+        no_sort,
+        disabled,
+        phony,
+        enabled,
+        no_phony,
+        literal,
+        no_literal,
+        tac,
+        no_tac,
+        no_tail,
+        read0,
+        no_read0,
+        sync,
+        no_sync,
+        print0,
+        no_print0,
+        ansi,
+        no_ansi,
+        print_query,
+        no_print_query,
+        select_1,
+        no_select_1,
+        exit_0,
+        no_exit_0,
+        no_multi,
+        no_expect,
+        no_preview,
+        no_preview_border,
+        no_height,
+        no_popup,
+        no_tmux,
+        reverse,
+        no_reverse,
+        no_margin,
+        no_padding,
+        no_border,
+        no_border_label,
+        no_header,
+        no_header_lines,
+        header_first,
+        no_header_first,
+        no_header_border,
+        no_header_lines_border,
+        no_header_label,
+        no_footer,
+        no_footer_border,
+        no_footer_label,
+        no_color,
+        no_256,
+        bold,
+        no_bold,
+        black,
+        no_black,
+        cycle,
+        no_cycle,
+        highlight_line,
+        no_highlight_line,
+        no_wrap,
+        wrap_word,
+        no_wrap_word,
+        multi_line,
+        no_multi_line,
+        raw,
+        no_raw,
+        track,
+        no_track,
+        no_id_nth,
+        no_gap,
+        no_gap_line,
+        keep_right,
+        no_keep_right,
+        no_hscroll,
+        hscroll,
+        no_scrollbar,
+        no_list_border,
+        no_list_label,
+        no_input,
+        no_info_command,
+        no_info,
+        inline_info,
+        no_inline_info,
+        no_separator,
+        filepath_word,
+        no_filepath_word,
+        no_input_border,
+        no_input_label,
+        no_listen,
+        no_listen_unsafe,
+        no_history,
+        no_tty_default,
+        force_tty_in,
+        no_force_tty_in,
+        no_winpty,
+        no_mouse,
+        no_unicode,
+        unicode,
+        ambidouble,
+        no_ambidouble,
+        clear,
+        no_clear,
+        man,
+    ) + count_opt!(
+        sort,
+        tail,
+        expect,
+        toggle_sort,
+        preview,
+        preview_window,
+        preview_border,
+        preview_label,
+        preview_label_pos,
+        preview_wrap_sign,
+        height,
+        min_height,
+        popup,
+        tmux,
+        layout,
+        margin,
+        padding,
+        border,
+        border_label,
+        border_label_pos,
+        prompt,
+        header,
+        header_lines,
+        header_border,
+        header_lines_border,
+        header_label,
+        header_label_pos,
+        footer,
+        footer_border,
+        footer_label,
+        footer_label_pos,
+        wrap,
+        wrap_sign,
+        id_nth,
+        gap,
+        gap_line,
+        freeze_left,
+        freeze_right,
+        scroll_off,
+        hscroll_off,
+        jump_labels,
+        gutter,
+        gutter_raw,
+        pointer,
+        marker,
+        marker_multi_line,
+        ellipsis,
+        tabstop,
+        scrollbar,
+        list_border,
+        list_label,
+        list_label_pos,
+        info,
+        info_command,
+        separator,
+        ghost,
+        input_border,
+        input_label,
+        input_label_pos,
+        with_shell,
+        style,
+        listen,
+        listen_unsafe,
+        history,
+        history_size,
+        tty_default,
+        proxy_script,
+        threads,
+        bench,
+        profile_cpu,
+        profile_mem,
+        profile_block,
+        profile_mutex,
+    ) + args.bind.len()
+        + args.color.len()
 }
 
 fn effective_fzf_compat(args: &Args) -> Result<FzfCompatArg> {
@@ -1115,28 +2286,19 @@ fn ignored_fzf_options(args: &Args) -> Vec<&'static str> {
     if has_unsupported_bindings(&args.bind) {
         out.push("--bind");
     }
-    if args.preview_window.is_some() {
-        out.push("--preview-window");
-    }
-    if args.border.is_some() {
-        out.push("--border");
-    }
-    if args.header_lines.is_some() {
-        out.push("--header-lines");
-    }
     out
 }
 
 fn read_input_candidates(args: &Args, walker_requested: bool) -> Result<Vec<InputRecord>> {
     if let Some(path) = &args.input {
-        return read_file_candidates(path, args.read0);
+        return read_file_candidates(path, read0_enabled(args));
     }
 
     let stdin_is_terminal = io::stdin().is_terminal();
     let stdin_items = if stdin_is_terminal {
         Vec::new()
     } else {
-        read_stdin_candidates(args.read0)?
+        read_stdin_candidates(read0_enabled(args))?
     };
     if !stdin_items.is_empty() {
         return Ok(stdin_items);
@@ -1706,6 +2868,480 @@ fn char_slice(text: &str, start: usize, end: usize) -> String {
         .collect()
 }
 
+#[derive(Clone, Debug)]
+struct ShellConfigDefaults {
+    bindings: String,
+    ctrl_t_command: String,
+    ctrl_t_opts: String,
+    alt_c_command: String,
+    alt_c_opts: String,
+}
+
+impl Default for ShellConfigDefaults {
+    fn default() -> Self {
+        Self {
+            bindings: "all".to_string(),
+            ctrl_t_command: default_ctrl_t_command().to_string(),
+            ctrl_t_opts: default_ctrl_t_opts().to_string(),
+            alt_c_command: default_alt_c_command().to_string(),
+            alt_c_opts: default_alt_c_opts().to_string(),
+        }
+    }
+}
+
+fn default_ctrl_t_command() -> &'static str {
+    #[cfg(windows)]
+    {
+        "Get-YuruPathItems ."
+    }
+    #[cfg(not(windows))]
+    {
+        "__yuru_compgen_path__ ."
+    }
+}
+
+fn default_ctrl_t_opts() -> &'static str {
+    #[cfg(windows)]
+    {
+        "--preview 'Get-Item -LiteralPath {} | Format-List | Out-String'"
+    }
+    #[cfg(not(windows))]
+    {
+        "--preview 'file {}'"
+    }
+}
+
+fn default_alt_c_command() -> &'static str {
+    #[cfg(windows)]
+    {
+        "Get-YuruDirItems ."
+    }
+    #[cfg(not(windows))]
+    {
+        "__yuru_compgen_dir__ ."
+    }
+}
+
+fn default_alt_c_opts() -> &'static str {
+    #[cfg(windows)]
+    {
+        "--preview 'Get-ChildItem -Force -LiteralPath {} | Select-Object -First 100 | Out-String'"
+    }
+    #[cfg(not(windows))]
+    {
+        "--preview 'ls -la {} 2>/dev/null | head -100'"
+    }
+}
+
+fn print_shell_script(kind: ShellKind) -> Result<()> {
+    let config = shell_config_defaults().unwrap_or_else(|error| {
+        eprintln!("yuru: warning: failed to load shell config defaults: {error:#}");
+        ShellConfigDefaults::default()
+    });
+    print!("{}", shell_config_prefix(kind, &config));
+    print!("{}", shell::script(kind));
+    Ok(())
+}
+
+fn shell_config_defaults() -> Result<ShellConfigDefaults> {
+    let mut defaults = ShellConfigDefaults::default();
+    let Some(ConfigSource::Toml(path)) = yuru_config_source() else {
+        return Ok(defaults);
+    };
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value = content
+        .parse::<toml::Value>()
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    if let Some(shell) = value.get("shell") {
+        if let Some(bindings) = shell.get("bindings").and_then(toml::Value::as_str) {
+            defaults.bindings = bindings.to_string();
+        }
+        if let Some(command) = shell.get("ctrl_t_command").and_then(toml::Value::as_str) {
+            defaults.ctrl_t_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("ctrl_t_opts").and_then(toml::Value::as_str) {
+            defaults.ctrl_t_opts = opts.to_string();
+        }
+        if let Some(command) = shell.get("alt_c_command").and_then(toml::Value::as_str) {
+            defaults.alt_c_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("alt_c_opts").and_then(toml::Value::as_str) {
+            defaults.alt_c_opts = opts.to_string();
+        }
+    }
+    Ok(defaults)
+}
+
+fn shell_config_prefix(kind: ShellKind, config: &ShellConfigDefaults) -> String {
+    match kind {
+        ShellKind::Bash | ShellKind::Zsh => format!(
+            "# yuru config defaults\n\
+             if [ -z \"${{YURU_SHELL_BINDINGS+x}}\" ]; then export YURU_SHELL_BINDINGS={}; fi\n\
+             if [ -z \"${{YURU_CTRL_T_COMMAND+x}}\" ]; then export YURU_CTRL_T_COMMAND={}; fi\n\
+             if [ -z \"${{YURU_CTRL_T_OPTS+x}}\" ]; then export YURU_CTRL_T_OPTS={}; fi\n\
+             if [ -z \"${{YURU_ALT_C_COMMAND+x}}\" ]; then export YURU_ALT_C_COMMAND={}; fi\n\
+             if [ -z \"${{YURU_ALT_C_OPTS+x}}\" ]; then export YURU_ALT_C_OPTS={}; fi\n\n",
+            sh_quote(&config.bindings),
+            sh_quote(&config.ctrl_t_command),
+            sh_quote(&config.ctrl_t_opts),
+            sh_quote(&config.alt_c_command),
+            sh_quote(&config.alt_c_opts)
+        ),
+        ShellKind::Fish => format!(
+            "# yuru config defaults\n\
+             if not set -q YURU_SHELL_BINDINGS\n  set -gx YURU_SHELL_BINDINGS {}\nend\n\
+             if not set -q YURU_CTRL_T_COMMAND\n  set -gx YURU_CTRL_T_COMMAND {}\nend\n\
+             if not set -q YURU_CTRL_T_OPTS\n  set -gx YURU_CTRL_T_OPTS {}\nend\n\
+             if not set -q YURU_ALT_C_COMMAND\n  set -gx YURU_ALT_C_COMMAND {}\nend\n\
+             if not set -q YURU_ALT_C_OPTS\n  set -gx YURU_ALT_C_OPTS {}\nend\n\n",
+            fish_quote(&config.bindings),
+            fish_quote(&config.ctrl_t_command),
+            fish_quote(&config.ctrl_t_opts),
+            fish_quote(&config.alt_c_command),
+            fish_quote(&config.alt_c_opts)
+        ),
+        ShellKind::PowerShell => format!(
+            "# yuru config defaults\n\
+             if (-not $env:YURU_SHELL_BINDINGS) {{ $env:YURU_SHELL_BINDINGS = {} }}\n\
+             if (-not $env:YURU_CTRL_T_COMMAND) {{ $env:YURU_CTRL_T_COMMAND = {} }}\n\
+             if (-not $env:YURU_CTRL_T_OPTS) {{ $env:YURU_CTRL_T_OPTS = {} }}\n\
+             if (-not $env:YURU_ALT_C_COMMAND) {{ $env:YURU_ALT_C_COMMAND = {} }}\n\
+             if (-not $env:YURU_ALT_C_OPTS) {{ $env:YURU_ALT_C_OPTS = {} }}\n\n",
+            ps_quote(&config.bindings),
+            ps_quote(&config.ctrl_t_command),
+            ps_quote(&config.ctrl_t_opts),
+            ps_quote(&config.alt_c_command),
+            ps_quote(&config.alt_c_opts)
+        ),
+    }
+}
+
+fn sh_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn fish_quote(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('$', "\\$")
+            .replace('\n', "\\n")
+    )
+}
+
+fn ps_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn configure_interactive() -> Result<()> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        bail!("yuru configure requires an interactive terminal");
+    }
+
+    let path = config_path_for_write();
+    let mut value = read_config_for_write(&path)?;
+    let current_lang = config_string(&value, &["defaults", "lang"])
+        .or_else(|| doctor_default_lang(yuru_config_source().as_ref()))
+        .unwrap_or_else(|| "ja".to_string());
+    let current_load_fzf = config_string(&value, &["defaults", "load_fzf_defaults"])
+        .or_else(|| {
+            config_bool(&value, &["fzf", "safe_default_opts"]).map(|safe| {
+                if safe {
+                    "safe".to_string()
+                } else {
+                    "all".to_string()
+                }
+            })
+        })
+        .unwrap_or_else(|| "safe".to_string());
+    let current_fzf_compat = config_string(&value, &["defaults", "fzf_compat"])
+        .or_else(|| config_string(&value, &["fzf", "unsupported_options"]))
+        .unwrap_or_else(|| "warn".to_string());
+    let current_shell = shell_config_from_value(&value);
+
+    println!("Yuru configure");
+    println!("Config: {}", path.display());
+    println!("Press Enter to keep the shown default.");
+
+    let lang = prompt_choice(
+        "Default language",
+        &current_lang,
+        &["plain", "ja", "zh", "auto", "none"],
+    )?;
+    let load_fzf_defaults = prompt_choice(
+        "Load FZF_DEFAULT_OPTS",
+        &current_load_fzf,
+        &["never", "safe", "all"],
+    )?;
+    let fzf_compat = prompt_choice(
+        "Unsupported fzf options",
+        &current_fzf_compat,
+        &["strict", "warn", "ignore"],
+    )?;
+    let bindings = prompt_bindings_value(&current_shell.bindings)?;
+    let ctrl_t_command = prompt_string(
+        "CTRL-T command",
+        &current_shell.ctrl_t_command,
+        "Use 'none' to disable this binding's candidate command.",
+    )?;
+    let ctrl_t_opts = prompt_string(
+        "CTRL-T options",
+        &current_shell.ctrl_t_opts,
+        "Use 'none' to disable extra options such as preview.",
+    )?;
+    let alt_c_command = prompt_string(
+        "ALT-C command",
+        &current_shell.alt_c_command,
+        "Use 'none' to disable this binding's candidate command.",
+    )?;
+    let alt_c_opts = prompt_string(
+        "ALT-C options",
+        &current_shell.alt_c_opts,
+        "Use 'none' to disable extra options such as preview.",
+    )?;
+
+    {
+        let defaults = ensure_toml_table(&mut value, "defaults");
+        if lang == "none" {
+            defaults.remove("lang");
+        } else {
+            defaults.insert("lang".to_string(), toml::Value::String(lang));
+        }
+        defaults.insert(
+            "load_fzf_defaults".to_string(),
+            toml::Value::String(load_fzf_defaults),
+        );
+        defaults.insert("fzf_compat".to_string(), toml::Value::String(fzf_compat));
+    }
+
+    {
+        let shell = ensure_toml_table(&mut value, "shell");
+        shell.insert("bindings".to_string(), toml::Value::String(bindings));
+        set_optional_toml_string(shell, "ctrl_t_command", ctrl_t_command);
+        set_optional_toml_string(shell, "ctrl_t_opts", ctrl_t_opts);
+        set_optional_toml_string(shell, "alt_c_command", alt_c_command);
+        set_optional_toml_string(shell, "alt_c_opts", alt_c_opts);
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let content = toml::to_string_pretty(&value).context("failed to serialize config")?;
+    fs::write(&path, content).with_context(|| format!("failed to write {}", path.display()))?;
+    println!("Updated {}", path.display());
+    println!("Restart your shell or reload your profile for shell binding changes.");
+    Ok(())
+}
+
+fn config_path_for_write() -> PathBuf {
+    if let Ok(path) = std::env::var("YURU_CONFIG_FILE") {
+        return PathBuf::from(path);
+    }
+    if let Some(ConfigSource::Toml(path)) = yuru_config_source() {
+        return path;
+    }
+    default_config_path()
+}
+
+fn default_config_path() -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("yuru").join("config.toml");
+        }
+    }
+    if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
+        PathBuf::from(config_home).join("yuru").join("config.toml")
+    } else {
+        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+            .join(".config")
+            .join("yuru")
+            .join("config.toml")
+    }
+}
+
+fn read_config_for_write(path: &Path) -> Result<toml::Value> {
+    if !path.exists() {
+        return Ok(toml::Value::Table(toml::map::Map::new()));
+    }
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    content
+        .parse::<toml::Value>()
+        .with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn shell_config_from_value(value: &toml::Value) -> ShellConfigDefaults {
+    let mut config = ShellConfigDefaults::default();
+    if let Some(shell) = value.get("shell") {
+        if let Some(bindings) = shell.get("bindings").and_then(toml::Value::as_str) {
+            config.bindings = bindings.to_string();
+        }
+        if let Some(command) = shell.get("ctrl_t_command").and_then(toml::Value::as_str) {
+            config.ctrl_t_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("ctrl_t_opts").and_then(toml::Value::as_str) {
+            config.ctrl_t_opts = opts.to_string();
+        }
+        if let Some(command) = shell.get("alt_c_command").and_then(toml::Value::as_str) {
+            config.alt_c_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("alt_c_opts").and_then(toml::Value::as_str) {
+            config.alt_c_opts = opts.to_string();
+        }
+    }
+    config
+}
+
+fn ensure_toml_table<'a>(
+    value: &'a mut toml::Value,
+    key: &str,
+) -> &'a mut toml::map::Map<String, toml::Value> {
+    if !value.is_table() {
+        *value = toml::Value::Table(toml::map::Map::new());
+    }
+    let root = value.as_table_mut().expect("root config is a TOML table");
+    let entry = root
+        .entry(key.to_string())
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    if !entry.is_table() {
+        *entry = toml::Value::Table(toml::map::Map::new());
+    }
+    entry
+        .as_table_mut()
+        .expect("config section is a TOML table")
+}
+
+fn set_optional_toml_string(
+    table: &mut toml::map::Map<String, toml::Value>,
+    key: &str,
+    value: Option<String>,
+) {
+    if let Some(value) = value {
+        table.insert(key.to_string(), toml::Value::String(value));
+    } else {
+        table.remove(key);
+    }
+}
+
+fn config_string(value: &toml::Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_str().map(str::to_string)
+}
+
+fn config_bool(value: &toml::Value, path: &[&str]) -> Option<bool> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_bool()
+}
+
+fn prompt_choice(prompt: &str, current: &str, choices: &[&str]) -> Result<String> {
+    loop {
+        print!("{prompt} [{}] ({current}): ", choices.join("/"));
+        io::stdout().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        let answer = answer.trim();
+        let value = if answer.is_empty() { current } else { answer };
+        if choices.contains(&value) {
+            return Ok(value.to_string());
+        }
+        println!("Please enter one of: {}", choices.join(", "));
+    }
+}
+
+fn prompt_bindings_value(current: &str) -> Result<String> {
+    loop {
+        print!("Shell bindings [all/custom/none/list] ({current}): ");
+        io::stdout().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        let answer = answer.trim();
+        let value = if answer.is_empty() { current } else { answer };
+        match value {
+            "all" | "none" => return Ok(value.to_string()),
+            "custom" => return prompt_custom_bindings(),
+            _ if validate_binding_value(value) => return Ok(value.to_string()),
+            _ => {
+                println!(
+                    "Please enter all, custom, none, or a comma-separated list of ctrl-t, ctrl-r, alt-c, completion."
+                );
+            }
+        }
+    }
+}
+
+fn validate_binding_value(value: &str) -> bool {
+    value.split(',').all(|item| {
+        matches!(
+            item.trim(),
+            "ctrl-t" | "ctrl-r" | "alt-c" | "completion" | "tab" | "path-completion"
+        )
+    })
+}
+
+fn prompt_custom_bindings() -> Result<String> {
+    let mut selected = Vec::new();
+    if prompt_yes_no("Enable CTRL-T file search?", true)? {
+        selected.push("ctrl-t");
+    }
+    if prompt_yes_no("Enable CTRL-R history search?", true)? {
+        selected.push("ctrl-r");
+    }
+    if prompt_yes_no("Enable ALT-C directory jump?", true)? {
+        selected.push("alt-c");
+    }
+    if prompt_yes_no("Enable **<TAB> path completion?", true)? {
+        selected.push("completion");
+    }
+    Ok(if selected.is_empty() {
+        "none".to_string()
+    } else {
+        selected.join(",")
+    })
+}
+
+fn prompt_yes_no(prompt: &str, default_yes: bool) -> Result<bool> {
+    let suffix = if default_yes { "Y/n" } else { "y/N" };
+    loop {
+        print!("{prompt} [{suffix}]: ");
+        io::stdout().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        match answer.trim() {
+            "" => return Ok(default_yes),
+            "y" | "Y" | "yes" | "YES" | "Yes" => return Ok(true),
+            "n" | "N" | "no" | "NO" | "No" => return Ok(false),
+            _ => println!("Please enter yes or no."),
+        }
+    }
+}
+
+fn prompt_string(prompt: &str, current: &str, help: &str) -> Result<Option<String>> {
+    println!("{help}");
+    print!("{prompt} ({current}): ");
+    io::stdout().flush()?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    let answer = answer.trim();
+    if answer.is_empty() {
+        Ok(Some(current.to_string()))
+    } else if answer == "none" {
+        Ok(Some(String::new()))
+    } else {
+        Ok(Some(answer.to_string()))
+    }
+}
+
 fn print_doctor_report() -> Result<()> {
     let mut stdout = io::stdout().lock();
     let exe = std::env::current_exe().context("failed to resolve current executable")?;
@@ -1902,7 +3538,7 @@ fn expanded_args() -> Result<Vec<OsString>> {
     let mut expanded = vec![program];
     let rest: Vec<_> = args.collect();
 
-    if !shell_flags_present(&rest) && !doctor_command_present(&rest) {
+    if !shell_flags_present(&rest) && !configless_command_present(&rest) {
         let config = yuru_config_source();
         let load_fzf_defaults = preparse_load_fzf_default_opts(&rest, config.as_ref())?;
         append_fzf_default_opts(&mut expanded, load_fzf_defaults)?;
@@ -1917,8 +3553,11 @@ fn expanded_args() -> Result<Vec<OsString>> {
     Ok(expanded)
 }
 
-fn doctor_command_present(args: &[OsString]) -> bool {
-    args.first().and_then(|arg| arg.to_str()) == Some("doctor")
+fn configless_command_present(args: &[OsString]) -> bool {
+    matches!(
+        args.first().and_then(|arg| arg.to_str()),
+        Some("doctor" | "configure")
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -2311,6 +3950,7 @@ fn safe_fzf_flag(word: &str) -> bool {
     matches!(
         word,
         "-e" | "--exact"
+            | "-x"
             | "+x"
             | "--no-extended"
             | "-i"
@@ -2429,8 +4069,14 @@ fn normalize_plus_arg(arg: OsString) -> OsString {
     match arg.to_str() {
         Some("+s") => OsString::from("--no-sort"),
         Some("+x") => OsString::from("--no-extended"),
+        Some("+e") => OsString::from("--no-exact"),
         Some("+i") => OsString::from("--no-ignore-case"),
         Some("+m") => OsString::from("--no-multi"),
+        Some("+1") => OsString::from("--no-select-1"),
+        Some("+0") => OsString::from("--no-exit-0"),
+        Some("+c") => OsString::from("--no-color"),
+        Some("+2") => OsString::from("--no-256"),
+        Some("+S") => OsString::from("--no-clear"),
         _ => arg,
     }
 }

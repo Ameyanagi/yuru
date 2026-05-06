@@ -1,6 +1,6 @@
 # fzf Compatibility
 
-Yuru aims to feel familiar to fzf users, but it is not a full fzf clone. Unsupported parsed options warn by default, fail in strict mode, and are quiet in ignore mode.
+Yuru aims to feel familiar to fzf users, but it is not a full fzf clone. The CLI accepts fzf's current option surface so existing `FZF_DEFAULT_OPTS` and shell binding options do not fail at parse time. Unsupported `--bind` actions warn by default, fail in strict mode, and are quiet in ignore mode.
 
 ```sh
 yuru --fzf-compat warn
@@ -20,18 +20,49 @@ yuru --fzf-compat ignore
 | streaming input | Supported | Interactive mode can open while stdin or a default command is still producing candidates. |
 | `--sync` | Supported | Waits for the input source before opening the interactive UI. |
 | `--expect` | Supported | TUI output includes the accepted expected key. |
-| `--bind` | Partial | Supports `accept`, `abort`, and `clear-query` actions. |
+| `--bind` | Partial | Supports common navigation/editing actions, `accept`, `abort`, `clear-query`, mark toggles, and preview scroll actions. Shell actions such as `execute(...)` and `reload(...)` are still reported by compatibility mode. |
+| `--header`, `--header-lines` | Supported | Explicit header text is shown in the TUI. Header lines are removed from the candidate set before search/output. |
 | `--walker`, `--walker-root`, `--walker-skip` | Supported | Built-in walker respects `.gitignore`. |
 | `--layout default|reverse|reverse-list`, `--reverse` | Supported | `default` places the prompt at the bottom and paints results bottom-up; `reverse` places prompt/results at the top; `reverse-list` places the prompt at the bottom with a top-down list. |
-| `--preview` | Supported | Text preview pane; `{}` is replaced with the selected item. |
+| `--preview` | Supported | Text preview pane; `{}` is replaced with the selected item. With the default `image` feature, preview commands that emit image bytes are rendered through `ratatui-image`. Scroll text with `shift-up`, `shift-down`, `shift-page-up`, and `shift-page-down`. |
+| `--with-shell` | Supported for preview | Preview commands use the configured shell command. |
+| `--multi[=MAX]`, `--multi MAX`, `-mMAX`, `--pointer`, `--marker`, `--ellipsis`, `--footer`, `--no-input` | Supported | Implemented in the current crossterm TUI. |
 | `--color` | Partial | Supports `pointer`, `hl`, and `hl+` hex colors. Other entries are accepted and ignored. |
-| `--preview-window`, `--border`, `--header-lines` | Accepted with warning | TUI styling compatibility is partial. |
+| Layout/style-only options such as `--preview-window`, `--border`, `--style`, labels, gutters, gaps, scrollbars, margins, padding | Accepted | Parsed for fzf config compatibility. Full visual parity with fzf is still evolving. |
 
 `FZF_DEFAULT_OPTS` is loaded in safe mode by default. Safe mode keeps search/scripting options and drops UI-heavy or shell-execution options.
 
 The shell bindings prefer `fd`, then `fdfind`, then `find` for path generation. They stream that output into Yuru and pass `--fzf-compat ignore`, so fzf-only UI options in `FZF_CTRL_T_OPTS` such as `--preview` do not produce warnings during key bindings.
 
 fzf's default layout is bottom-up. Use `--layout=reverse` if you prefer Yuru's older top prompt, `--layout=default` for prompt-bottom/list-bottom-up, or `--layout=reverse-list` for prompt-bottom/list-top-down.
+
+Preview scroll bind actions:
+
+```sh
+yuru --preview 'cat {}' --bind 'ctrl-k:preview-up,ctrl-j:preview-down'
+yuru --preview 'cat {}' --bind 'ctrl-b:preview-page-up,ctrl-f:preview-page-down'
+```
+
+Image preview:
+
+```sh
+yuru --preview 'cat {}'
+YURU_PREVIEW_IMAGE_PROTOCOL=sixel yuru --preview 'cat {}'
+YURU_PREVIEW_IMAGE_PROTOCOL=kitty yuru --preview 'file {}'
+```
+
+`YURU_PREVIEW_IMAGE_PROTOCOL` accepts `halfblocks`, `sixel`, `kitty`, and `iterm2`.
+Without it, Yuru uses safe environment hints and falls back to halfblocks.
+Ghostty is detected as Kitty protocol even inside tmux when `GHOSTTY_*` env vars
+are present and tmux passthrough is enabled. Yuru also renders the selected file
+directly when it is a raster image or SVG, so preview commands like `file {}` can
+still show the image instead of plain metadata text. It does not call
+`ratatui-image`'s stdio terminal query because Yuru reserves stdout for accepted
+selections.
+
+The image path is behind the `image` Cargo feature, which is enabled by default.
+Use `cargo install yuru --no-default-features` to build a text-preview-only
+binary.
 
 ```sh
 yuru --load-fzf-default-opts never

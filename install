@@ -4,7 +4,9 @@ set -eu
 repo="${YURU_INSTALL_REPO:-Ameyanagi/yuru}"
 version="${YURU_INSTALL_VERSION:-latest}"
 bin_dir="${YURU_INSTALL_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
-default_lang="${YURU_INSTALL_DEFAULT_LANG:-ask}"
+default_lang="${YURU_INSTALL_DEFAULT_LANG:-ja}"
+bindings="${YURU_INSTALL_BINDINGS:-ask}"
+selected_bindings=""
 no_config=0
 shells=""
 from_source=0
@@ -24,7 +26,10 @@ Options:
   --bin-dir DIR         Install binary into DIR (default: ~/.local/bin)
   --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yuru)
   --version TAG         Release tag to download (default: latest)
-  --default-lang LANG   Configure default language: ask, plain, ja, zh, auto, none (default: ask)
+  --default-lang LANG   Configure default language: ask, plain, ja, zh, auto, none (default: ja)
+  --bindings LIST       Shell bindings to enable: ask, all, none, ctrl-t, ctrl-r, alt-c, completion
+                        Comma-separated lists are accepted, for example: ctrl-t,ctrl-r
+                        (default: ask when shell integration is installed)
   --no-config           Do not create or update the user config file
   --from-source         Build yuru from the current checkout with cargo
   -h, --help            Show this help
@@ -83,6 +88,14 @@ while [ "$#" -gt 0 ]; do
       }
       shift 2
       ;;
+    --bindings)
+      bindings="${2:-}"
+      [ -n "$bindings" ] || {
+        echo "install: --bindings requires a value" >&2
+        exit 2
+      }
+      shift 2
+      ;;
     --no-config)
       no_config=1
       shift
@@ -135,6 +148,94 @@ validate_default_lang() {
   esac
 }
 
+validate_bindings() {
+  case "$1" in
+    ask | all | none) return ;;
+  esac
+
+  old_ifs="$IFS"
+  IFS=','
+  for item in $1; do
+    IFS="$old_ifs"
+    item="$(printf '%s' "$item" | tr -d '[:space:]')"
+    case "$item" in
+      ctrl-t | ctrl-r | alt-c | completion) ;;
+      "")
+        ;;
+      *)
+        echo "install: unsupported shell binding: $item" >&2
+        echo "install: expected ask, all, none, or a comma-separated list of ctrl-t, ctrl-r, alt-c, completion" >&2
+        exit 2
+        ;;
+    esac
+    IFS=','
+  done
+  IFS="$old_ifs"
+}
+
+ask_yes_no() {
+  prompt="$1"
+  default="$2"
+  if [ "$default" = "yes" ]; then
+    suffix="Y/n"
+  else
+    suffix="y/N"
+  fi
+
+  while :; do
+    printf '%s [%s]: ' "$prompt" "$suffix" >/dev/tty
+    IFS= read -r answer </dev/tty || answer=""
+    answer="${answer:-$default}"
+    case "$answer" in
+      y | Y | yes | YES | Yes) return 0 ;;
+      n | N | no | NO | No) return 1 ;;
+      *) printf 'Please enter yes or no.\n' >/dev/tty ;;
+    esac
+  done
+}
+
+prompt_bindings() {
+  validate_bindings "$bindings"
+  if [ "$bindings" != "ask" ]; then
+    printf '%s' "$bindings"
+    return
+  fi
+
+  if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+    printf 'all'
+    return
+  fi
+
+  while :; do
+    printf 'Choose Yuru shell bindings [all/custom/none] (all): ' >/dev/tty
+    IFS= read -r answer </dev/tty || answer=""
+    answer="${answer:-all}"
+    case "$answer" in
+      all | none)
+        printf '%s' "$answer"
+        return
+        ;;
+      custom)
+        selected=""
+        if ask_yes_no 'Enable CTRL-T file search?' yes; then selected="${selected:+$selected,}ctrl-t"; fi
+        if ask_yes_no 'Enable CTRL-R history search?' yes; then selected="${selected:+$selected,}ctrl-r"; fi
+        if ask_yes_no 'Enable ALT-C directory jump?' yes; then selected="${selected:+$selected,}alt-c"; fi
+        if ask_yes_no 'Enable **<TAB> path completion?' yes; then selected="${selected:+$selected,}completion"; fi
+        printf '%s' "${selected:-none}"
+        return
+        ;;
+      ctrl-t | ctrl-r | alt-c | completion | *,*)
+        validate_bindings "$answer"
+        printf '%s' "$answer"
+        return
+        ;;
+      *)
+        printf 'Please enter all, custom, none, or a comma-separated binding list.\n' >/dev/tty
+        ;;
+    esac
+  done
+}
+
 prompt_default_lang() {
   if [ "$default_lang" != "ask" ]; then
     printf '%s' "$default_lang"
@@ -142,14 +243,14 @@ prompt_default_lang() {
   fi
 
   if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
-    printf 'none'
+    printf 'ja'
     return
   fi
 
   while :; do
-    printf 'Choose Yuru default language [plain/ja/zh/auto/none] (plain): ' >/dev/tty
+    printf 'Choose Yuru default language [plain/ja/zh/auto/none] (ja): ' >/dev/tty
     IFS= read -r answer </dev/tty || answer=""
-    answer="${answer:-plain}"
+    answer="${answer:-ja}"
     case "$answer" in
       plain | ja | zh | auto | none)
         printf '%s' "$answer"
@@ -163,6 +264,7 @@ prompt_default_lang() {
 }
 
 install_config() {
+  config_bindings="${1:-}"
   [ "$no_config" = "0" ] || {
     log "skipping user config"
     return
@@ -170,32 +272,64 @@ install_config() {
 
   selected_lang="$(prompt_default_lang)"
   validate_default_lang "$selected_lang"
+  ctrl_t_command="__yuru_compgen_path__ ."
+  ctrl_t_opts="--preview 'file {}'"
+  alt_c_command="__yuru_compgen_dir__ ."
+  alt_c_opts="--preview 'ls -la {} 2>/dev/null | head -100'"
   file="$(config_file)"
   mkdir -p "$(dirname "$file")"
   tmp="$file.tmp.$$"
 
   if [ -f "$file" ]; then
-    awk -v selected="$selected_lang" '
-      BEGIN { in_defaults = 0; saw_defaults = 0; wrote_lang = 0 }
+    awk -v selected="$selected_lang" -v bindings="$config_bindings" -v ctrl_t_command="$ctrl_t_command" -v ctrl_t="$ctrl_t_opts" -v alt_c_command="$alt_c_command" -v alt_c="$alt_c_opts" '
+      BEGIN {
+        in_defaults = 0; saw_defaults = 0; wrote_lang = 0
+        in_shell = 0; saw_shell = 0; wrote_shell = 0
+      }
       function write_lang() {
         if (selected != "none" && wrote_lang == 0) {
           printf "lang = \"%s\"\n", selected
           wrote_lang = 1
         }
       }
+      function write_shell_defaults() {
+        if (bindings != "" && wrote_shell == 0) {
+          printf "bindings = \"%s\"\n", bindings
+          printf "ctrl_t_command = \"%s\"\n", ctrl_t_command
+          printf "ctrl_t_opts = \"%s\"\n", ctrl_t
+          printf "alt_c_command = \"%s\"\n", alt_c_command
+          printf "alt_c_opts = \"%s\"\n", alt_c
+          wrote_shell = 1
+        }
+      }
       /^[[:space:]]*\[defaults\][[:space:]]*$/ {
         print
         in_defaults = 1
+        in_shell = 0
         saw_defaults = 1
         write_lang()
         next
       }
+      /^[[:space:]]*\[shell\][[:space:]]*$/ {
+        print
+        in_defaults = 0
+        in_shell = 1
+        saw_shell = 1
+        write_shell_defaults()
+        next
+      }
       /^[[:space:]]*\[/ {
         in_defaults = 0
+        in_shell = 0
         print
         next
       }
       in_defaults && /^[[:space:]]*lang[[:space:]]*=/ { next }
+      bindings != "" && in_shell && /^[[:space:]]*bindings[[:space:]]*=/ { next }
+      bindings != "" && in_shell && /^[[:space:]]*ctrl_t_command[[:space:]]*=/ { next }
+      bindings != "" && in_shell && /^[[:space:]]*ctrl_t_opts[[:space:]]*=/ { next }
+      bindings != "" && in_shell && /^[[:space:]]*alt_c_command[[:space:]]*=/ { next }
+      bindings != "" && in_shell && /^[[:space:]]*alt_c_opts[[:space:]]*=/ { next }
       { print }
       END {
         if (saw_defaults == 0) {
@@ -204,6 +338,11 @@ install_config() {
           write_lang()
           print "load_fzf_defaults = \"safe\""
           print "fzf_compat = \"warn\""
+        }
+        if (bindings != "" && saw_shell == 0) {
+          print ""
+          print "[shell]"
+          write_shell_defaults()
         }
       }
     ' "$file" >"$tmp"
@@ -215,6 +354,14 @@ install_config() {
       fi
       printf 'load_fzf_defaults = "safe"\n'
       printf 'fzf_compat = "warn"\n'
+      if [ -n "$config_bindings" ]; then
+        printf '\n[shell]\n'
+        printf 'bindings = "%s"\n' "$config_bindings"
+        printf 'ctrl_t_command = "%s"\n' "$ctrl_t_command"
+        printf 'ctrl_t_opts = "%s"\n' "$ctrl_t_opts"
+        printf 'alt_c_command = "%s"\n' "$alt_c_command"
+        printf 'alt_c_opts = "%s"\n' "$alt_c_opts"
+      fi
     } >"$tmp"
   fi
 
@@ -223,6 +370,9 @@ install_config() {
     log "left default language unset in $file"
   else
     log "configured default language '$selected_lang' in $file"
+  fi
+  if [ -n "$config_bindings" ]; then
+    log "configured shell bindings '$config_bindings' in $file"
   fi
 }
 
@@ -424,7 +574,11 @@ fi
 
 log "installed binary into $bin_dir"
 validate_default_lang "$default_lang"
-install_config
+validate_bindings "$bindings"
+if [ -n "$shells" ] || [ "$bindings" != "ask" ]; then
+  selected_bindings="$(prompt_bindings)"
+fi
+install_config "$selected_bindings"
 
 case ":$PATH:" in
   *":$bin_dir:"*) ;;

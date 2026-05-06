@@ -17,11 +17,13 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 `YURU_INSTALL_BIN_DIR` 修改安装目录。`--all` 会为当前 shell 添加集成配置。
 安装器会询问默认语言，并写入 `~/.config/yuru/config.toml`。
 
-无需提示直接指定默认语言:
+安装器默认把语言写成 `ja`。无需提示直接指定语言和快捷键:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang zh
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang zh --bindings ask
 ```
+
+之后可以运行 `yuru configure` 重新配置。
 
 Windows PowerShell:
 
@@ -31,7 +33,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
-可以使用 `-DefaultLang zh` 写入 `%APPDATA%\yuru\config.toml`。
+可以使用 `-DefaultLang zh` 或 `-Bindings ask` 写入 `%APPDATA%\yuru\config.toml`。
 
 只安装二进制文件:
 
@@ -46,6 +48,9 @@ cargo install yuru
 ```
 
 crates.io package 名称和安装后的命令都是 `yuru`。
+源码构建会使用 Lindera embedded IPADIC 来生成日文读音，因此需要 C compiler。
+macOS 请安装 Xcode Command Line Tools；仓库的 Cargo config 和脚本会在 Apple target 上优先使用
+`/usr/bin/clang`。GitHub release 的预编译二进制不需要本地 compiler。
 
 更多信息见 [install / uninstall docs](install-uninstall.md)。
 
@@ -92,13 +97,18 @@ fd --hidden --exclude .git . | yuru --scheme path
 
 ## fzf 兼容和配置
 
-Yuru 支持 `--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect`，以及 `accept` / `abort` / `clear-query` 的 `--bind` 子集。尚未支持的 fzf 选项默认会输出 warning。
+Yuru 可以解析 fzf 的主要 option surface，因此现有 shell binding 和 `FZF_DEFAULT_OPTS` 不容易因为解析失败而中断。`--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect` 已实现。`--bind` 仍是子集支持，未支持的 action 默认会输出 warning。
 
 ```sh
 yuru --fzf-compat warn
 yuru --fzf-compat strict
 yuru --fzf-compat ignore
 ```
+
+如果 preview command 输出图片 bytes，Yuru 会通过 `ratatui-image` 渲染。需要时可用
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` 固定协议。
+图片 preview 由默认启用的 `image` feature 提供。如需更小的源码构建，可使用
+`cargo install yuru --no-default-features`。
 
 `~/.config/yuru/config.toml` 可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[zh] initials = true` 等。CLI 参数优先级最高。
 

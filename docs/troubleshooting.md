@@ -46,6 +46,24 @@ Then move unsupported UI-heavy options into fzf-only config, or set:
 yuru --load-fzf-default-opts never
 ```
 
+## Source builds fail in `aws-lc-sys`
+
+Yuru keeps Lindera enabled for Japanese kanji readings. Building from source can
+therefore compile native code through `aws-lc-sys`. On macOS, install Xcode
+Command Line Tools and use Apple clang. The repository config sets Apple target
+`CC_*` variables to `/usr/bin/clang` unless you override them.
+
+```sh
+xcode-select --install
+cargo install yuru
+```
+
+If your shell replaces `cc` with a non-Apple compiler, run:
+
+```sh
+CC=/usr/bin/clang cargo install yuru
+```
+
 ## zsh says `read-only variable: status`
 
 Install the current shell integration and reload zsh:

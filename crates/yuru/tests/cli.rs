@@ -320,6 +320,17 @@ fn cli_doctor_reports_legacy_default_language() {
 }
 
 #[test]
+fn cli_configure_requires_interactive_terminal() {
+    command()
+        .arg("configure")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "yuru configure requires an interactive terminal",
+        ));
+}
+
+#[test]
 fn cli_toml_config_overrides_safe_fzf_default_opts() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("config.toml");
@@ -656,6 +667,23 @@ fn cli_no_sort_preserves_input_order_without_rank_sorting() {
 }
 
 #[test]
+fn cli_header_lines_are_not_search_candidates() {
+    command()
+        .args(["--header-lines", "1", "--filter", "head"])
+        .write_stdin("header\nalpha\n")
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
+
+    command()
+        .args(["--header-lines", "1", "--filter", "alpha"])
+        .write_stdin("header\nalpha\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("alpha\n"));
+}
+
+#[test]
 fn cli_empty_piped_stdin_does_not_fall_back_to_walker() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("match.txt"), "").unwrap();
@@ -916,8 +944,8 @@ fn cli_rejects_unsupported_fzf_options_in_strict_mode() {
         .args([
             "--filter",
             "alpha",
-            "--preview-window",
-            "right:50%",
+            "--bind",
+            "ctrl-y:execute-silent(echo {})",
             "--fzf-compat",
             "strict",
         ])
@@ -925,7 +953,7 @@ fn cli_rejects_unsupported_fzf_options_in_strict_mode() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "unsupported fzf option(s): --preview-window",
+            "unsupported fzf option(s): --bind",
         ));
 }
 
@@ -1177,8 +1205,8 @@ printf 'src/main.rs\n'
             "-fc",
             r#"source "$YURU_SCRIPT"
 YURU_BIN="$YURU_FAKE"
-FZF_CTRL_T_COMMAND="printf 'src/main.rs\n'"
-FZF_CTRL_T_OPTS="--preview 'fzf-preview.sh {}'"
+YURU_CTRL_T_COMMAND="printf 'src/main.rs\n'"
+YURU_CTRL_T_OPTS="--preview 'fzf-preview.sh {}'"
 LBUFFER=""
 __yuru_ctrl_t__
 print -r -- "$LBUFFER"
@@ -1230,6 +1258,11 @@ fn command() -> Command {
         .env_remove("YURU_DEFAULT_OPTS")
         .env_remove("YURU_DEFAULT_OPTS_FILE")
         .env_remove("YURU_FZF_COMPAT")
+        .env_remove("YURU_SHELL_BINDINGS")
+        .env_remove("YURU_CTRL_T_OPTS")
+        .env_remove("YURU_CTRL_R_OPTS")
+        .env_remove("YURU_ALT_C_OPTS")
+        .env_remove("YURU_COMPLETION_OPTS")
         .env("YURU_CONFIG_FILE", "__yuru_test_no_config__")
         .env_remove("XDG_CONFIG_HOME");
     command

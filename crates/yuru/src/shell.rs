@@ -32,6 +32,46 @@ __yuru_join_bash__() {
   printf '%s' "$out"
 }
 
+__yuru_binding_enabled__() {
+  local name="$1" bindings=",${YURU_SHELL_BINDINGS:-all},"
+  bindings="${bindings// /,}"
+  case "$bindings" in
+    *,all,*) return 0 ;;
+    *,none,*) return 1 ;;
+    *,"$name",*) return 0 ;;
+  esac
+  if [ "$name" = completion ]; then
+    case "$bindings" in
+      *,tab,* | *,path-completion,*) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+__yuru_ctrl_t_opts__() {
+  if [ "${YURU_CTRL_T_OPTS+x}" ]; then
+    printf '%s' "$YURU_CTRL_T_OPTS"
+  elif [ "${FZF_CTRL_T_OPTS+x}" ]; then
+    printf '%s' "$FZF_CTRL_T_OPTS"
+  else
+    printf '%s' "--preview 'file {}'"
+  fi
+}
+
+__yuru_ctrl_r_opts__() {
+  printf '%s' "${YURU_CTRL_R_OPTS:-${FZF_CTRL_R_OPTS:-}}"
+}
+
+__yuru_alt_c_opts__() {
+  if [ "${YURU_ALT_C_OPTS+x}" ]; then
+    printf '%s' "$YURU_ALT_C_OPTS"
+  elif [ "${FZF_ALT_C_OPTS+x}" ]; then
+    printf '%s' "$FZF_ALT_C_OPTS"
+  else
+    printf '%s' "--preview 'ls -la {} 2>/dev/null | head -100'"
+  fi
+}
+
 __yuru_run_with_optional_command__() {
   local command_set="$1" command_text="$2" status
   shift 2
@@ -90,6 +130,7 @@ __yuru_completion_dirs_only__() {
 
 __yuru_ctrl_t__() {
   local command_set=1 command_text='__yuru_compgen_path__ .' selected insert opts
+  local -a opt_args
   if [ "${YURU_CTRL_T_COMMAND+x}" ]; then
     command_text=$YURU_CTRL_T_COMMAND
   elif [ "${FZF_CTRL_T_COMMAND+x}" ]; then
@@ -97,8 +138,10 @@ __yuru_ctrl_t__() {
   fi
   [ "$command_set" = 1 ] && [ -z "$command_text" ] && return
 
-  opts=${YURU_CTRL_T_OPTS:-${FZF_CTRL_T_OPTS:-}}
-  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore $opts)
+  opts=$(__yuru_ctrl_t_opts__)
+  opt_args=()
+  [ -n "$opts" ] && eval "opt_args=($opts)"
+  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore "${opt_args[@]}")
   [ -n "$selected" ] || return
   insert=$(__yuru_join_bash__ "$selected")
   [ -n "$insert" ] || return
@@ -109,11 +152,14 @@ __yuru_ctrl_t__() {
 
 __yuru_ctrl_r__() {
   local selected opts tmp status
-  opts=${YURU_CTRL_R_OPTS:-${FZF_CTRL_R_OPTS:-}}
+  local -a opt_args
+  opts=$(__yuru_ctrl_r_opts__)
+  opt_args=()
+  [ -n "$opts" ] && eval "opt_args=($opts)"
   tmp="${TMPDIR:-/tmp}/yuru-history.$$"
   rm -f "$tmp"
   HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return; }
-  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore $opts)
+  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore "${opt_args[@]}")
   status=$?
   rm -f "$tmp"
   [ "$status" -eq 0 ] || return
@@ -124,6 +170,7 @@ __yuru_ctrl_r__() {
 
 __yuru_alt_c__() {
   local command_set=1 command_text='__yuru_compgen_dir__ .' selected opts
+  local -a opt_args
   if [ "${YURU_ALT_C_COMMAND+x}" ]; then
     command_text=$YURU_ALT_C_COMMAND
   elif [ "${FZF_ALT_C_COMMAND+x}" ]; then
@@ -131,8 +178,10 @@ __yuru_alt_c__() {
   fi
   [ "$command_set" = 1 ] && [ -z "$command_text" ] && return
 
-  opts=${YURU_ALT_C_OPTS:-${FZF_ALT_C_OPTS:-}}
-  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore $opts)
+  opts=$(__yuru_alt_c_opts__)
+  opt_args=()
+  [ -n "$opts" ] && eval "opt_args=($opts)"
+  selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore "${opt_args[@]}")
   [ -n "$selected" ] || return
   builtin cd -- "$selected" || return
   READLINE_LINE=
@@ -141,6 +190,7 @@ __yuru_alt_c__() {
 
 __yuru_completion__() {
   local token trigger base dir root query selected insert opts walker multi
+  local -a opt_args
   token=${COMP_WORDS[COMP_CWORD]}
   trigger=$(__yuru_completion_trigger__)
   if [ -z "$trigger" ] || [[ "$token" != *"$trigger" ]]; then
@@ -168,6 +218,8 @@ __yuru_completion__() {
   query=${base#"$root"}
   query=${query#/}
   opts=$(__yuru_completion_opts__)
+  opt_args=()
+  [ -n "$opts" ] && eval "opt_args=($opts)"
   if __yuru_completion_dirs_only__; then
     walker=dir,hidden
     multi=--no-multi
@@ -177,9 +229,9 @@ __yuru_completion__() {
   fi
 
   if __yuru_completion_dirs_only__; then
-    selected=$(__yuru_compgen_dir__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore $opts)
+    selected=$(__yuru_compgen_dir__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore "${opt_args[@]}")
   else
-    selected=$(__yuru_compgen_path__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore $opts)
+    selected=$(__yuru_compgen_path__ "$root" | "${YURU_BIN:-yuru}" --scheme path $multi --query "$query" --fzf-compat ignore "${opt_args[@]}")
   fi
   [ -n "$selected" ] || { COMPREPLY=("$token"); return 0; }
   insert=$(__yuru_join_bash__ "$selected")
@@ -198,11 +250,19 @@ __yuru_setup_completion__() {
   done
 }
 
-bind -x '"\C-t": __yuru_ctrl_t__'
-bind -x '"\C-r": __yuru_ctrl_r__'
-bind -x '"\ec": __yuru_alt_c__'
+if __yuru_binding_enabled__ ctrl-t; then
+  bind -x '"\C-t": __yuru_ctrl_t__'
+fi
+if __yuru_binding_enabled__ ctrl-r; then
+  bind -x '"\C-r": __yuru_ctrl_r__'
+fi
+if __yuru_binding_enabled__ alt-c; then
+  bind -x '"\ec": __yuru_alt_c__'
+fi
 # fzf-style path completion trigger: COMMAND [FUZZY]**<TAB>
-__yuru_setup_completion__
+if __yuru_binding_enabled__ completion; then
+  __yuru_setup_completion__
+fi
 "#;
 
 const ZSH: &str = r#"# yuru shell integration for zsh
@@ -220,6 +280,50 @@ __yuru_join_zsh__() {
     fi
   done <<< "$1"
   print -r -- "$out"
+}
+
+__yuru_binding_enabled__() {
+  emulate -L zsh
+  local name="$1" bindings=",${YURU_SHELL_BINDINGS:-all},"
+  bindings="${bindings// /,}"
+  case "$bindings" in
+    *,all,*) return 0 ;;
+    *,none,*) return 1 ;;
+    *,"$name",*) return 0 ;;
+  esac
+  if [[ "$name" == completion ]]; then
+    case "$bindings" in
+      *,tab,* | *,path-completion,*) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+__yuru_ctrl_t_opts__() {
+  emulate -L zsh
+  if (( ${+YURU_CTRL_T_OPTS} )); then
+    print -rn -- "$YURU_CTRL_T_OPTS"
+  elif (( ${+FZF_CTRL_T_OPTS} )); then
+    print -rn -- "$FZF_CTRL_T_OPTS"
+  else
+    print -rn -- "--preview 'file {}'"
+  fi
+}
+
+__yuru_ctrl_r_opts__() {
+  emulate -L zsh
+  print -rn -- "${YURU_CTRL_R_OPTS:-${FZF_CTRL_R_OPTS:-}}"
+}
+
+__yuru_alt_c_opts__() {
+  emulate -L zsh
+  if (( ${+YURU_ALT_C_OPTS} )); then
+    print -rn -- "$YURU_ALT_C_OPTS"
+  elif (( ${+FZF_ALT_C_OPTS} )); then
+    print -rn -- "$FZF_ALT_C_OPTS"
+  else
+    print -rn -- "--preview 'ls -la {} 2>/dev/null | head -100'"
+  fi
 }
 
 __yuru_run_with_optional_command__() {
@@ -298,7 +402,7 @@ __yuru_ctrl_t__() {
   fi
   [[ "$command_set" == 1 && -z "$command_text" ]] && return
 
-  opts=${YURU_CTRL_T_OPTS:-${FZF_CTRL_T_OPTS:-}}
+  opts=$(__yuru_ctrl_t_opts__)
   selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore ${(@Q)${(z)opts}})
   [[ -n "$selected" ]] || return
   insert=$(__yuru_join_zsh__ "$selected")
@@ -310,7 +414,7 @@ __yuru_ctrl_t__() {
 __yuru_ctrl_r__() {
   emulate -L zsh
   local selected opts tmp yuru_status
-  opts=${YURU_CTRL_R_OPTS:-${FZF_CTRL_R_OPTS:-}}
+  opts=$(__yuru_ctrl_r_opts__)
   tmp="${TMPDIR:-/tmp}/yuru-history.$$"
   rm -f "$tmp"
   fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return }
@@ -334,7 +438,7 @@ __yuru_alt_c__() {
   fi
   [[ "$command_set" == 1 && -z "$command_text" ]] && return
 
-  opts=${YURU_ALT_C_OPTS:-${FZF_ALT_C_OPTS:-}}
+  opts=$(__yuru_alt_c_opts__)
   selected=$(__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore ${(@Q)${(z)opts}})
   [[ -n "$selected" ]] || return
   builtin cd -- "$selected" || return
@@ -408,18 +512,26 @@ zle -N __yuru_ctrl_t__
 zle -N __yuru_ctrl_r__
 zle -N __yuru_alt_c__
 zle -N __yuru_completion__
-bindkey -M emacs '^T' __yuru_ctrl_t__
-bindkey -M emacs '^R' __yuru_ctrl_r__
-bindkey -M emacs '^[c' __yuru_alt_c__
-bindkey -M viins '^T' __yuru_ctrl_t__
-bindkey -M viins '^R' __yuru_ctrl_r__
-bindkey -M viins '^[c' __yuru_alt_c__
-bindkey -M vicmd '^T' __yuru_ctrl_t__
-bindkey -M vicmd '^R' __yuru_ctrl_r__
-bindkey -M vicmd '^[c' __yuru_alt_c__
+if __yuru_binding_enabled__ ctrl-t; then
+  bindkey -M emacs '^T' __yuru_ctrl_t__
+  bindkey -M viins '^T' __yuru_ctrl_t__
+  bindkey -M vicmd '^T' __yuru_ctrl_t__
+fi
+if __yuru_binding_enabled__ ctrl-r; then
+  bindkey -M emacs '^R' __yuru_ctrl_r__
+  bindkey -M viins '^R' __yuru_ctrl_r__
+  bindkey -M vicmd '^R' __yuru_ctrl_r__
+fi
+if __yuru_binding_enabled__ alt-c; then
+  bindkey -M emacs '^[c' __yuru_alt_c__
+  bindkey -M viins '^[c' __yuru_alt_c__
+  bindkey -M vicmd '^[c' __yuru_alt_c__
+fi
 # fzf-style path completion trigger: COMMAND [FUZZY]**<TAB>
-bindkey -M emacs '^I' __yuru_completion__
-bindkey -M viins '^I' __yuru_completion__
+if __yuru_binding_enabled__ completion; then
+  bindkey -M emacs '^I' __yuru_completion__
+  bindkey -M viins '^I' __yuru_completion__
+fi
 "#;
 
 const FISH: &str = r#"# yuru shell integration for fish
@@ -427,6 +539,67 @@ const FISH: &str = r#"# yuru shell integration for fish
 
 function __yuru_join_fish__
     string split \n -- $argv[1] | string match -v '' | string escape | string join ' '
+end
+
+function __yuru_binding_enabled__
+    set -l name $argv[1]
+    set -l bindings all
+    if set -q YURU_SHELL_BINDINGS
+        set bindings (string replace -a ' ' ',' -- (string lower -- $YURU_SHELL_BINDINGS))
+    end
+    set -l wrapped ",$bindings,"
+    if string match -q '*,all,*' -- $wrapped
+        return 0
+    end
+    if string match -q '*,none,*' -- $wrapped
+        return 1
+    end
+    if string match -q "*,$name,*" -- $wrapped
+        return 0
+    end
+    if test "$name" = completion
+        if string match -q '*,tab,*' -- $wrapped; or string match -q '*,path-completion,*' -- $wrapped
+            return 0
+        end
+    end
+    return 1
+end
+
+function __yuru_split_opts__
+    set -l raw $argv[1]
+    set -l opts
+    if test -n "$raw"
+        eval "set opts $raw"
+    end
+    printf '%s\n' $opts
+end
+
+function __yuru_ctrl_t_opts__
+    if set -q YURU_CTRL_T_OPTS
+        __yuru_split_opts__ "$YURU_CTRL_T_OPTS"
+    else if set -q FZF_CTRL_T_OPTS
+        __yuru_split_opts__ "$FZF_CTRL_T_OPTS"
+    else
+        printf '%s\n' --preview 'file {}'
+    end
+end
+
+function __yuru_ctrl_r_opts__
+    if set -q YURU_CTRL_R_OPTS
+        __yuru_split_opts__ "$YURU_CTRL_R_OPTS"
+    else if set -q FZF_CTRL_R_OPTS
+        __yuru_split_opts__ "$FZF_CTRL_R_OPTS"
+    end
+end
+
+function __yuru_alt_c_opts__
+    if set -q YURU_ALT_C_OPTS
+        __yuru_split_opts__ "$YURU_ALT_C_OPTS"
+    else if set -q FZF_ALT_C_OPTS
+        __yuru_split_opts__ "$FZF_ALT_C_OPTS"
+    else
+        printf '%s\n' --preview 'ls -la {} 2>/dev/null | head -100'
+    end
 end
 
 function __yuru_completion_trigger__
@@ -517,11 +690,7 @@ function __yuru_ctrl_t__
     end
 
     set -l opts
-    if set -q YURU_CTRL_T_OPTS
-        set opts (string split ' ' -- $YURU_CTRL_T_OPTS)
-    else if set -q FZF_CTRL_T_OPTS
-        set opts (string split ' ' -- $FZF_CTRL_T_OPTS)
-    end
+    set opts (__yuru_ctrl_t_opts__)
     set selected (__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path -m --fzf-compat ignore $opts)
     set -q selected[1]; or return
     set -l insert (__yuru_join_fish__ (string join \n -- $selected))
@@ -532,11 +701,7 @@ end
 function __yuru_ctrl_r__
     set -l yuru_bin (set -q YURU_BIN; and echo $YURU_BIN; or echo yuru)
     set -l opts
-    if set -q YURU_CTRL_R_OPTS
-        set opts (string split ' ' -- $YURU_CTRL_R_OPTS)
-    else if set -q FZF_CTRL_R_OPTS
-        set opts (string split ' ' -- $FZF_CTRL_R_OPTS)
-    end
+    set opts (__yuru_ctrl_r_opts__)
     set -l tmpdir /tmp
     if set -q TMPDIR; and test -n "$TMPDIR"
         set tmpdir $TMPDIR
@@ -569,11 +734,7 @@ function __yuru_alt_c__
     end
 
     set -l opts
-    if set -q YURU_ALT_C_OPTS
-        set opts (string split ' ' -- $YURU_ALT_C_OPTS)
-    else if set -q FZF_ALT_C_OPTS
-        set opts (string split ' ' -- $FZF_ALT_C_OPTS)
-    end
+    set opts (__yuru_alt_c_opts__)
     set selected (__yuru_run_with_optional_command__ "$command_set" "$command_text" --scheme path --no-multi --fzf-compat ignore $opts)
     set -q selected[1]; or return
     cd -- "$selected"; or return
@@ -628,11 +789,19 @@ function __yuru_completion__
     commandline -f repaint
 end
 
-bind \ct __yuru_ctrl_t__
-bind \cr __yuru_ctrl_r__
-bind \ec __yuru_alt_c__
+if __yuru_binding_enabled__ ctrl-t
+    bind \ct __yuru_ctrl_t__
+end
+if __yuru_binding_enabled__ ctrl-r
+    bind \cr __yuru_ctrl_r__
+end
+if __yuru_binding_enabled__ alt-c
+    bind \ec __yuru_alt_c__
+end
 # fzf-style path completion trigger: COMMAND [FUZZY]**<TAB>
-bind \t __yuru_completion__
+if __yuru_binding_enabled__ completion
+    bind \t __yuru_completion__
+end
 "#;
 
 const POWERSHELL: &str = r#"# yuru shell integration for PowerShell
@@ -662,10 +831,51 @@ function Get-YuruCompletionTrigger {
     return "**"
 }
 
+function Test-YuruBindingEnabled {
+    param([string]$Name)
+    $bindings = "all"
+    if ($env:YURU_SHELL_BINDINGS) { $bindings = $env:YURU_SHELL_BINDINGS.ToLowerInvariant() }
+    $items = @($bindings -split '[,\s]+' | Where-Object { $_ })
+    if ($items -contains "all") { return $true }
+    if ($items -contains "none") { return $false }
+    if ($items -contains $Name) { return $true }
+    if ($Name -eq "completion" -and (($items -contains "tab") -or ($items -contains "path-completion"))) {
+        return $true
+    }
+    return $false
+}
+
 function Split-YuruOptions {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
-    return @($Value -split '\s+' | Where-Object { $_ })
+    $errors = $null
+    $tokens = [System.Management.Automation.PSParser]::Tokenize($Value, [ref]$errors)
+    if ($errors -and $errors.Count -gt 0) {
+        return @($Value -split '\s+' | Where-Object { $_ })
+    }
+    return @(
+        $tokens |
+            Where-Object { $_.Type -in @("CommandArgument", "String", "Number") } |
+            ForEach-Object { $_.Content }
+    )
+}
+
+function Get-YuruCtrlTOptions {
+    if ($env:YURU_CTRL_T_OPTS) { return @(Split-YuruOptions $env:YURU_CTRL_T_OPTS) }
+    if ($env:FZF_CTRL_T_OPTS) { return @(Split-YuruOptions $env:FZF_CTRL_T_OPTS) }
+    return @("--preview", "Get-Item -LiteralPath {} | Format-List | Out-String")
+}
+
+function Get-YuruCtrlROptions {
+    if ($env:YURU_CTRL_R_OPTS) { return @(Split-YuruOptions $env:YURU_CTRL_R_OPTS) }
+    if ($env:FZF_CTRL_R_OPTS) { return @(Split-YuruOptions $env:FZF_CTRL_R_OPTS) }
+    return @()
+}
+
+function Get-YuruAltCOptions {
+    if ($env:YURU_ALT_C_OPTS) { return @(Split-YuruOptions $env:YURU_ALT_C_OPTS) }
+    if ($env:FZF_ALT_C_OPTS) { return @(Split-YuruOptions $env:FZF_ALT_C_OPTS) }
+    return @("--preview", "Get-ChildItem -Force -LiteralPath {} | Select-Object -First 100 | Out-String")
 }
 
 function Get-YuruCompletionOptions {
@@ -779,9 +989,7 @@ function Invoke-YuruCtrlT {
     } elseif (Test-Path Env:FZF_CTRL_T_COMMAND) {
         $commandText = $env:FZF_CTRL_T_COMMAND
     }
-    $opts = @()
-    if ($env:YURU_CTRL_T_OPTS) { $opts += @(Split-YuruOptions $env:YURU_CTRL_T_OPTS) }
-    elseif ($env:FZF_CTRL_T_OPTS) { $opts += @(Split-YuruOptions $env:FZF_CTRL_T_OPTS) }
+    $opts = @(Get-YuruCtrlTOptions)
     $yuruArgs = @("--scheme", "path", "-m", "--fzf-compat", "ignore") + $opts
     $selected = @(Invoke-YuruWithOptionalCommand -CommandText $commandText -YuruArgs $yuruArgs)
     if ($selected.Count -eq 0) { return }
@@ -792,9 +1000,7 @@ function Invoke-YuruCtrlT {
 
 function Invoke-YuruCtrlR {
     $yuru = Get-YuruCommand
-    $opts = @()
-    if ($env:YURU_CTRL_R_OPTS) { $opts += @(Split-YuruOptions $env:YURU_CTRL_R_OPTS) }
-    elseif ($env:FZF_CTRL_R_OPTS) { $opts += @(Split-YuruOptions $env:FZF_CTRL_R_OPTS) }
+    $opts = @(Get-YuruCtrlROptions)
     $line = $null
     $cursor = $null
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
@@ -812,9 +1018,7 @@ function Invoke-YuruAltC {
     } elseif (Test-Path Env:FZF_ALT_C_COMMAND) {
         $commandText = $env:FZF_ALT_C_COMMAND
     }
-    $opts = @()
-    if ($env:YURU_ALT_C_OPTS) { $opts += @(Split-YuruOptions $env:YURU_ALT_C_OPTS) }
-    elseif ($env:FZF_ALT_C_OPTS) { $opts += @(Split-YuruOptions $env:FZF_ALT_C_OPTS) }
+    $opts = @(Get-YuruAltCOptions)
     $yuruArgs = @("--scheme", "path", "--no-multi", "--fzf-compat", "ignore") + $opts
     $selected = @(Invoke-YuruWithOptionalCommand -CommandText $commandText -YuruArgs $yuruArgs | Select-Object -First 1)
     if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
@@ -879,10 +1083,18 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
     Import-Module PSReadLine -ErrorAction SilentlyContinue
 }
 if (Get-Command Set-PSReadLineKeyHandler -ErrorAction SilentlyContinue) {
-    Set-PSReadLineKeyHandler -Key Ctrl+t -ScriptBlock { Invoke-YuruCtrlT }
-    Set-PSReadLineKeyHandler -Key Ctrl+r -ScriptBlock { Invoke-YuruCtrlR }
-    Set-PSReadLineKeyHandler -Key Alt+c -ScriptBlock { Invoke-YuruAltC }
+    if (Test-YuruBindingEnabled "ctrl-t") {
+        Set-PSReadLineKeyHandler -Key Ctrl+t -ScriptBlock { Invoke-YuruCtrlT }
+    }
+    if (Test-YuruBindingEnabled "ctrl-r") {
+        Set-PSReadLineKeyHandler -Key Ctrl+r -ScriptBlock { Invoke-YuruCtrlR }
+    }
+    if (Test-YuruBindingEnabled "alt-c") {
+        Set-PSReadLineKeyHandler -Key Alt+c -ScriptBlock { Invoke-YuruAltC }
+    }
     # fzf-style path completion trigger: COMMAND [FUZZY]**<Tab>
-    Set-PSReadLineKeyHandler -Key Tab -ScriptBlock { param($key, $arg) Invoke-YuruCompletion $key $arg }
+    if (Test-YuruBindingEnabled "completion") {
+        Set-PSReadLineKeyHandler -Key Tab -ScriptBlock { param($key, $arg) Invoke-YuruCompletion $key $arg }
+    }
 }
 "#;

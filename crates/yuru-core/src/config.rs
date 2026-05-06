@@ -10,6 +10,7 @@ pub struct SearchConfig {
     pub case_sensitive: bool,
     pub disabled: bool,
     pub no_sort: bool,
+    pub normalize: bool,
     pub matcher_algo: MatcherAlgo,
     pub tiebreaks: Vec<Tiebreak>,
 }
@@ -45,6 +46,7 @@ impl Default for SearchConfig {
             case_sensitive: false,
             disabled: false,
             no_sort: false,
+            normalize: true,
             matcher_algo: MatcherAlgo::Greedy,
             tiebreaks: vec![Tiebreak::Length, Tiebreak::Index],
         }

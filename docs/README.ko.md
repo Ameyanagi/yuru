@@ -17,11 +17,13 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 `--all`을 사용하면 현재 shell 설정에 통합 스크립트도 추가합니다.
 설치기는 기본 언어를 물어보고 `~/.config/yuru/config.toml`에 저장합니다.
 
-프롬프트 없이 기본 언어를 지정하려면:
+installer는 기본으로 `ja`를 설정합니다. 프롬프트 없이 언어와 key binding을 지정하려면:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --bindings ask
 ```
+
+나중에 바꾸려면 `yuru configure`를 실행합니다.
 
 Windows PowerShell:
 
@@ -31,7 +33,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin`에 `yuru.exe`를 설치하고, 사용자 PATH와 PowerShell profile을 업데이트합니다.
-`-DefaultLang ja`처럼 지정하면 `%APPDATA%\yuru\config.toml`에 기본 언어를 씁니다.
+`-DefaultLang ja`나 `-Bindings ask`처럼 지정하면 `%APPDATA%\yuru\config.toml`에 기본값을 씁니다.
 
 바이너리만 설치:
 
@@ -46,6 +48,9 @@ cargo install yuru
 ```
 
 crates.io package 이름과 설치되는 명령은 모두 `yuru`입니다.
+소스 빌드는 일본어 읽기를 위해 Lindera embedded IPADIC을 사용하므로 C compiler가 필요합니다.
+macOS에서는 Xcode Command Line Tools를 설치하세요. 이 repo의 Cargo config와 scripts는 Apple target에서
+`/usr/bin/clang`을 우선 사용합니다. GitHub release의 prebuilt binary는 로컬 compiler가 필요하지 않습니다.
 
 자세한 내용은 [install / uninstall docs](install-uninstall.md)를 참고하세요.
 
@@ -92,13 +97,18 @@ fd --hidden --exclude .git . | yuru --scheme path
 
 ## fzf 호환성과 설정
 
-Yuru는 `--filter`, `--query`, `--read0`, `--print0`, `--nth`, `--with-nth`, `--scheme`, `--walker`, `--expect`와 `accept` / `abort` / `clear-query`용 `--bind` subset을 지원합니다. 아직 지원하지 않는 fzf option은 기본적으로 warning을 출력합니다.
+Yuru는 fzf의 주요 option surface를 parse할 수 있어 기존 shell binding과 `FZF_DEFAULT_OPTS`가 parse error로 멈출 가능성을 줄였습니다. `--filter`, `--query`, `--read0`, `--print0`, `--nth`, `--with-nth`, `--scheme`, `--walker`, `--expect`는 구현되어 있습니다. `--bind`는 subset 지원이며, 아직 지원하지 않는 action은 기본적으로 warning을 출력합니다.
 
 ```sh
 yuru --fzf-compat warn
 yuru --fzf-compat strict
 yuru --fzf-compat ignore
 ```
+
+preview command가 이미지 bytes를 출력하면 `ratatui-image`로 렌더링합니다. 필요한 경우
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks`로 protocol을 고정할 수 있습니다.
+이미지 preview는 기본으로 켜진 `image` feature로 제공됩니다. 더 작은 source build가
+필요하면 `cargo install yuru --no-default-features`를 사용할 수 있습니다.
 
 `~/.config/yuru/config.toml`에서 `lang = "auto"`, `load_fzf_defaults = "safe"`, `algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`, `[ja] reading = "none" | "lindera"`, `[zh] initials = true` 등을 설정할 수 있습니다. CLI 인자가 가장 높은 우선순위를 가집니다.
 

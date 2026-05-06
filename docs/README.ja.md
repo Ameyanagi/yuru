@@ -17,11 +17,13 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 `YURU_INSTALL_BIN_DIR` を設定すると変更できます。`--all` を付けると現在の shell の設定にも統合を追加します。
 インストーラーはデフォルト言語を尋ね、`~/.config/yuru/config.toml` に保存します。
 
-プロンプトなしでデフォルト言語を指定する場合:
+installer は既定で `ja` を `~/.config/yuru/config.toml` に書きます。プロンプトなしで言語や key binding を指定する場合:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --bindings ask
 ```
+
+あとから変更する場合は `yuru configure` を実行します。
 
 Windows PowerShell:
 
@@ -31,7 +33,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin` に `yuru.exe` を配置し、ユーザー PATH と PowerShell profile を更新します。
-`-DefaultLang ja` のように指定すると `%APPDATA%\yuru\config.toml` にデフォルト言語を書き込みます。
+`-DefaultLang ja` や `-Bindings ask` のように指定すると `%APPDATA%\yuru\config.toml` に既定値を書き込みます。
 
 バイナリだけを入れる場合:
 
@@ -46,6 +48,9 @@ cargo install yuru
 ```
 
 crates.io package 名とインストールされるコマンド名はどちらも `yuru` です。
+source build では日本語読みのために Lindera embedded IPADIC を使うので、C compiler が必要です。
+macOS では Xcode Command Line Tools を入れてください。repo の Cargo config と scripts は Apple target で
+`/usr/bin/clang` を優先します。GitHub release の binary はローカル compiler 不要です。
 
 詳細は [install / uninstall docs](install-uninstall.md) を参照してください。
 
@@ -92,13 +97,18 @@ fd --hidden --exclude .git . | yuru --scheme path
 
 ## fzf 互換と設定
 
-Yuru は `--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect` と、`accept` / `abort` / `clear-query` の `--bind` subset をサポートします。未対応の fzf option は既定で warning になります。
+Yuru は fzf の主要な option surface を parse できるため、既存の shell binding や `FZF_DEFAULT_OPTS` が parse error になりにくくなっています。`--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect` は実装済みです。`--bind` は subset 対応で、未対応の action は既定で warning になります。
 
 ```sh
 yuru --fzf-compat warn
 yuru --fzf-compat strict
 yuru --fzf-compat ignore
 ```
+
+preview command が画像 bytes を出す場合は `ratatui-image` で描画します。必要なら
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` で protocol を固定できます。
+画像 preview は既定の `image` feature で有効です。source build を軽くしたい場合は
+`cargo install yuru --no-default-features` を使えます。
 
 `~/.config/yuru/config.toml` では `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[zh] initials = true` などを設定できます。CLI 引数が最優先です。
 

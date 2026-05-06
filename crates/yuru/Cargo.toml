@@ -13,6 +13,10 @@ categories = ["command-line-utilities"]
 name = "yuru"
 path = "src/main.rs"
 
+[features]
+default = ["image"]
+image = ["yuru-tui/image"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
@@ -22,7 +26,7 @@ shlex.workspace = true
 toml.workspace = true
 yuru-core.workspace = true
 yuru-ja.workspace = true
-yuru-tui.workspace = true
+yuru-tui = { workspace = true, default-features = false }
 yuru-zh.workspace = true
 
 [dev-dependencies]

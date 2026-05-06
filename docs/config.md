@@ -25,10 +25,20 @@ pinyin = true
 initials = true
 polyphone = "common"   # none | common | phrase
 script = "auto"        # auto | hans | hant
+
+[shell]
+bindings = "all"       # all | none | ctrl-t,ctrl-r,alt-c,completion
+ctrl_t_command = "__yuru_compgen_path__ ."
+ctrl_t_opts = "--preview 'file {}'"
+alt_c_command = "__yuru_compgen_dir__ ."
+alt_c_opts = "--preview 'ls -la {} 2>/dev/null | head -100'"
 ```
 
 `lang = "auto"` chooses one active backend per run. It does not build every language key for every candidate.
 
 Legacy shell-word config files named `config` are still read, but Yuru warns and prefers `config.toml`.
+
+Use `yuru configure` to reconfigure these values interactively. It reads the
+current config first and uses those values as prompt defaults.
 
 Use `yuru doctor` to see which config source was detected.

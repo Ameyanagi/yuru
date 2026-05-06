@@ -42,14 +42,18 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 
 This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
 `YURU_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
-shell. The installer asks for a default language and writes it to
-`~/.config/yuru/config.toml`.
+shell. The installer writes user-space defaults to `~/.config/yuru/config.toml`;
+empty language prompts default to Japanese (`ja`).
 
-To set the default language without a prompt:
+To choose language or key bindings explicitly:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --bindings ask
 ```
+
+`--bindings` accepts `all`, `none`, `ask`, or a comma-separated list such as
+`ctrl-t,ctrl-r,completion`. You can re-run the guided config later with
+`yuru configure`.
 
 Windows PowerShell:
 
@@ -60,7 +64,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 
 This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
 the user PATH, adds PowerShell integration to your user profile, and can write
-the default language to `%APPDATA%\yuru\config.toml`.
+the default language and shell bindings to `%APPDATA%\yuru\config.toml`.
 
 ```powershell
 $script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
@@ -85,6 +89,17 @@ cargo install yuru
 ```
 
 The crates.io package and installed command are both `yuru`.
+Source builds use Lindera's embedded IPADIC dictionary for Japanese readings, so
+they require a working C compiler. On macOS, install Xcode Command Line Tools;
+Yuru's Cargo config and scripts prefer `/usr/bin/clang` for Apple targets.
+Release binaries do not require a local compiler.
+
+Image preview support is compiled by default through the `image` feature. To
+build without image decoding/rendering dependencies:
+
+```sh
+cargo install yuru --no-default-features
+```
 
 Latest convenience install commands are also available from the `main` branch,
 but release-pinned commands are recommended for reproducibility.
@@ -168,15 +183,16 @@ yuru doctor
 
 ## fzf Compatibility
 
-Yuru supports common fzf scripting/search options such as `--query`,
-`--filter`, `--select-1`, `--exit-0`, `--print-query`, `--read0`,
-`--print0`, `--nth`, `--with-nth`, `--accept-nth`, `--scheme`, `--walker`,
-`--expect`, and a small `--bind` subset (`accept`, `abort`, `clear-query`).
-Unsupported parsed fzf options warn by default:
+Yuru accepts fzf's current option surface so existing shell bindings and
+`FZF_DEFAULT_OPTS` do not fail at parse time. Search/scripting options such as
+`--query`, `--filter`, `--select-1`, `--exit-0`, `--print-query`, `--read0`,
+`--print0`, `--nth`, `--with-nth`, `--accept-nth`, `--scheme`, `--walker`, and
+`--expect` are implemented. `--bind` is partial; unsupported bind actions warn
+by default:
 
 ```sh
 yuru --fzf-compat warn   # default
-yuru --fzf-compat strict # fail on unsupported parsed options
+yuru --fzf-compat strict # fail on unsupported bind actions
 yuru --fzf-compat ignore # keep quiet
 ```
 
@@ -186,6 +202,12 @@ not accidentally break Yuru:
 ```sh
 yuru --load-fzf-default-opts never|safe|all
 ```
+
+Preview commands that emit image bytes, or select image files directly, are
+rendered through the default `image` feature with `ratatui-image`; raster images
+and SVG files are supported. Ghostty uses the Kitty graphics protocol, including
+inside tmux when passthrough is enabled. Set
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` to force a protocol.
 
 See the full [fzf compatibility matrix](docs/fzf-compat.md).
 
@@ -217,6 +239,13 @@ pinyin = true
 initials = true
 polyphone = "common"   # none | common | phrase
 script = "auto"        # auto | hans | hant
+
+[shell]
+bindings = "all"       # all | none | ctrl-t,ctrl-r,alt-c,completion
+ctrl_t_command = "__yuru_compgen_path__ ."
+ctrl_t_opts = "--preview 'file {}'"
+alt_c_command = "__yuru_compgen_dir__ ."
+alt_c_opts = "--preview 'ls -la {} 2>/dev/null | head -100'"
 ```
 
 See [configuration details](docs/config.md) and

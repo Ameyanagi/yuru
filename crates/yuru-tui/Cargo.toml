@@ -9,7 +9,18 @@ description = "Terminal user interface for Yuru"
 keywords = ["fuzzy", "finder", "tui"]
 categories = ["command-line-utilities"]
 
+[features]
+default = ["image"]
+image = ["dep:image", "dep:ratatui", "dep:ratatui-image", "dep:resvg"]
+
 [dependencies]
 anyhow.workspace = true
 crossterm.workspace = true
+image = { workspace = true, optional = true }
+ratatui = { workspace = true, optional = true }
+ratatui-image = { workspace = true, optional = true }
+resvg = { workspace = true, optional = true }
 yuru-core.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

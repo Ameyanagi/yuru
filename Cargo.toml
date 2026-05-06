@@ -38,11 +38,15 @@ clap = { version = "4.5", features = ["derive"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 ignore = "0.4"
+image = "0.25"
 lindera = { version = "3.0.7", default-features = false, features = ["embed-ipadic"] }
 nucleo-matcher = "0.3"
 pinyin = "0.10"
 predicates = "3"
 proptest = "1"
+ratatui = { version = "0.30", default-features = false }
+ratatui-image = { version = "11.0.0-alpha.2", default-features = false, features = ["image-defaults"] }
+resvg = "0.47.0"
 rayon = "1.12"
 regex = "1"
 shlex = "1"
@@ -51,7 +55,7 @@ toml = "0.8"
 unicode-normalization = "0.1"
 yuru-core = { path = "crates/yuru-core", version = "0.1.4" }
 yuru-ja = { path = "crates/yuru-ja", version = "0.1.4" }
-yuru-tui = { path = "crates/yuru-tui", version = "0.1.4" }
+yuru-tui = { path = "crates/yuru-tui", version = "0.1.4", default-features = false }
 yuru-zh = { path = "crates/yuru-zh", version = "0.1.4" }
 
 [dev-dependencies]
@@ -60,6 +64,7 @@ criterion.workspace = true
 predicates.workspace = true
 proptest.workspace = true
 regex.workspace = true
+tempfile.workspace = true
 yuru-core.workspace = true
 yuru-ja.workspace = true
 yuru-zh.workspace = true

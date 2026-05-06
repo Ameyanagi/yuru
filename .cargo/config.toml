@@ -1,0 +1,3 @@
+[env]
+CC_aarch64_apple_darwin = { value = "/usr/bin/clang", force = false }
+CC_x86_64_apple_darwin = { value = "/usr/bin/clang", force = false }

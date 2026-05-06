@@ -115,10 +115,10 @@ pub fn build_candidate(
     config: &SearchConfig,
 ) -> Candidate {
     let display = display.into();
-    let mut keys = vec![
-        SearchKey::original(display.clone()),
-        SearchKey::normalized(backend.normalize_candidate(&display)),
-    ];
+    let mut keys = vec![SearchKey::original(display.clone())];
+    if config.normalize {
+        keys.push(SearchKey::normalized(backend.normalize_candidate(&display)));
+    }
     keys.extend(backend.build_candidate_keys(&display));
     let keys = dedup_and_limit_keys(keys, config);
 
