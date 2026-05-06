@@ -22,7 +22,7 @@ find the intended multilingual text.
 Yuru's direction and fuzzy-finder behavior are human-led, while the coding has
 been done primarily through agentic coding. The implementation, tests,
 installers, shell integrations, and documentation are heavily shaped by that
-agentic workflow, with the project maintainer steering what the tool should do.
+agentic workflow, with the project maintainer steering the specification.
 
 ## Demo Video
 
