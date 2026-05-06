@@ -60,10 +60,12 @@ printf "北京大学.txt\n" | yuru --lang zh --filter beijing
 ```
 
 `--no-zh-pinyin` disables pinyin keys. `--no-zh-initials` disables initials.
-`--zh-polyphone` and `--zh-script` are parsed as reserved configuration surfaces
-for evolving phrase/script behavior, but current candidate-key generation does
-not branch on them. Current pinyin output mostly follows the pinyin crate plus a
-small phrase override set.
+`--zh-polyphone none` keeps only the primary reading for each character.
+`--zh-polyphone common` also adds a small, capped set of heteronym alternatives,
+such as allowing `huanmei` to match `还没`. `phrase` is still accepted for
+compatibility, but currently warns and uses `common` behavior. `--zh-script` is
+hidden and reserved; non-`auto` values warn because script conversion is not
+implemented yet.
 
 ## Auto Mode
 

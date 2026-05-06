@@ -70,7 +70,10 @@ Language backends add candidate-side work:
   is decomposed by Unicode arithmetic and contributes to romanized, initials,
   and keyboard-layout keys.
 - Chinese pinyin keys are linear in the number of Han characters handled by the
-  pinyin backend, then emitted as full, joined, and initials keys.
+  pinyin backend. `zh.polyphone = "none"` emits primary full/joined/initial
+  keys. `zh.polyphone = "common"` adds capped single-character heteronym
+  substitutions, still emitted as full, joined, and initials keys; it does not
+  build the full Cartesian product of every possible reading.
 
 The important design choice is that expensive language work happens at indexing
 time, not for every query. Search then operates on already-built keys.
@@ -177,15 +180,44 @@ index tuned for command-line workflows.
 
 ## Preview
 
-Preview work is kept off the main UI loop:
+Preview work is kept off the main UI loop. The TUI stores preview state in a
+`PreviewCache` keyed by preview command, shell, selected candidate id, selected
+display text, and preview geometry. A key change clears the old content, resets
+scroll, and schedules a debounced request. The request then runs on a worker
+thread and returns either text or decoded image data.
 
-- preview requests are debounced
-- preview output is cached by command, selection, shell, and preview geometry
-- shell preview commands run in a worker thread
-- built-in preview renders images internally and uses `bat`, then `cat`, for
-  configured text extensions or ASCII-looking files
-- image encoding is also moved to a worker and recalculated only when the
-  preview area changes
+There are two command modes:
+
+- `--preview <command>` uses the shell preview path. Yuru expands the `{}` token,
+  runs the command with fzf-compatible geometry environment variables
+  (`FZF_PREVIEW_COLUMNS`, `FZF_PREVIEW_LINES`, `FZF_PREVIEW_LEFT`,
+  `FZF_PREVIEW_TOP`), and treats stdout as the preview when it is text. If
+  stdout is image bytes or text pointing at an image path, it becomes an image
+  preview. If stdout is empty, stderr is shown; a nonzero command with no stderr
+  becomes a short exit-status message.
+- `--preview-auto` uses the built-in path. Directories show a sorted entry list,
+  missing paths and non-text files show metadata, empty files are reported
+  explicitly, and text files are rendered with `bat --style=numbers
+  --color=never --paging=never --line-range :200` when available. If `bat`
+  fails or is absent, Yuru falls back to `cat`, then direct file reading. Files
+  are considered text when their extension is configured as text or their first
+  8192 bytes look like ASCII text.
+
+Image preview is compiled behind the `image` feature. If the selected item
+itself is an image path, that takes precedence over shell/built-in text preview.
+Yuru recognizes `png`, `jpg`, `jpeg`, `gif`, `bmp`, `ico`, `tif`, `tiff`,
+`webp`, `svg`, and `svgz` paths. Raster images are decoded with the `image`
+crate; SVGs are rasterized with `resvg`, capped to a 2048-pixel maximum axis.
+The decoded image is cached separately from terminal encoding.
+
+Terminal image encoding is also asynchronous. The UI chooses a `viuer` picker
+from the explicit `--preview-image-protocol` / config value when set; otherwise
+`YURU_PREVIEW_IMAGE_PROTOCOL` wins, then terminal environment heuristics choose
+Kitty/Ghostty, iTerm2/WezTerm/Rio, or Sixel-capable terminals. If no protocol is
+detected, the picker falls back to half-block rendering. The image worker
+resizes to fit the current preview area and re-encodes only when that area
+changes.
 
 This keeps selection movement and query input responsive even when a preview
-command or image encoder is slower than the search path.
+command, image decoder, or terminal image encoder is slower than the search
+path.

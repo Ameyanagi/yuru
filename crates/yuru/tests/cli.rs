@@ -614,6 +614,84 @@ fn cli_zh_initials_can_be_disabled_for_exact_initial_query() {
 }
 
 #[test]
+fn cli_zh_polyphone_common_matches_alternate_reading() {
+    command()
+        .args([
+            "--lang",
+            "zh",
+            "--zh-polyphone",
+            "common",
+            "--filter",
+            "huanmei",
+        ])
+        .write_stdin("还没\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("还没\n"))
+        .stderr(predicate::eq(""));
+}
+
+#[test]
+fn cli_zh_polyphone_none_rejects_alternate_reading() {
+    command()
+        .args([
+            "--lang",
+            "zh",
+            "--zh-polyphone",
+            "none",
+            "--filter",
+            "huanmei",
+        ])
+        .write_stdin("还没\nnotes.txt\n")
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
+}
+
+#[test]
+fn cli_zh_polyphone_phrase_warns_and_uses_common() {
+    command()
+        .args([
+            "--lang",
+            "zh",
+            "--zh-polyphone",
+            "phrase",
+            "--filter",
+            "huanmei",
+        ])
+        .write_stdin("还没\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("还没\n"))
+        .stderr(predicate::str::contains(
+            "--zh-polyphone=phrase is not implemented",
+        ));
+}
+
+#[test]
+fn cli_zh_script_warns_reserved_when_non_auto() {
+    command()
+        .args(["--lang", "zh", "--zh-script", "hans", "--filter", "bjdx"])
+        .write_stdin("北京大学.txt\nnotes.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("北京大学.txt\n"))
+        .stderr(predicate::str::contains(
+            "--zh-script is reserved and currently has no effect",
+        ));
+}
+
+#[test]
+fn cli_hides_unimplemented_chinese_options_from_help() {
+    command()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--zh-script").not())
+        .stdout(predicate::str::contains("phrase").not());
+}
+
+#[test]
 fn cli_caps_query_variants() {
     command()
         .args([

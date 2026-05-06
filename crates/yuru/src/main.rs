@@ -80,6 +80,7 @@ enum JaReadingArg {
 enum ZhPolyphoneArg {
     None,
     Common,
+    #[value(hide = true)]
     Phrase,
 }
 
@@ -157,7 +158,7 @@ struct Args {
     #[arg(long = "zh-polyphone", value_enum, default_value_t = ZhPolyphoneArg::Common)]
     zh_polyphone: ZhPolyphoneArg,
 
-    #[arg(long = "zh-script", value_enum, default_value_t = ZhScriptArg::Auto)]
+    #[arg(long = "zh-script", value_enum, default_value_t = ZhScriptArg::Auto, hide = true)]
     zh_script: ZhScriptArg,
 
     #[arg(long = "ko-romanization", default_value_t = true)]
@@ -892,6 +893,7 @@ fn run() -> Result<ExitCode> {
         bail!("--explain cannot be combined with --print0");
     }
     enforce_fzf_compat(&args)?;
+    warn_reserved_zh_options(&args);
     let query = effective_query(&args);
     let interactive = should_run_interactive(&args);
     let limit = args
@@ -2271,6 +2273,17 @@ fn enforce_fzf_compat(args: &Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn warn_reserved_zh_options(args: &Args) {
+    if args.zh_polyphone == ZhPolyphoneArg::Phrase {
+        eprintln!(
+            "yuru: warning: --zh-polyphone=phrase is not implemented yet; using common polyphone expansion"
+        );
+    }
+    if args.zh_script != ZhScriptArg::Auto {
+        eprintln!("yuru: warning: --zh-script is reserved and currently has no effect");
+    }
 }
 
 fn accepted_fzf_option_count(args: &Args) -> usize {

@@ -66,10 +66,9 @@ impl LanguageBackend for ChineseBackend {
             return Vec::new();
         }
 
-        let _polyphone = self.polyphone;
         let _script = self.script;
 
-        pinyin::build_pinyin_keys_with_sources(text, 8)
+        pinyin::build_pinyin_keys_with_sources_for_mode(text, 8, self.polyphone)
             .into_iter()
             .filter_map(|key| {
                 let search_key = if key.text.contains(' ') {
@@ -151,5 +150,95 @@ mod tests {
             .keys
             .iter()
             .any(|key| matches!(key.kind, KeyKind::PinyinFull | KeyKind::PinyinJoined)));
+    }
+
+    #[test]
+    fn chinese_polyphone_none_and_common_generate_different_keys() {
+        let none = ChineseBackend::new(
+            true,
+            true,
+            ChinesePolyphoneMode::None,
+            ChineseScriptMode::Auto,
+        );
+        let common = ChineseBackend::new(
+            true,
+            true,
+            ChinesePolyphoneMode::Common,
+            ChineseScriptMode::Auto,
+        );
+
+        let cand_none = build_candidate(0, "还没", &none, &SearchConfig::default());
+        let cand_common = build_candidate(0, "还没", &common, &SearchConfig::default());
+        let none_texts: Vec<_> = cand_none.keys.iter().map(|key| key.text.as_str()).collect();
+        let common_texts: Vec<_> = cand_common
+            .keys
+            .iter()
+            .map(|key| key.text.as_str())
+            .collect();
+
+        assert!(none_texts.contains(&"haimei"));
+        assert!(!none_texts.contains(&"huanmei"));
+        assert!(common_texts.contains(&"haimei"));
+        assert!(common_texts.contains(&"huanmei"));
+    }
+
+    #[test]
+    fn chinese_polyphone_phrase_matches_common_backend_keys() {
+        let common = ChineseBackend::new(
+            true,
+            true,
+            ChinesePolyphoneMode::Common,
+            ChineseScriptMode::Auto,
+        );
+        let phrase = ChineseBackend::new(
+            true,
+            true,
+            ChinesePolyphoneMode::Phrase,
+            ChineseScriptMode::Auto,
+        );
+
+        let cand_common = build_candidate(0, "还没", &common, &SearchConfig::default());
+        let cand_phrase = build_candidate(0, "还没", &phrase, &SearchConfig::default());
+        let common_texts: Vec<_> = cand_common
+            .keys
+            .iter()
+            .map(|key| key.text.as_str())
+            .collect();
+        let phrase_texts: Vec<_> = cand_phrase
+            .keys
+            .iter()
+            .map(|key| key.text.as_str())
+            .collect();
+
+        assert_eq!(common_texts, phrase_texts);
+    }
+
+    #[test]
+    fn chinese_script_modes_do_not_change_generated_keys() {
+        let auto = ChineseBackend::new(
+            true,
+            true,
+            ChinesePolyphoneMode::Common,
+            ChineseScriptMode::Auto,
+        );
+        let hans = ChineseBackend::new(
+            true,
+            true,
+            ChinesePolyphoneMode::Common,
+            ChineseScriptMode::Hans,
+        );
+        let hant = ChineseBackend::new(
+            true,
+            true,
+            ChinesePolyphoneMode::Common,
+            ChineseScriptMode::Hant,
+        );
+
+        let auto_keys = auto.build_candidate_keys("臺灣");
+        let hans_keys = hans.build_candidate_keys("臺灣");
+        let hant_keys = hant.build_candidate_keys("臺灣");
+
+        assert_eq!(auto_keys, hans_keys);
+        assert_eq!(auto_keys, hant_keys);
     }
 }

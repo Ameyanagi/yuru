@@ -305,8 +305,7 @@ keyboard = true
 [zh]
 pinyin = true
 initials = true
-polyphone = "common"   # reserved: none | common | phrase
-script = "auto"        # reserved: auto | hans | hant
+polyphone = "common"   # none | common
 
 [shell]
 bindings = "all"       # all | none | ctrl-t,ctrl-r,alt-c,completion
