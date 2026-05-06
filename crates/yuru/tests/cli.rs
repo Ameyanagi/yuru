@@ -1024,6 +1024,24 @@ fn cli_prints_version() {
 }
 
 #[test]
+fn cli_help_describes_non_prototype_tool_and_algo_aliases() {
+    command()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("prototype").not())
+        .stdout(predicate::str::contains(
+            "A fast phonetic fuzzy finder for multilingual shell workflows",
+        ))
+        .stdout(predicate::str::contains(
+            "greedy and fzf-v1 use Yuru's greedy scorer",
+        ))
+        .stdout(predicate::str::contains(
+            "not byte-for-byte fzf algorithm implementations",
+        ));
+}
+
+#[test]
 fn cli_tiebreak_length_is_default_for_equal_scores() {
     command()
         .args(["--filter", "", "--disabled"])

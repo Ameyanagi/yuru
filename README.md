@@ -318,6 +318,8 @@ alt_c_opts = "--preview-auto"
 
 See [configuration details](docs/config.md) and
 [language matching behavior](docs/language-matching.md).
+Matcher algorithm names are compatibility-inspired modes: `fzf-v1` uses Yuru's
+greedy scorer, while `fzf-v2` and `nucleo` use the nucleo-backed quality scorer.
 
 ## Development
 

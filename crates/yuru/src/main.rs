@@ -129,7 +129,7 @@ enum CommandArg {
 #[derive(Debug, Parser)]
 #[command(
     name = "yuru",
-    about = "A fast phonetic fuzzy finder prototype",
+    about = "A fast phonetic fuzzy finder for multilingual shell workflows",
     version,
     args_override_self = true
 )]
@@ -323,7 +323,13 @@ struct Args {
     #[arg(short = 'd', long)]
     delimiter: Option<String>,
 
-    #[arg(long, value_enum, default_value_t = AlgoArg::Greedy)]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = AlgoArg::Greedy,
+        help = "Matcher backend: greedy/fzf-v1 use Yuru scoring; fzf-v2/nucleo use nucleo scoring",
+        long_help = "Matcher backend. greedy and fzf-v1 use Yuru's greedy scorer. fzf-v2 and nucleo use the nucleo-backed quality scorer. The fzf names are compatibility-inspired modes, not byte-for-byte fzf algorithm implementations, and the nucleo-backed path can be slower on large inputs."
+    )]
     algo: AlgoArg,
 
     #[arg(long = "fzf-compat", value_enum)]

@@ -49,6 +49,12 @@ alt_c_opts = "--preview-auto"
 
 `lang = "auto"` chooses one active backend per run. It does not build every language key for every candidate.
 
+`[matching].algo` selects Yuru matcher backends, not byte-for-byte fzf
+algorithm implementations. `greedy` and `fzf-v1` use Yuru's greedy scorer.
+`fzf-v2` and `nucleo` use the nucleo-backed quality scorer; that path can spend
+more work per candidate and is currently sequential, so prefer `greedy` when
+large-input latency matters.
+
 `[ko]` controls Korean Hangul keys. `romanization` enables deterministic
 Romanization-style keys such as `hangeul`, `initials` enables choseong keys such
 as `ㅎㄱ`, and `keyboard` enables Korean 2-set keyboard-layout keys such as

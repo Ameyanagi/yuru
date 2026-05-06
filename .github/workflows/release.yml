@@ -34,7 +34,7 @@ jobs:
           import json
           import subprocess
 
-          publishable = {"yuru", "yuru-core", "yuru-ja", "yuru-zh", "yuru-tui"}
+          publishable = {"yuru", "yuru-core", "yuru-ja", "yuru-ko", "yuru-zh", "yuru-tui"}
           metadata = json.loads(
               subprocess.check_output(["cargo", "metadata", "--no-deps", "--format-version", "1"])
           )
@@ -53,9 +53,19 @@ jobs:
           expected_req = f"^{version}"
           for name in sorted(publishable):
               for dependency in packages[name]["dependencies"]:
-                  if dependency["name"] in publishable and dependency["req"] != expected_req:
+                  if dependency.get("kind") == "dev":
+                      continue
+                  dependency_name = dependency["name"]
+                  if dependency["source"] is None and dependency_name in packages:
+                      publish_disabled = packages[dependency_name].get("publish") == []
+                      if not publish_disabled and dependency_name not in publishable:
+                          raise SystemExit(
+                              f"{name} depends on workspace crate {dependency_name}, "
+                              "but it is missing from the publishable set"
+                          )
+                  if dependency_name in publishable and dependency["req"] != expected_req:
                       raise SystemExit(
-                          f"{name} depends on {dependency['name']} with {dependency['req']}, "
+                          f"{name} depends on {dependency_name} with {dependency['req']}, "
                           f"expected {expected_req}"
                       )
 
@@ -273,6 +283,7 @@ jobs:
 
           publish_crate yuru-core
           publish_crate yuru-ja
+          publish_crate yuru-ko
           publish_crate yuru-zh
           publish_crate yuru-tui
           publish_crate yuru

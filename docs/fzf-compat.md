@@ -31,6 +31,16 @@ yuru --fzf-compat ignore
 | `--color` | Partial | Supports `pointer`, `hl`, and `hl+` hex colors. Other entries are accepted and ignored. |
 | Layout/style-only options such as `--preview-window`, `--border`, `--style`, labels, gutters, gaps, scrollbars, margins, padding | Accepted | Parsed for fzf config compatibility. Full visual parity with fzf is still evolving. |
 
+Known gaps that matter for script migration:
+
+| Area | Difference |
+| --- | --- |
+| Matcher algorithms | `--algo fzf-v1` uses Yuru's greedy scorer; `--algo fzf-v2` uses the nucleo-backed quality scorer. They are compatibility-inspired modes, not byte-for-byte fzf algorithm ports. |
+| `--bind` shell actions | Navigation, editing, accept/abort, mark toggles, and preview scroll actions are implemented. Shell-execution actions such as `execute(...)`, `reload(...)`, and transform actions are still unsupported. |
+| Field expressions | `--nth`, `--with-nth`, and `--accept-nth` cover common field selection and transforms, but not fzf's full expression language. |
+| Layout/style parity | Many style options are accepted so existing option strings parse, but exact fzf visual parity is not guaranteed. |
+| Non-interactive huge streams | `--filter` currently builds the candidate set before searching. Interactive mode streams candidates, but a line-by-line streaming top-k filter path is future work. |
+
 `FZF_DEFAULT_OPTS` is loaded in safe mode by default. Safe mode keeps search/scripting options and drops UI-heavy or shell-execution options.
 
 The shell bindings prefer `fd`, then `fdfind`, then `find` for path generation. They stream that output into Yuru and pass `--fzf-compat ignore`, so fzf-only UI options in `FZF_CTRL_T_OPTS` such as `--preview` do not produce warnings during key bindings.

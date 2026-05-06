@@ -117,10 +117,13 @@ because `V` and `K` are capped small values, the practical shape is close to
 linear in candidate count and key length.
 
 Exact mode uses contiguous matching and is also linear in key length per checked
-pair. `--algo fzf-v2` and `--algo nucleo` use the `nucleo-matcher` quality path,
-which can spend more work per candidate for better scoring; use the default
-greedy path when predictable latency is more important than best alignment
-quality.
+pair. Algorithm names are backend selectors rather than exact fzf
+reimplementations: `--algo fzf-v1` uses the same Yuru greedy scorer as
+`--algo greedy`, while `--algo fzf-v2` and `--algo nucleo` use the
+`nucleo-matcher` quality path. The current nucleo-backed path owns a mutable
+matcher and scans candidates sequentially, so it can scale worse than the
+parallel greedy path on large inputs. Use the default greedy path when
+predictable latency is more important than best alignment quality.
 
 Ranking cost depends on result handling:
 
