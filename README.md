@@ -71,7 +71,7 @@ Yuru installs into user space by default. It does not require `sudo`.
 macOS and Linux guided install:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.7/install | sh -s -- --all --version v0.1.7
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh -s -- --all --version v0.1.8
 ```
 
 This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
@@ -88,7 +88,7 @@ then `fdfind`, then the portable fallback.
 To preselect guided-install defaults:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.7/install | sh -s -- --all --version v0.1.7 --default-lang none --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh -s -- --all --version v0.1.8 --default-lang none --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 `--bindings` accepts `all`, `none`, `ask`, or a comma-separated list such as
@@ -98,8 +98,8 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.7/install | sh 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.7/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.7"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.8"
 ```
 
 This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
@@ -111,19 +111,19 @@ preview protocol, shell bindings, and shell path backend. Use `-DefaultLang`,
 preselect those values.
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.7/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.7 -DefaultLang none -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.8 -DefaultLang none -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
 ```
 
 To install only the binary:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.7/install | sh -s -- --version v0.1.7
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh -s -- --version v0.1.8
 ```
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.7/install.ps1
-Invoke-Expression "& { $script } -Version v0.1.7"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install.ps1
+Invoke-Expression "& { $script } -Version v0.1.8"
 ```
 
 Crates.io:
@@ -366,8 +366,8 @@ Create a version tag to publish a release and crates.io packages. The release
 workflow only runs on tags, and the tag must match the crate version.
 
 ```sh
-git tag v0.1.7
-git push origin v0.1.7
+git tag v0.1.8
+git push origin v0.1.8
 ```
 
 Release notes are tracked in [CHANGELOG.md](CHANGELOG.md). Contributor and

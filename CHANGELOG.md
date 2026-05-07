@@ -2,6 +2,14 @@
 
 All notable user-facing changes are tracked here.
 
+## 0.1.8
+
+- Refactored core, CLI, and TUI internals into smaller modules while preserving the existing command-line behavior.
+- Simplified backend search APIs with explicit key/query budgets and shared query preparation.
+- Improved maintainability of TUI preview, render, action, state, and search-worker code with focused tests.
+- Fixed no-input TUI preview/result geometry for reverse layouts.
+- Reduced built-in preview text sniffing I/O by reading only the ASCII detection sample window.
+
 ## 0.1.7
 
 - Added package README metadata so crates.io renders the README for all published Yuru crates.
