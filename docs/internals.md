@@ -8,11 +8,12 @@ path ranking at the same time.
 
 ## Agentic Coding
 
-Yuru's direction, product decisions, and fuzzy-finder behavior are human-led.
-The implementation has been written primarily with agentic coding assistance:
-large parts of the Rust code, shell integrations, installers, tests, and
-documentation were produced through an agentic coding workflow and then steered,
-reviewed, and corrected by the project maintainer.
+Yuru was developed with heavy AI assistance. The project direction, feature
+choices, language behavior, testing decisions, release process, and maintenance
+are human-led by the maintainer. AI tools were used extensively during
+implementation and documentation, but the code is reviewed, tested, and
+maintained as an open-source project rather than published as unreviewed AI
+output.
 
 ## Multilingual Matching
 

@@ -19,10 +19,12 @@ The name comes from `ゆるい`, meaning loose or relaxed. In this project it po
 to forgiving fuzzy matching: the query can be a little loose, and Yuru tries to
 find the intended multilingual text.
 
-Yuru's direction and fuzzy-finder behavior are human-led, while the coding has
-been done primarily through agentic coding. The implementation, tests,
-installers, shell integrations, and documentation are heavily shaped by that
-agentic workflow, with the project maintainer steering the specification.
+Yuru was developed with heavy AI assistance. The project direction, feature
+choices, language behavior, testing decisions, release process, and maintenance
+are human-led by the maintainer. AI tools were used extensively during
+implementation and documentation, but the code is reviewed, tested, and
+maintained as an open-source project rather than published as unreviewed AI
+output.
 
 ## Demo Video
 
