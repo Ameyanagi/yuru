@@ -31,7 +31,7 @@ Options:
   --bin-dir DIR         Install binary into DIR (default: ~/.local/bin)
   --repo OWNER/REPO     GitHub repository to download from (default: Ameyanagi/yuru)
   --version TAG         Release tag to download (default: latest)
-  --default-lang LANG   Configure default language: ask, plain, ja, ko, zh, auto, none (default: ask; no TTY: ja)
+  --default-lang LANG   Configure default language: ask, plain, ja, ko, zh, auto, none (default: ask; no TTY: none)
   --preview-command COMMAND
                         Configure preview command: ask, auto, none, or a shell command
                         (default: ask; no TTY: auto)
@@ -325,14 +325,14 @@ prompt_default_lang() {
   fi
 
   if ! can_prompt; then
-    printf 'ja'
+    printf 'none'
     return
   fi
 
   while :; do
-    printf 'Choose Yuru default language [plain/ja/ko/zh/auto/none] (ja): ' >/dev/tty
+    printf 'Choose Yuru default language [plain/ja/ko/zh/auto/none] (none): ' >/dev/tty
     IFS= read -r answer </dev/tty || answer=""
-    answer="${answer:-ja}"
+    answer="${answer:-none}"
     case "$answer" in
       plain | ja | ko | zh | auto | none)
         printf '%s' "$answer"

@@ -45,11 +45,11 @@ function Test-YuruCanPrompt {
 
 function Read-YuruDefaultLanguage {
     if ($DefaultLang -ne "ask") { return $DefaultLang }
-    if (-not (Test-YuruCanPrompt)) { return "ja" }
+    if (-not (Test-YuruCanPrompt)) { return "none" }
 
     while ($true) {
-        $answer = Read-Host "Choose Yuru default language [plain/ja/ko/zh/auto/none] (ja)"
-        if ([string]::IsNullOrWhiteSpace($answer)) { return "ja" }
+        $answer = Read-Host "Choose Yuru default language [plain/ja/ko/zh/auto/none] (none)"
+        if ([string]::IsNullOrWhiteSpace($answer)) { return "none" }
         switch ($answer.Trim()) {
             "plain" { return "plain" }
             "ja" { return "ja" }
