@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use yuru_core::{build_index, search, PlainBackend, SearchConfig};
+use yuru_core::{build_index, search, MatcherAlgo, PlainBackend, SearchConfig};
 use yuru_ja::JapaneseBackend;
 use yuru_zh::ChineseBackend;
 
@@ -145,6 +145,26 @@ fn bench_plain_search_100k(c: &mut Criterion) {
     });
 }
 
+fn bench_plain_search_100k_nucleo(c: &mut Criterion) {
+    let cfg = SearchConfig {
+        matcher_algo: MatcherAlgo::Nucleo,
+        ..SearchConfig::default()
+    };
+    let candidates = (0..100_000).map(|idx| format!("src/module_{idx}/README.md"));
+    let index = build_index(candidates, &PlainBackend, &cfg);
+
+    c.bench_function("plain_search_100k_read_nucleo", |b| {
+        b.iter(|| {
+            search(
+                black_box("read"),
+                black_box(&index),
+                &PlainBackend,
+                black_box(&cfg),
+            )
+        });
+    });
+}
+
 fn bench_ja_search(c: &mut Criterion) {
     let cfg = SearchConfig::default();
     let candidates = (0..10_000).map(|idx| {
@@ -241,12 +261,43 @@ fn bench_zh_search_100k(c: &mut Criterion) {
     });
 }
 
+fn bench_zh_search_100k_nucleo(c: &mut Criterion) {
+    let cfg = SearchConfig {
+        matcher_algo: MatcherAlgo::Nucleo,
+        ..SearchConfig::default()
+    };
+    let candidates = (0..100_000).map(|idx| {
+        if idx % 100 == 0 {
+            format!("北京大学_{idx}.txt")
+        } else {
+            format!("docs/{idx}.txt")
+        }
+    });
+    let backend = ChineseBackend::default();
+    let index = build_index(candidates, &backend, &cfg);
+
+    c.bench_function("zh_search_100k_bjdx_nucleo", |b| {
+        b.iter(|| {
+            search(
+                black_box("bjdx"),
+                black_box(&index),
+                &backend,
+                black_box(&cfg),
+            )
+        });
+    });
+}
+
 fn bench_plain_search_1m(c: &mut Criterion) {
     if std::env::var("YURU_BENCH_1M").as_deref() != Ok("1") {
         return;
     }
 
     let cfg = SearchConfig::default();
+    let nucleo_cfg = SearchConfig {
+        matcher_algo: MatcherAlgo::Nucleo,
+        ..SearchConfig::default()
+    };
     let candidates = (0..1_000_000).map(|idx| format!("src/module_{idx}/README.md"));
     let index = build_index(candidates, &PlainBackend, &cfg);
 
@@ -263,6 +314,16 @@ fn bench_plain_search_1m(c: &mut Criterion) {
             )
         });
     });
+    group.bench_function("plain_search_1m_read_nucleo_opt_in", |b| {
+        b.iter(|| {
+            search(
+                black_box("read"),
+                black_box(&index),
+                &PlainBackend,
+                black_box(&nucleo_cfg),
+            )
+        });
+    });
     group.finish();
 }
 
@@ -273,10 +334,12 @@ criterion_group!(
     bench_ja_kanji_heavy,
     bench_plain_search,
     bench_plain_search_100k,
+    bench_plain_search_100k_nucleo,
     bench_ja_search,
     bench_ja_search_100k,
     bench_zh_search,
     bench_zh_search_100k,
+    bench_zh_search_100k_nucleo,
     bench_plain_search_1m
 );
 criterion_main!(benches);

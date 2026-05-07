@@ -116,9 +116,10 @@ parallelize large candidate sets with Rayon chunks and use the bounded
 
 Yuru leaves this standard path when the query needs extended fzf syntax, when
 filtering is disabled, or when `--algo fzf-v2` / `--algo nucleo` selects the
-nucleo-backed quality matcher. Those paths go through `search_with_stats` and a
-mutable matcher backend, which is more flexible but currently less parallel
-than the standard greedy path.
+nucleo-backed quality matcher. Normal nucleo-backed searches use a concrete
+Nucleo path with one matcher per Rayon chunk on large inputs. Extended syntax
+and caller-owned matcher paths still go through `search_with_stats` and a
+mutable matcher backend.
 
 ### Search Complexity
 
@@ -142,9 +143,9 @@ Exact mode uses contiguous matching and is also linear in key length per checked
 pair. Algorithm names are backend selectors rather than exact fzf
 reimplementations: `--algo fzf-v1` uses the same Yuru greedy scorer as
 `--algo greedy`, while `--algo fzf-v2` and `--algo nucleo` use the
-`nucleo-matcher` quality path. The current nucleo-backed path owns a mutable
-matcher and scans candidates sequentially, so it can scale worse than the
-parallel greedy path on large inputs. Use the default greedy path when
+`nucleo-matcher` quality path. Normal nucleo-backed searches parallelize large
+candidate sets with one mutable matcher per chunk. They still do more work per
+checked pair than the greedy scorer, so use the default greedy path when
 predictable latency is more important than best alignment quality.
 
 Ranking cost depends on result handling:

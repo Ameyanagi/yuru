@@ -7,7 +7,10 @@ use rayon::prelude::*;
 use std::cmp::Ordering;
 
 const STREAMING_TOP_RESULTS_LIMIT: usize = 1024;
+#[cfg(not(test))]
 const PARALLEL_SEARCH_CHUNK_SIZE: usize = 4096;
+#[cfg(test)]
+const PARALLEL_SEARCH_CHUNK_SIZE: usize = 2;
 #[cfg(not(test))]
 const PARALLEL_SEARCH_THRESHOLD: usize = 100_000;
 #[cfg(test)]
@@ -61,8 +64,7 @@ pub fn search(
             MatcherAlgo::FzfV2 | MatcherAlgo::Nucleo
         )
     {
-        let mut matcher = matcher_for_config(config);
-        return search_with_stats(query, candidates, backend, matcher.as_mut(), config).0;
+        return search_nucleo_with_stats(query, candidates, backend, config).0;
     }
 
     let score_mode = if config.exact {
@@ -155,12 +157,7 @@ fn search_standard_parallel(
             || (Vec::new(), SearchStats::default()),
             |(mut left_results, mut left_stats), (mut right_results, right_stats)| {
                 left_results.append(&mut right_results);
-                left_stats.candidates_seen += right_stats.candidates_seen;
-                left_stats.keys_seen += right_stats.keys_seen;
-                left_stats.fuzzy_calls += right_stats.fuzzy_calls;
-                left_stats.quality_score_calls += right_stats.quality_score_calls;
-                left_stats.reading_generation_calls += right_stats.reading_generation_calls;
-                left_stats.variants_seen = left_stats.variants_seen.max(right_stats.variants_seen);
+                merge_stats(&mut left_stats, right_stats);
                 (left_results, left_stats)
             },
         );
@@ -220,6 +217,55 @@ fn score_standard_candidate(
     best
 }
 
+fn search_nucleo_with_stats(
+    query: &str,
+    candidates: &[crate::Candidate],
+    backend: &dyn LanguageBackend,
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
+    let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
+    if should_search_parallel(candidates.len()) {
+        return search_nucleo_parallel(query, candidates, &variants, config);
+    }
+
+    let mut matcher = NucleoMatcher::default();
+    search_with_matcher_variants(query, candidates, &variants, &mut matcher, config)
+}
+
+fn search_nucleo_parallel(
+    query: &str,
+    candidates: &[crate::Candidate],
+    variants: &[QueryVariant],
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
+    let (mut results, stats) = candidates
+        .par_chunks(PARALLEL_SEARCH_CHUNK_SIZE)
+        .map(|chunk| {
+            let mut matcher = NucleoMatcher::default();
+            search_with_matcher_variants(query, chunk, variants, &mut matcher, config)
+        })
+        .reduce(
+            || (Vec::new(), SearchStats::default()),
+            |(mut left_results, mut left_stats), (mut right_results, right_stats)| {
+                left_results.append(&mut right_results);
+                merge_stats(&mut left_stats, right_stats);
+                (left_results, left_stats)
+            },
+        );
+
+    finalize_results(&mut results, query, config);
+    (results, stats)
+}
+
+fn merge_stats(left: &mut SearchStats, right: SearchStats) {
+    left.candidates_seen += right.candidates_seen;
+    left.keys_seen += right.keys_seen;
+    left.fuzzy_calls += right.fuzzy_calls;
+    left.quality_score_calls += right.quality_score_calls;
+    left.reading_generation_calls += right.reading_generation_calls;
+    left.variants_seen = left.variants_seen.max(right.variants_seen);
+}
+
 /// Searches candidates and returns ranked results with execution counters.
 pub fn search_with_stats(
     query: &str,
@@ -264,6 +310,16 @@ fn search_standard_with_matcher(
     config: &SearchConfig,
 ) -> (Vec<ScoredCandidate>, SearchStats) {
     let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
+    search_with_matcher_variants(query, candidates, &variants, matcher, config)
+}
+
+fn search_with_matcher_variants<M: MatcherBackend + ?Sized>(
+    query: &str,
+    candidates: &[crate::Candidate],
+    variants: &[QueryVariant],
+    matcher: &mut M,
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
     let mut stats = SearchStats {
         variants_seen: variants.len(),
         ..SearchStats::default()
@@ -273,51 +329,63 @@ fn search_standard_with_matcher(
 
     for candidate in candidates {
         stats.candidates_seen += 1;
-        let mut best: Option<ScoredCandidate> = None;
-
-        for variant in &variants {
-            if variant_blocked_by_config(variant.kind, config) {
-                continue;
-            }
-
-            for (key_index, key) in candidate.keys.iter().enumerate() {
-                if key_blocked_by_config(key.kind, config) {
-                    continue;
-                }
-
-                if !key_kind_allowed(variant, key.kind) {
-                    continue;
-                }
-
-                stats.keys_seen += 1;
-                stats.fuzzy_calls += 1;
-
-                if let Some(base_score) = matcher.score(&variant.text, &key.text) {
-                    let score = base_score + i64::from(variant.weight + key.weight);
-                    let scored = ScoredCandidate {
-                        id: candidate.id,
-                        display: candidate.display.clone(),
-                        score,
-                        key_kind: key.kind,
-                        key_index: key_index as u32,
-                    };
-
-                    if best
-                        .as_ref()
-                        .is_none_or(|current| scored.score > current.score)
-                    {
-                        best = Some(scored);
-                    }
-                }
-            }
-        }
-
-        if let Some(scored) = best {
+        if let Some(scored) =
+            score_matcher_candidate(candidate, variants, matcher, config, &mut stats)
+        {
             push_scored(scored, &mut results, top_results.as_mut());
         }
     }
 
     (finish_results(results, top_results, query, config), stats)
+}
+
+fn score_matcher_candidate<M: MatcherBackend + ?Sized>(
+    candidate: &crate::Candidate,
+    variants: &[QueryVariant],
+    matcher: &mut M,
+    config: &SearchConfig,
+    stats: &mut SearchStats,
+) -> Option<ScoredCandidate> {
+    let mut best: Option<ScoredCandidate> = None;
+
+    for variant in variants {
+        if variant_blocked_by_config(variant.kind, config) {
+            continue;
+        }
+
+        for (key_index, key) in candidate.keys.iter().enumerate() {
+            if key_blocked_by_config(key.kind, config) {
+                continue;
+            }
+
+            if !key_kind_allowed(variant, key.kind) {
+                continue;
+            }
+
+            stats.keys_seen += 1;
+            stats.fuzzy_calls += 1;
+
+            if let Some(base_score) = matcher.score(&variant.text, &key.text) {
+                let score = base_score + i64::from(variant.weight + key.weight);
+                let scored = ScoredCandidate {
+                    id: candidate.id,
+                    display: candidate.display.clone(),
+                    score,
+                    key_kind: key.kind,
+                    key_index: key_index as u32,
+                };
+
+                if best
+                    .as_ref()
+                    .is_none_or(|current| scored.score > current.score)
+                {
+                    best = Some(scored);
+                }
+            }
+        }
+    }
+
+    best
 }
 
 fn search_extended(
@@ -776,6 +844,108 @@ mod tests {
         );
         let parallel = search("abc", &candidates, &PlainBackend, &cfg);
         let mut matcher = GreedyMatcher;
+        let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
+
+        assert_eq!(parallel, sequential);
+    }
+
+    #[test]
+    fn parallel_nucleo_search_matches_sequential_matcher_results() {
+        let cfg = SearchConfig {
+            limit: 4,
+            matcher_algo: MatcherAlgo::Nucleo,
+            ..SearchConfig::default()
+        };
+        let candidates = build_index(
+            [
+                "zzabc",
+                "abc",
+                "src/abc.txt",
+                "abc-long-name",
+                "a/b/c",
+                "prefix-abc",
+            ],
+            &PlainBackend,
+            &cfg,
+        );
+        let parallel = search("abc", &candidates, &PlainBackend, &cfg);
+        let mut matcher = NucleoMatcher::default();
+        let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
+
+        assert_eq!(parallel, sequential);
+    }
+
+    #[test]
+    fn parallel_nucleo_no_sort_multi_chunk_matches_sequential_matcher_results() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .expect("test thread pool");
+        pool.install(|| {
+            let cfg = SearchConfig {
+                limit: 5,
+                matcher_algo: MatcherAlgo::Nucleo,
+                no_sort: true,
+                ..SearchConfig::default()
+            };
+            let candidates = build_index(
+                [
+                    "zzabc",
+                    "nope",
+                    "abc",
+                    "xxabc",
+                    "a/b/c",
+                    "prefix-abc",
+                    "zzz",
+                ],
+                &PlainBackend,
+                &cfg,
+            );
+            let (parallel, parallel_stats) =
+                search_nucleo_with_stats("abc", &candidates, &PlainBackend, &cfg);
+            let mut matcher = NucleoMatcher::default();
+            let (sequential, sequential_stats) =
+                search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg);
+
+            assert_eq!(parallel, sequential);
+            assert_eq!(
+                parallel
+                    .iter()
+                    .map(|result| result.display.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["zzabc", "abc", "xxabc", "a/b/c", "prefix-abc"]
+            );
+            assert_eq!(
+                parallel_stats.candidates_seen,
+                sequential_stats.candidates_seen
+            );
+            assert_eq!(parallel_stats.keys_seen, sequential_stats.keys_seen);
+            assert_eq!(parallel_stats.fuzzy_calls, sequential_stats.fuzzy_calls);
+            assert_eq!(parallel_stats.variants_seen, sequential_stats.variants_seen);
+        });
+    }
+
+    #[test]
+    fn parallel_fzf_v2_search_matches_sequential_nucleo_results() {
+        let cfg = SearchConfig {
+            limit: 4,
+            matcher_algo: MatcherAlgo::FzfV2,
+            ..SearchConfig::default()
+        };
+        let candidates = build_index(
+            [
+                "zzabc",
+                "abc",
+                "src/abc.txt",
+                "abc-long-name",
+                "a/b/c",
+                "prefix-abc",
+            ],
+            &PlainBackend,
+            &cfg,
+        );
+        let parallel = search("abc", &candidates, &PlainBackend, &cfg);
+        let mut matcher = NucleoMatcher::default();
         let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
 
         assert_eq!(parallel, sequential);
