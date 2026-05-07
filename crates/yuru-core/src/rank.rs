@@ -7,7 +7,10 @@ use rayon::prelude::*;
 use std::cmp::Ordering;
 
 const STREAMING_TOP_RESULTS_LIMIT: usize = 1024;
+#[cfg(not(test))]
 const PARALLEL_SEARCH_CHUNK_SIZE: usize = 4096;
+#[cfg(test)]
+const PARALLEL_SEARCH_CHUNK_SIZE: usize = 2;
 #[cfg(not(test))]
 const PARALLEL_SEARCH_THRESHOLD: usize = 100_000;
 #[cfg(test)]
@@ -870,6 +873,56 @@ mod tests {
         let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
 
         assert_eq!(parallel, sequential);
+    }
+
+    #[test]
+    fn parallel_nucleo_no_sort_multi_chunk_matches_sequential_matcher_results() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .expect("test thread pool");
+        pool.install(|| {
+            let cfg = SearchConfig {
+                limit: 5,
+                matcher_algo: MatcherAlgo::Nucleo,
+                no_sort: true,
+                ..SearchConfig::default()
+            };
+            let candidates = build_index(
+                [
+                    "zzabc",
+                    "nope",
+                    "abc",
+                    "xxabc",
+                    "a/b/c",
+                    "prefix-abc",
+                    "zzz",
+                ],
+                &PlainBackend,
+                &cfg,
+            );
+            let (parallel, parallel_stats) =
+                search_nucleo_with_stats("abc", &candidates, &PlainBackend, &cfg);
+            let mut matcher = NucleoMatcher::default();
+            let (sequential, sequential_stats) =
+                search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg);
+
+            assert_eq!(parallel, sequential);
+            assert_eq!(
+                parallel
+                    .iter()
+                    .map(|result| result.display.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["zzabc", "abc", "xxabc", "a/b/c", "prefix-abc"]
+            );
+            assert_eq!(
+                parallel_stats.candidates_seen,
+                sequential_stats.candidates_seen
+            );
+            assert_eq!(parallel_stats.keys_seen, sequential_stats.keys_seen);
+            assert_eq!(parallel_stats.fuzzy_calls, sequential_stats.fuzzy_calls);
+            assert_eq!(parallel_stats.variants_seen, sequential_stats.variants_seen);
+        });
     }
 
     #[test]
