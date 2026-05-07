@@ -1,5 +1,7 @@
 use crate::api::PreviewCommand;
-use crate::preview::{run_preview_command, PreviewCache, PreviewGeometry, PreviewPayload};
+#[cfg(unix)]
+use crate::preview::PreviewGeometry;
+use crate::preview::{run_preview_command, PreviewCache, PreviewPayload};
 
 use super::helpers::{preview_key, test_geometry};
 

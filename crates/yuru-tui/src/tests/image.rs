@@ -2,15 +2,20 @@ use std::sync::mpsc;
 
 use ratatui_image::picker::{Picker, ProtocolType};
 
+#[cfg(unix)]
 use crate::api::PreviewCommand;
+#[cfg(unix)]
+use crate::preview::run_preview_command;
 use crate::preview::{
     encode_image_preview, image_protocol_from_env, preview_file_command_path,
-    preview_image_from_output, run_preview_command, ImageEncodeResult, ImageEncodeWorker,
-    PreviewCache, PreviewContent, PreviewPayload, PREVIEW_WORKER_POLL,
+    preview_image_from_output, ImageEncodeResult, ImageEncodeWorker, PreviewCache, PreviewContent,
+    PreviewPayload, PREVIEW_WORKER_POLL,
 };
 use crate::render::render_image_preview;
 
-use super::helpers::{preview_key, test_geometry, tiny_png_bytes, EnvGuard};
+#[cfg(unix)]
+use super::helpers::test_geometry;
+use super::helpers::{preview_key, tiny_png_bytes, EnvGuard};
 
 #[cfg(feature = "image")]
 #[test]
