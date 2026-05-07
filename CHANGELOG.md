@@ -2,6 +2,11 @@
 
 All notable user-facing changes are tracked here.
 
+## 0.1.6
+
+- Fixed the Unix installer so binary-only installs with `--no-shell` / `--no-config`
+  exit successfully after installing the release asset.
+
 ## 0.1.5
 
 - Added Korean Hangul matching support, including romanization, choseong initials, and Korean 2-set keyboard-layout keys.
