@@ -99,6 +99,27 @@ The hot path has a few guardrails:
 - The TUI runs search work on a background worker and ignores stale responses
   using request sequence numbers.
 
+### Standard Search Path
+
+The default matcher path is the standard search path in `yuru-core::rank`.
+This is used for the normal `--algo greedy` mode and for the compatibility
+alias `--algo fzf-v1`. Exact mode also uses the same standard path when the
+query does not require fzf-style extended parsing, with the score function
+switched from fuzzy subsequence scoring to exact substring scoring.
+
+`standard` here means that Yuru does not call a boxed matcher backend for every
+candidate/key pair. Instead, it expands the query once, scans the already-built
+candidate keys directly, calls `score_text` or `score_exact_text`, and keeps
+only the best compatible key for each candidate. This path is the one that can
+parallelize large candidate sets with Rayon chunks and use the bounded
+`TopResults` buffer for small sorted limits.
+
+Yuru leaves this standard path when the query needs extended fzf syntax, when
+filtering is disabled, or when `--algo fzf-v2` / `--algo nucleo` selects the
+nucleo-backed quality matcher. Those paths go through `search_with_stats` and a
+mutable matcher backend, which is more flexible but currently less parallel
+than the standard greedy path.
+
 ### Search Complexity
 
 Let:
