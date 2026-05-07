@@ -2,6 +2,11 @@
 
 All notable user-facing changes are tracked here.
 
+## 0.1.7
+
+- Added package README metadata so crates.io renders the README for all published Yuru crates.
+- Added rustdoc coverage for the public core, language backend, and TUI APIs.
+
 ## 0.1.6
 
 - Fixed the Unix installer so binary-only installs with `--no-shell` / `--no-config`
