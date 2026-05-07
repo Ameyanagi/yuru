@@ -1,7 +1,8 @@
 use crate::{
-    dedup_and_limit_variants, fzf_query, key_kind_allowed, score_exact_text, score_text,
-    ExactMatcher, GreedyMatcher, LanguageBackend, MatcherAlgo, MatcherBackend, NucleoMatcher,
-    QueryVariant, QueryVariantKind, SearchConfig, SearchStats, Tiebreak,
+    fzf_query, key_kind_allowed,
+    query::{key_blocked_by_config, prepare_query_variants, variant_blocked_by_config},
+    score_exact_text, score_text, ExactMatcher, GreedyMatcher, LanguageBackend, MatcherAlgo,
+    MatcherBackend, NucleoMatcher, QueryVariant, SearchConfig, SearchStats, Tiebreak,
 };
 use rayon::prelude::*;
 use std::cmp::Ordering;
@@ -93,7 +94,7 @@ fn search_standard(
     score_mode: ScoreMode,
     config: &SearchConfig,
 ) -> (Vec<ScoredCandidate>, SearchStats) {
-    let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
+    let variants = prepare_query_variants(query, backend, config);
     if should_search_parallel(candidates.len()) {
         return search_standard_parallel(query, candidates, &variants, score_mode, config);
     }
@@ -108,7 +109,7 @@ fn search_standard(
     for candidate in candidates {
         stats.candidates_seen += 1;
         if let Some(scored) =
-            score_standard_candidate(candidate, &variants, score_mode, config, Some(&mut stats))
+            score_standard_candidate(candidate, &variants, score_mode, config, &mut stats)
         {
             push_scored(scored, &mut results, top_results.as_mut());
         }
@@ -140,13 +141,9 @@ fn search_standard_parallel(
 
             for candidate in chunk {
                 stats.candidates_seen += 1;
-                if let Some(scored) = score_standard_candidate(
-                    candidate,
-                    variants,
-                    score_mode,
-                    config,
-                    Some(&mut stats),
-                ) {
+                if let Some(scored) =
+                    score_standard_candidate(candidate, variants, score_mode, config, &mut stats)
+                {
                     push_scored(scored, &mut results, top_results.as_mut());
                 }
             }
@@ -171,7 +168,19 @@ fn score_standard_candidate(
     variants: &[QueryVariant],
     score_mode: ScoreMode,
     config: &SearchConfig,
-    mut stats: Option<&mut SearchStats>,
+    stats: &mut SearchStats,
+) -> Option<ScoredCandidate> {
+    score_candidate_with(candidate, variants, config, stats, |pattern, text| {
+        score_mode.score(pattern, text)
+    })
+}
+
+fn score_candidate_with(
+    candidate: &crate::Candidate,
+    variants: &[QueryVariant],
+    config: &SearchConfig,
+    stats: &mut SearchStats,
+    mut score_text: impl FnMut(&str, &str) -> Option<i64>,
 ) -> Option<ScoredCandidate> {
     let mut best: Option<ScoredCandidate> = None;
 
@@ -189,12 +198,10 @@ fn score_standard_candidate(
                 continue;
             }
 
-            if let Some(stats) = stats.as_deref_mut() {
-                stats.keys_seen += 1;
-                stats.fuzzy_calls += 1;
-            }
+            stats.keys_seen += 1;
+            stats.fuzzy_calls += 1;
 
-            if let Some(base_score) = score_mode.score(&variant.text, &key.text) {
+            if let Some(base_score) = score_text(&variant.text, &key.text) {
                 let score = base_score + i64::from(variant.weight + key.weight);
                 let scored = ScoredCandidate {
                     id: candidate.id,
@@ -223,7 +230,7 @@ fn search_nucleo_with_stats(
     backend: &dyn LanguageBackend,
     config: &SearchConfig,
 ) -> (Vec<ScoredCandidate>, SearchStats) {
-    let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
+    let variants = prepare_query_variants(query, backend, config);
     if should_search_parallel(candidates.len()) {
         return search_nucleo_parallel(query, candidates, &variants, config);
     }
@@ -309,7 +316,7 @@ fn search_standard_with_matcher(
     matcher: &mut dyn MatcherBackend,
     config: &SearchConfig,
 ) -> (Vec<ScoredCandidate>, SearchStats) {
-    let variants = dedup_and_limit_variants(backend.expand_query(query), config.max_query_variants);
+    let variants = prepare_query_variants(query, backend, config);
     search_with_matcher_variants(query, candidates, &variants, matcher, config)
 }
 
@@ -346,46 +353,9 @@ fn score_matcher_candidate<M: MatcherBackend + ?Sized>(
     config: &SearchConfig,
     stats: &mut SearchStats,
 ) -> Option<ScoredCandidate> {
-    let mut best: Option<ScoredCandidate> = None;
-
-    for variant in variants {
-        if variant_blocked_by_config(variant.kind, config) {
-            continue;
-        }
-
-        for (key_index, key) in candidate.keys.iter().enumerate() {
-            if key_blocked_by_config(key.kind, config) {
-                continue;
-            }
-
-            if !key_kind_allowed(variant, key.kind) {
-                continue;
-            }
-
-            stats.keys_seen += 1;
-            stats.fuzzy_calls += 1;
-
-            if let Some(base_score) = matcher.score(&variant.text, &key.text) {
-                let score = base_score + i64::from(variant.weight + key.weight);
-                let scored = ScoredCandidate {
-                    id: candidate.id,
-                    display: candidate.display.clone(),
-                    score,
-                    key_kind: key.kind,
-                    key_index: key_index as u32,
-                };
-
-                if best
-                    .as_ref()
-                    .is_none_or(|current| scored.score > current.score)
-                {
-                    best = Some(scored);
-                }
-            }
-        }
-    }
-
-    best
+    score_candidate_with(candidate, variants, config, stats, |pattern, text| {
+        matcher.score(pattern, text)
+    })
 }
 
 fn search_extended(
@@ -678,14 +648,6 @@ fn comparable(text: &str) -> String {
     crate::normalize::normalize(text)
 }
 
-fn key_blocked_by_config(kind: crate::KeyKind, config: &SearchConfig) -> bool {
-    kind == crate::KeyKind::Normalized && (config.case_sensitive || !config.normalize)
-}
-
-fn variant_blocked_by_config(kind: QueryVariantKind, config: &SearchConfig) -> bool {
-    kind == QueryVariantKind::Normalized && (config.case_sensitive || !config.normalize)
-}
-
 fn normalized_query(query: &str) -> String {
     query
         .split_whitespace()
@@ -739,244 +701,4 @@ fn pathname_rank(text: &str, context: &RankContext) -> (usize, usize) {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{build_index, query::PlainBackend};
-
-    use super::*;
-
-    #[test]
-    fn sorting_is_deterministic_on_equal_scores() {
-        let cfg = SearchConfig::default();
-        let candidates = build_index(["abc-one", "abc-two"], &PlainBackend, &cfg);
-        let results = search("abc", &candidates, &PlainBackend, &cfg);
-
-        assert_eq!(results[0].display, "abc-one");
-        assert_eq!(results[1].display, "abc-two");
-    }
-
-    #[test]
-    fn search_hot_path_does_not_call_reading_generator() {
-        let cfg = SearchConfig::default();
-        let candidates = build_index(["東京駅"], &PlainBackend, &cfg);
-        let mut matcher = GreedyMatcher;
-
-        let (_results, stats) =
-            search_with_stats("tokyo", &candidates, &PlainBackend, &mut matcher, &cfg);
-
-        assert_eq!(stats.reading_generation_calls, 0);
-    }
-
-    #[test]
-    fn tiebreak_length_prefers_shorter_display_for_equal_scores() {
-        let cfg = SearchConfig {
-            disabled: true,
-            tiebreaks: vec![Tiebreak::Length],
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(["aaaa", "aa"], &PlainBackend, &cfg);
-        let results = search("", &candidates, &PlainBackend, &cfg);
-
-        assert_eq!(results[0].display, "aa");
-    }
-
-    #[test]
-    fn tiebreak_index_prefers_input_order() {
-        let cfg = SearchConfig {
-            disabled: true,
-            tiebreaks: vec![Tiebreak::Index],
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(["aaaa", "aa"], &PlainBackend, &cfg);
-        let results = search("", &candidates, &PlainBackend, &cfg);
-
-        assert_eq!(results[0].display, "aaaa");
-    }
-
-    #[test]
-    fn tiebreak_pathname_prefers_match_in_basename() {
-        let cfg = SearchConfig {
-            disabled: true,
-            tiebreaks: vec![Tiebreak::Pathname],
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(["foo/file.txt", "src/foo.txt"], &PlainBackend, &cfg);
-        let results = search("foo", &candidates, &PlainBackend, &cfg);
-
-        assert_eq!(results[0].display, "src/foo.txt");
-    }
-
-    #[test]
-    fn no_sort_preserves_input_order_after_filtering() {
-        let cfg = SearchConfig {
-            no_sort: true,
-            limit: 2,
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(["zzabc", "abc", "xxabc"], &PlainBackend, &cfg);
-        let results = search("abc", &candidates, &PlainBackend, &cfg);
-
-        assert_eq!(
-            results
-                .iter()
-                .map(|result| result.display.as_str())
-                .collect::<Vec<_>>(),
-            vec!["zzabc", "abc"]
-        );
-    }
-
-    #[test]
-    fn parallel_search_matches_sequential_matcher_results() {
-        let cfg = SearchConfig {
-            limit: 4,
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(
-            [
-                "zzabc",
-                "abc",
-                "src/abc.txt",
-                "abc-long-name",
-                "a/b/c",
-                "prefix-abc",
-            ],
-            &PlainBackend,
-            &cfg,
-        );
-        let parallel = search("abc", &candidates, &PlainBackend, &cfg);
-        let mut matcher = GreedyMatcher;
-        let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
-
-        assert_eq!(parallel, sequential);
-    }
-
-    #[test]
-    fn parallel_nucleo_search_matches_sequential_matcher_results() {
-        let cfg = SearchConfig {
-            limit: 4,
-            matcher_algo: MatcherAlgo::Nucleo,
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(
-            [
-                "zzabc",
-                "abc",
-                "src/abc.txt",
-                "abc-long-name",
-                "a/b/c",
-                "prefix-abc",
-            ],
-            &PlainBackend,
-            &cfg,
-        );
-        let parallel = search("abc", &candidates, &PlainBackend, &cfg);
-        let mut matcher = NucleoMatcher::default();
-        let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
-
-        assert_eq!(parallel, sequential);
-    }
-
-    #[test]
-    fn parallel_nucleo_no_sort_multi_chunk_matches_sequential_matcher_results() {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(2)
-            .build()
-            .expect("test thread pool");
-        pool.install(|| {
-            let cfg = SearchConfig {
-                limit: 5,
-                matcher_algo: MatcherAlgo::Nucleo,
-                no_sort: true,
-                ..SearchConfig::default()
-            };
-            let candidates = build_index(
-                [
-                    "zzabc",
-                    "nope",
-                    "abc",
-                    "xxabc",
-                    "a/b/c",
-                    "prefix-abc",
-                    "zzz",
-                ],
-                &PlainBackend,
-                &cfg,
-            );
-            let (parallel, parallel_stats) =
-                search_nucleo_with_stats("abc", &candidates, &PlainBackend, &cfg);
-            let mut matcher = NucleoMatcher::default();
-            let (sequential, sequential_stats) =
-                search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg);
-
-            assert_eq!(parallel, sequential);
-            assert_eq!(
-                parallel
-                    .iter()
-                    .map(|result| result.display.as_str())
-                    .collect::<Vec<_>>(),
-                vec!["zzabc", "abc", "xxabc", "a/b/c", "prefix-abc"]
-            );
-            assert_eq!(
-                parallel_stats.candidates_seen,
-                sequential_stats.candidates_seen
-            );
-            assert_eq!(parallel_stats.keys_seen, sequential_stats.keys_seen);
-            assert_eq!(parallel_stats.fuzzy_calls, sequential_stats.fuzzy_calls);
-            assert_eq!(parallel_stats.variants_seen, sequential_stats.variants_seen);
-        });
-    }
-
-    #[test]
-    fn parallel_fzf_v2_search_matches_sequential_nucleo_results() {
-        let cfg = SearchConfig {
-            limit: 4,
-            matcher_algo: MatcherAlgo::FzfV2,
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(
-            [
-                "zzabc",
-                "abc",
-                "src/abc.txt",
-                "abc-long-name",
-                "a/b/c",
-                "prefix-abc",
-            ],
-            &PlainBackend,
-            &cfg,
-        );
-        let parallel = search("abc", &candidates, &PlainBackend, &cfg);
-        let mut matcher = NucleoMatcher::default();
-        let sequential = search_with_stats("abc", &candidates, &PlainBackend, &mut matcher, &cfg).0;
-
-        assert_eq!(parallel, sequential);
-    }
-
-    #[test]
-    fn streaming_top_results_match_full_sorted_results() {
-        let limited_cfg = SearchConfig {
-            limit: 3,
-            ..SearchConfig::default()
-        };
-        let full_cfg = SearchConfig {
-            limit: usize::MAX,
-            ..SearchConfig::default()
-        };
-        let candidates = build_index(
-            [
-                "zzabc",
-                "abc",
-                "src/abc.txt",
-                "abc-long-name",
-                "a/b/c",
-                "prefix-abc",
-            ],
-            &PlainBackend,
-            &full_cfg,
-        );
-
-        let limited = search("abc", &candidates, &PlainBackend, &limited_cfg);
-        let full = search("abc", &candidates, &PlainBackend, &full_cfg);
-
-        assert_eq!(limited, full[..3]);
-    }
-}
+mod tests;

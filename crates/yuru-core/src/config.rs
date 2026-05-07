@@ -29,6 +29,51 @@ pub struct SearchConfig {
     pub tiebreaks: Vec<Tiebreak>,
 }
 
+/// Candidate-key generation budget passed to language backends.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KeyBudget {
+    /// Maximum number of generated search keys to produce for one candidate.
+    pub max_keys: usize,
+    /// Maximum total UTF-8 bytes to spend on generated key text.
+    pub max_total_key_bytes: usize,
+}
+
+/// Query-variant generation budget passed to language backends.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct QueryBudget {
+    /// Maximum number of query variants to produce for one query.
+    pub max_variants: usize,
+}
+
+impl SearchConfig {
+    /// Returns the candidate-key generation budget represented by this config.
+    pub fn key_budget(&self) -> KeyBudget {
+        KeyBudget {
+            max_keys: self.max_search_keys_per_candidate,
+            max_total_key_bytes: self.max_total_key_bytes_per_candidate,
+        }
+    }
+
+    /// Returns the query-variant generation budget represented by this config.
+    pub fn query_budget(&self) -> QueryBudget {
+        QueryBudget {
+            max_variants: self.max_query_variants,
+        }
+    }
+}
+
+impl Default for KeyBudget {
+    fn default() -> Self {
+        SearchConfig::default().key_budget()
+    }
+}
+
+impl Default for QueryBudget {
+    fn default() -> Self {
+        SearchConfig::default().query_budget()
+    }
+}
+
 /// Matcher implementation selected for fuzzy scoring.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatcherAlgo {

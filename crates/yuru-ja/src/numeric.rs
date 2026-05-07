@@ -15,15 +15,15 @@ pub(crate) fn numeric_source_digits(
     for (index, ch) in run
         .chars()
         .enumerate()
-        .skip(span.start)
-        .take(span.end.saturating_sub(span.start))
+        .skip(span.start_char)
+        .take(span.end_char.saturating_sub(span.start_char))
     {
         if let Some(digit) = digit_value(ch) {
             digits.push((
                 char::from(b'0' + digit),
                 SourceSpan {
-                    start: index,
-                    end: index + 1,
+                    start_char: index,
+                    end_char: index + 1,
                 },
             ));
         } else if !is_numeric_separator(ch) {
@@ -67,7 +67,10 @@ pub(crate) fn numeric_context_tokenizer_input(run: &str) -> Option<NumericTokeni
             let end = index;
             if let Some(numeral) = japanese_numeral_for_digits(&digits) {
                 changed = true;
-                let span = SourceSpan { start, end };
+                let span = SourceSpan {
+                    start_char: start,
+                    end_char: end,
+                };
                 text.push_str(&numeral);
                 source_map.extend(numeral.chars().map(|_| span));
             } else {
@@ -78,8 +81,8 @@ pub(crate) fn numeric_context_tokenizer_input(run: &str) -> Option<NumericTokeni
 
         text.push(chars[index]);
         source_map.push(SourceSpan {
-            start: index,
-            end: index + 1,
+            start_char: index,
+            end_char: index + 1,
         });
         index += 1;
     }
@@ -145,8 +148,8 @@ fn push_original_chars(
     for (offset, ch) in chars.iter().enumerate().take(end).skip(start) {
         text.push(*ch);
         source_map.push(SourceSpan {
-            start: offset,
-            end: offset + 1,
+            start_char: offset,
+            end_char: offset + 1,
         });
     }
 }
@@ -320,10 +323,34 @@ mod tests {
         let input = numeric_context_tokenizer_input("2025年8月").unwrap();
 
         assert_eq!(input.text, "二千二十五年八月");
-        assert_eq!(input.source_map[0], SourceSpan { start: 0, end: 4 });
-        assert_eq!(input.source_map[5], SourceSpan { start: 4, end: 5 });
-        assert_eq!(input.source_map[6], SourceSpan { start: 5, end: 6 });
-        assert_eq!(input.source_map[7], SourceSpan { start: 6, end: 7 });
+        assert_eq!(
+            input.source_map[0],
+            SourceSpan {
+                start_char: 0,
+                end_char: 4
+            }
+        );
+        assert_eq!(
+            input.source_map[5],
+            SourceSpan {
+                start_char: 4,
+                end_char: 5
+            }
+        );
+        assert_eq!(
+            input.source_map[6],
+            SourceSpan {
+                start_char: 5,
+                end_char: 6
+            }
+        );
+        assert_eq!(
+            input.source_map[7],
+            SourceSpan {
+                start_char: 6,
+                end_char: 7
+            }
+        );
     }
 
     #[test]
@@ -331,7 +358,13 @@ mod tests {
         let input = numeric_context_tokenizer_input("８月").unwrap();
 
         assert_eq!(input.text, "八月");
-        assert_eq!(input.source_map[0], SourceSpan { start: 0, end: 1 });
+        assert_eq!(
+            input.source_map[0],
+            SourceSpan {
+                start_char: 0,
+                end_char: 1
+            }
+        );
     }
 
     #[test]
@@ -339,8 +372,20 @@ mod tests {
         let input = numeric_context_tokenizer_input("1年000001号10000年").unwrap();
 
         assert_eq!(input.text, "一年000001号10000年");
-        assert_eq!(input.source_map[0], SourceSpan { start: 0, end: 1 });
-        assert_eq!(input.source_map[2], SourceSpan { start: 2, end: 3 });
+        assert_eq!(
+            input.source_map[0],
+            SourceSpan {
+                start_char: 0,
+                end_char: 1
+            }
+        );
+        assert_eq!(
+            input.source_map[2],
+            SourceSpan {
+                start_char: 2,
+                end_char: 3
+            }
+        );
     }
 
     #[test]

@@ -8,13 +8,13 @@ const PARALLEL_INDEX_THRESHOLD: usize = 50_000;
 #[cfg(test)]
 const PARALLEL_INDEX_THRESHOLD: usize = 4;
 
-/// Byte span in the original candidate text that produced a generated key part.
+/// Character span in the original candidate text that produced a generated key part.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceSpan {
-    /// Inclusive byte offset where the source span starts.
-    pub start: usize,
-    /// Exclusive byte offset where the source span ends.
-    pub end: usize,
+    /// Inclusive character offset where the source span starts.
+    pub start_char: usize,
+    /// Exclusive character offset where the source span ends.
+    pub end_char: usize,
 }
 
 /// Indexed input row with display text and searchable keys.
@@ -41,7 +41,79 @@ pub struct SearchKey {
     pub source_map: Option<Box<[Option<SourceSpan>]>>,
 }
 
+/// Text plus a per-character source map.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MappedText {
+    /// Generated text.
+    pub text: String,
+    /// Map from generated text character positions back to source spans.
+    pub source_map: Vec<Option<SourceSpan>>,
+}
+
+/// Helper for constructing mapped generated text.
+#[derive(Clone, Debug, Default)]
+pub struct MappedTextBuilder {
+    mapped: MappedText,
+}
+
+impl MappedTextBuilder {
+    /// Creates an empty mapped text builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Appends text and maps every appended character to the same source span.
+    pub fn push_str(&mut self, text: &str, source: Option<SourceSpan>) {
+        self.mapped.text.push_str(text);
+        self.mapped.source_map.extend(text.chars().map(|_| source));
+    }
+
+    /// Appends one mapped character.
+    pub fn push_char(&mut self, ch: char, source: Option<SourceSpan>) {
+        self.mapped.text.push(ch);
+        self.mapped.source_map.push(source);
+    }
+
+    /// Appends one unmapped separator character.
+    pub fn push_unmapped_char(&mut self, ch: char) {
+        self.mapped.text.push(ch);
+        self.mapped.source_map.push(None);
+    }
+
+    /// Finishes the builder and returns the mapped text.
+    pub fn finish(self) -> MappedText {
+        self.mapped
+    }
+}
+
 impl SearchKey {
+    /// Creates a search key using the default weight for its kind.
+    pub fn new(kind: KeyKind, text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            kind,
+            weight: Self::default_weight(kind),
+            source_map: None,
+        }
+    }
+
+    /// Returns the default score adjustment for a key kind.
+    pub fn default_weight(kind: KeyKind) -> i32 {
+        match kind {
+            KeyKind::Original => 3000,
+            KeyKind::Normalized => 2800,
+            KeyKind::KanaReading => 1700,
+            KeyKind::RomajiReading => 1800,
+            KeyKind::PinyinFull => 1750,
+            KeyKind::PinyinJoined => 1800,
+            KeyKind::PinyinInitials => 1850,
+            KeyKind::KoreanRomanized => 1800,
+            KeyKind::KoreanInitials => 1850,
+            KeyKind::KoreanKeyboard => 1750,
+            KeyKind::LearnedAlias => 2500,
+        }
+    }
+
     /// Attaches a source map to this key.
     pub fn with_source_map(mut self, source_map: Vec<Option<SourceSpan>>) -> Self {
         self.source_map = Some(source_map.into_boxed_slice());
@@ -50,112 +122,57 @@ impl SearchKey {
 
     /// Creates an original-display search key.
     pub fn original(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::Original,
-            weight: 3000,
-            source_map: None,
-        }
+        Self::new(KeyKind::Original, text)
     }
 
     /// Creates a normalized-display search key.
     pub fn normalized(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::Normalized,
-            weight: 2800,
-            source_map: None,
-        }
+        Self::new(KeyKind::Normalized, text)
     }
 
     /// Creates a Japanese kana-reading search key.
     pub fn kana_reading(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::KanaReading,
-            weight: 1700,
-            source_map: None,
-        }
+        Self::new(KeyKind::KanaReading, text)
     }
 
     /// Creates a Japanese romaji-reading search key.
     pub fn romaji_reading(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::RomajiReading,
-            weight: 1800,
-            source_map: None,
-        }
+        Self::new(KeyKind::RomajiReading, text)
     }
 
     /// Creates a Chinese pinyin search key with separated syllables.
     pub fn pinyin_full(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::PinyinFull,
-            weight: 1750,
-            source_map: None,
-        }
+        Self::new(KeyKind::PinyinFull, text)
     }
 
     /// Creates a Chinese pinyin search key with syllables joined.
     pub fn pinyin_joined(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::PinyinJoined,
-            weight: 1800,
-            source_map: None,
-        }
+        Self::new(KeyKind::PinyinJoined, text)
     }
 
     /// Creates a Chinese pinyin initials search key.
     pub fn pinyin_initials(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::PinyinInitials,
-            weight: 1850,
-            source_map: None,
-        }
+        Self::new(KeyKind::PinyinInitials, text)
     }
 
     /// Creates a Korean romanized Hangul search key.
     pub fn korean_romanized(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::KoreanRomanized,
-            weight: 1800,
-            source_map: None,
-        }
+        Self::new(KeyKind::KoreanRomanized, text)
     }
 
     /// Creates a Korean initial-consonant search key.
     pub fn korean_initials(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::KoreanInitials,
-            weight: 1850,
-            source_map: None,
-        }
+        Self::new(KeyKind::KoreanInitials, text)
     }
 
     /// Creates a Korean keyboard-layout search key.
     pub fn korean_keyboard(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::KoreanKeyboard,
-            weight: 1750,
-            source_map: None,
-        }
+        Self::new(KeyKind::KoreanKeyboard, text)
     }
 
     /// Creates a user-learned alias search key.
     pub fn learned_alias(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            kind: KeyKind::LearnedAlias,
-            weight: 2500,
-            source_map: None,
-        }
+        Self::new(KeyKind::LearnedAlias, text)
     }
 }
 
@@ -171,7 +188,7 @@ pub fn build_candidate(
     if config.normalize {
         keys.push(SearchKey::normalized(backend.normalize_candidate(&display)));
     }
-    keys.extend(backend.build_candidate_keys(&display));
+    keys.extend(backend.build_candidate_keys(&display, config.key_budget()));
     let keys = dedup_and_limit_keys(keys, config);
 
     Candidate { id, display, keys }
@@ -235,66 +252,4 @@ pub fn dedup_and_limit_keys(keys: Vec<SearchKey>, config: &SearchConfig) -> Vec<
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{query::PlainBackend, KeyKind};
-
-    use super::*;
-
-    #[test]
-    fn plain_mode_only_original_and_normalized() {
-        let cand = build_candidate(0, "東京駅", &PlainBackend, &SearchConfig::default());
-
-        assert!(cand.keys.iter().any(|k| k.kind == KeyKind::Original));
-        assert!(cand.keys.iter().any(|k| k.kind == KeyKind::Normalized));
-        assert!(!cand
-            .keys
-            .iter()
-            .any(|k| matches!(k.kind, KeyKind::KanaReading | KeyKind::RomajiReading)));
-    }
-
-    #[test]
-    fn original_key_is_always_present() {
-        let cand = build_candidate(0, "README.md", &PlainBackend, &SearchConfig::default());
-        assert!(cand.keys.iter().any(|k| k.kind == KeyKind::Original));
-    }
-
-    #[test]
-    fn search_keys_are_deduped_and_capped() {
-        let cfg = SearchConfig {
-            max_search_keys_per_candidate: 4,
-            ..SearchConfig::default()
-        };
-        let keys = vec![
-            SearchKey::original("a"),
-            SearchKey::normalized("a"),
-            SearchKey::normalized("a"),
-            SearchKey::learned_alias("b"),
-            SearchKey::learned_alias("c"),
-            SearchKey::learned_alias("d"),
-        ];
-
-        let out = dedup_and_limit_keys(keys, &cfg);
-
-        assert!(out.len() <= 4);
-        assert_eq!(
-            out.len(),
-            out.iter()
-                .map(|k| (k.kind, k.text.as_str()))
-                .collect::<HashSet<_>>()
-                .len()
-        );
-    }
-
-    #[test]
-    fn parallel_index_preserves_input_order_and_ids() {
-        let cfg = SearchConfig::default();
-        let cand = build_index(["one", "two", "three", "four"], &PlainBackend, &cfg);
-
-        assert_eq!(
-            cand.iter()
-                .map(|candidate| (candidate.id, candidate.display.as_str()))
-                .collect::<Vec<_>>(),
-            vec![(0, "one"), (1, "two"), (2, "three"), (3, "four")]
-        );
-    }
-}
+mod tests;
