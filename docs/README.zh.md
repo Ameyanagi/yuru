@@ -16,7 +16,7 @@ Yuru 默认安装到用户目录，不需要 `sudo`。
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install | sh -s -- --all --version v0.1.5
 ```
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
@@ -30,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 无需提示直接指定语言和快捷键:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install | sh -s -- --all --version v0.1.5 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
 ```
 
 之后可以运行 `yuru configure` 重新配置。
@@ -38,8 +38,8 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.4"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.5"
 ```
 
 这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
@@ -48,7 +48,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 只安装二进制文件:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --version v0.1.4
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install | sh -s -- --version v0.1.5
 ```
 
 从 crates.io 安装:
@@ -150,8 +150,8 @@ push version tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的 rele
 release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 ## 许可证

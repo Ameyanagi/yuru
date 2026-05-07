@@ -2,6 +2,15 @@
 
 All notable user-facing changes are tracked here.
 
+## 0.1.5
+
+- Added Korean Hangul matching support, including romanization, choseong initials, and Korean 2-set keyboard-layout keys.
+- Added built-in preview configuration with `bat` / `cat` text fallback, ASCII text sniffing, internal image rendering, and selectable image protocols.
+- Added Chinese `zh.polyphone = "common"` heteronym expansion with capped alternate pinyin keys; reserved `phrase` and `script` options now warn or stay hidden.
+- Added README/demo and internals documentation covering multilingual indexing/search complexity, fzf comparison, preview internals, and agentic coding disclosure.
+- Hardened release publishing by including `yuru-ko` in the crates.io publish order and validating omitted workspace dependencies before tag releases.
+- Clarified matcher algorithm names so `fzf-v1` / `fzf-v2` are documented as compatibility-inspired modes, not byte-for-byte fzf implementations.
+
 ## 0.1.4
 
 - Added streaming interactive input for stdin and default source commands, with `--sync` for fzf-style synchronous startup.

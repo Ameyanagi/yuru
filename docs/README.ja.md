@@ -16,7 +16,7 @@ Yuru はデフォルトでユーザー領域にインストールされます。
 macOS / Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install | sh -s -- --all --version v0.1.5
 ```
 
 通常は `~/.local/bin` に `yuru` を配置します。`XDG_BIN_HOME` または
@@ -30,7 +30,7 @@ shell 統合を入れる場合は shell path backend も尋ねます。既定の
 プロンプトなしで言語や key binding を指定する場合:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --all --version v0.1.4 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install | sh -s -- --all --version v0.1.5 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
 ```
 
 あとから変更する場合は `yuru configure` を実行します。
@@ -38,8 +38,8 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.4"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.5"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin` に `yuru.exe` を配置し、ユーザー PATH と PowerShell profile を更新します。
@@ -48,7 +48,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.4"
 バイナリだけを入れる場合:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.4/install | sh -s -- --version v0.1.4
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.5/install | sh -s -- --version v0.1.5
 ```
 
 crates.io から入れる場合:
@@ -150,8 +150,8 @@ version tag を push すると GitHub Actions が macOS、Linux、Windows 向け
 release workflow は tag push でだけ動き、tag は crate version と一致している必要があります。
 
 ```sh
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 ## ライセンス
