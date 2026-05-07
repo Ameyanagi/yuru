@@ -30,6 +30,8 @@ agentic workflow, with the project maintainer steering the specification.
 
 [Watch the full-quality MP4 demo](demo.mp4)
 
+<video src="demo.mp4" controls muted playsinline width="100%"></video>
+
 ## Why Yuru instead of fzf?
 
 | Feature | fzf | Yuru |
@@ -74,17 +76,17 @@ This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
 `YURU_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
 shell. Run from an interactive terminal, this command asks for install-time
 choices such as default language, preview command, image preview protocol, shell
-bindings, and shell path backend, then writes user-space defaults to
-`~/.config/yuru/config.toml`. Pressing Enter accepts the prompt defaults. The
-preview command default `auto` uses Yuru's built-in preview with `bat` when
-available for configured text extensions. The image preview protocol default is
-`none`. The shell path backend default `auto` tries `fd`, then `fdfind`, then the
-portable fallback.
+bindings, preview text extensions, and shell path backend, then writes
+user-space defaults to `~/.config/yuru/config.toml`. Pressing Enter accepts the
+prompt defaults. The preview command default `auto` uses Yuru's built-in preview
+with `bat` when available for configured text extensions. The image preview
+protocol default is `none`. The shell path backend default `auto` tries `fd`,
+then `fdfind`, then the portable fallback.
 
-To choose language or key bindings explicitly without prompts:
+To preselect guided-install defaults:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 `--bindings` accepts `all`, `none`, `ask`, or a comma-separated list such as
@@ -100,16 +102,15 @@ Invoke-Expression "& { $script } -All -Version v0.1.6"
 
 This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
 the user PATH, adds PowerShell integration to your user profile, and can write
-the default language and shell bindings to `%APPDATA%\yuru\config.toml`.
-Interactive installs ask for the default language; use `-DefaultLang` to skip
-that prompt. Use `-PreviewCommand auto|none|COMMAND`,
-`-PreviewImageProtocol none|halfblocks|sixel|kitty|iterm2`, and
-`-PathBackend auto|fd|fdfind|find` to set preview and shell path behavior
-without prompts.
+guided config values to `%APPDATA%\yuru\config.toml`. Interactive installs ask
+for the default language, preview command, preview text extensions, image
+preview protocol, shell bindings, and shell path backend. Use `-DefaultLang`,
+`-PreviewCommand`, `-PreviewImageProtocol`, `-PathBackend`, and `-Bindings` to
+preselect those values.
 
 ```powershell
 $script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.6 -DefaultLang ja -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto"
+Invoke-Expression "& { $script } -All -Version v0.1.6 -DefaultLang ja -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
 ```
 
 To install only the binary:

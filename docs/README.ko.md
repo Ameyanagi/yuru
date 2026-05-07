@@ -20,16 +20,17 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh 
 ```
 
 기본 설치 위치는 `~/.local/bin`입니다. `XDG_BIN_HOME` 또는 `YURU_INSTALL_BIN_DIR`로 변경할 수 있습니다.
-이 명령은 대화형 터미널에서 기본 언어, preview command, 이미지 preview protocol,
-shell binding, shell path backend를 물어보고 `~/.config/yuru/config.toml`에 저장합니다.
+이 명령은 대화형 터미널에서 기본 언어, preview command, preview text extensions,
+이미지 preview protocol, shell binding, shell path backend를 물어보고
+`~/.config/yuru/config.toml`에 저장합니다.
 Enter를 누르면 각 항목의 기본값을 사용합니다. preview command 기본값 `auto`는 text preview에
 `bat`이 있으면 쓰고, 이미지는 내부 preview를 사용합니다. 이미지 preview protocol 기본값은
 `none`입니다. shell path backend 기본값 `auto`는 `fd`, `fdfind`, fallback 순서로 사용합니다.
 
-프롬프트 없이 언어와 key binding을 지정하려면:
+대화형 설치의 기본값을 명시하려면:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang ko --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang ko --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 나중에 바꾸려면 `yuru configure`를 실행합니다.
@@ -42,7 +43,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.6"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin`에 `yuru.exe`를 설치하고, 사용자 PATH와 PowerShell profile을 업데이트합니다.
-대화형 환경에서는 기본 언어, preview command, 이미지 preview protocol, shell path backend를 물어봅니다. `-DefaultLang ko`, `-PreviewCommand auto`, `-PreviewImageProtocol none`, `-PathBackend auto`, `-Bindings ask`처럼 지정하면 프롬프트 없이 `%APPDATA%\yuru\config.toml`에 기본값을 씁니다.
+대화형 환경에서는 기본 언어, preview command, preview text extensions, 이미지 preview protocol, shell binding, shell path backend를 물어봅니다. `-DefaultLang ko`, `-PreviewCommand auto`, `-PreviewImageProtocol none`, `-PathBackend auto`, `-Bindings all`처럼 지정하면 대화형 설치의 기본값을 명시할 수 있습니다.
 
 바이너리만 설치:
 

@@ -23,8 +23,9 @@ writes to `%LOCALAPPDATA%\Yuru\bin`.
 
 The Unix command above is the recommended interactive install command. With an
 interactive terminal, `--all` asks for shell integration and user config choices:
-default language, preview command, preview image protocol, shell bindings, and
-shell path backend. Pressing Enter accepts the prompt defaults.
+default language, preview command, preview text extensions, preview image
+protocol, shell bindings, and shell path backend. Pressing Enter accepts the
+prompt defaults.
 Use `--default-lang ask|plain|ja|ko|zh|auto|none` or `-DefaultLang` to override
 the language prompt or skip it.
 Interactive installs also ask whether to force an image preview protocol; the
@@ -35,7 +36,8 @@ They also ask for the preview command. The default `auto` uses Yuru's built-in
 preview with `bat` or `cat`-style fallback for configured text extensions and
 internal image rendering. Use `--preview-command auto|none|COMMAND`,
 `--preview-text-extensions txt,md,json,...`, `-PreviewCommand`, or
-`-PreviewTextExtensions` to set this without prompts.
+`-PreviewTextExtensions` to preselect those values. In an interactive terminal,
+the guided installer still offers a chance to edit the text extension list.
 Use `--bindings ask|all|none|ctrl-t,ctrl-r,alt-c,completion` or `-Bindings` to
 choose which shell bindings are enabled. `yuru configure` can update the same
 user config later.

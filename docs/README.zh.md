@@ -21,16 +21,16 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh 
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
 `YURU_INSTALL_BIN_DIR` 修改安装目录。这个命令会在交互式终端中询问默认语言、
-preview command、图片 preview protocol、shell binding 和 shell path backend，
-并写入 `~/.config/yuru/config.toml`。直接按 Enter 会使用各项默认值。
+preview command、preview text extensions、图片 preview protocol、shell binding 和
+shell path backend，并写入 `~/.config/yuru/config.toml`。直接按 Enter 会使用各项默认值。
 preview command 默认值 `auto` 会在文本预览中优先使用 `bat`，图片则使用内部 preview。
 图片 preview protocol 默认值是 `none`。shell path backend 默认值 `auto` 会依次尝试
 `fd`、`fdfind` 和 fallback。
 
-无需提示直接指定语言和快捷键:
+显式设置交互式安装的默认值:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 之后可以运行 `yuru configure` 重新配置。
@@ -43,7 +43,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.6"
 ```
 
 这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
-交互环境中会询问默认语言、preview command、图片 preview protocol 和 shell path backend。可以使用 `-DefaultLang zh`、`-PreviewCommand auto`、`-PreviewImageProtocol none`、`-PathBackend auto` 或 `-Bindings ask` 无需提示地写入 `%APPDATA%\yuru\config.toml`。
+交互环境中会询问默认语言、preview command、preview text extensions、图片 preview protocol、shell binding 和 shell path backend。可以使用 `-DefaultLang zh`、`-PreviewCommand auto`、`-PreviewImageProtocol none`、`-PathBackend auto` 或 `-Bindings all` 显式设置交互式安装的默认值。
 
 只安装二进制文件:
 

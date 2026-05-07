@@ -21,16 +21,17 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh 
 
 通常は `~/.local/bin` に `yuru` を配置します。`XDG_BIN_HOME` または
 `YURU_INSTALL_BIN_DIR` を設定すると変更できます。このコマンドは対話環境では
-デフォルト言語、preview command、画像 preview protocol、shell binding、shell path backend を尋ね、
-`~/.config/yuru/config.toml` に保存します。Enter を押すと各項目の既定値を使います。
+デフォルト言語、preview command、preview text extensions、画像 preview protocol、
+shell binding、shell path backend を尋ね、`~/.config/yuru/config.toml` に保存します。
+Enter を押すと各項目の既定値を使います。
 preview command の既定値 `auto` は text では `bat` があれば使い、画像は内部 preview を使います。
 画像 preview protocol の既定値は `none` です。shell path backend の既定値 `auto` は
 `fd`、`fdfind`、fallback の順に使います。
 
-プロンプトなしで言語や key binding を指定する場合:
+対話式インストールの既定値を明示する場合:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings ask
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 あとから変更する場合は `yuru configure` を実行します。
@@ -43,7 +44,7 @@ Invoke-Expression "& { $script } -All -Version v0.1.6"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin` に `yuru.exe` を配置し、ユーザー PATH と PowerShell profile を更新します。
-対話環境ではデフォルト言語、preview command、画像 preview protocol、shell path backend を尋ねます。`-DefaultLang ja`、`-PreviewCommand auto`、`-PreviewImageProtocol none`、`-PathBackend auto`、`-Bindings ask` のように指定すると、プロンプトなしで `%APPDATA%\yuru\config.toml` に既定値を書き込みます。
+対話環境ではデフォルト言語、preview command、preview text extensions、画像 preview protocol、shell binding、shell path backend を尋ねます。`-DefaultLang ja`、`-PreviewCommand auto`、`-PreviewImageProtocol none`、`-PathBackend auto`、`-Bindings all` のように指定すると、対話式インストールの既定値を明示できます。
 
 バイナリだけを入れる場合:
 
