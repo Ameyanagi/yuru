@@ -8,33 +8,47 @@ const PARALLEL_INDEX_THRESHOLD: usize = 50_000;
 #[cfg(test)]
 const PARALLEL_INDEX_THRESHOLD: usize = 4;
 
+/// Byte span in the original candidate text that produced a generated key part.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceSpan {
+    /// Inclusive byte offset where the source span starts.
     pub start: usize,
+    /// Exclusive byte offset where the source span ends.
     pub end: usize,
 }
 
+/// Indexed input row with display text and searchable keys.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Candidate {
+    /// Stable input-order identifier.
     pub id: usize,
+    /// Text shown to the user and emitted on selection.
     pub display: String,
+    /// Searchable forms for this candidate.
     pub keys: Vec<SearchKey>,
 }
 
+/// One searchable form for a candidate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchKey {
+    /// Text that the matcher scores against query variants.
     pub text: String,
+    /// Semantic key type used for query compatibility checks.
     pub kind: KeyKind,
+    /// Score adjustment for this key type.
     pub weight: i32,
+    /// Optional map from key character positions back to original source spans.
     pub source_map: Option<Box<[Option<SourceSpan>]>>,
 }
 
 impl SearchKey {
+    /// Attaches a source map to this key.
     pub fn with_source_map(mut self, source_map: Vec<Option<SourceSpan>>) -> Self {
         self.source_map = Some(source_map.into_boxed_slice());
         self
     }
 
+    /// Creates an original-display search key.
     pub fn original(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -44,6 +58,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a normalized-display search key.
     pub fn normalized(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -53,6 +68,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Japanese kana-reading search key.
     pub fn kana_reading(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -62,6 +78,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Japanese romaji-reading search key.
     pub fn romaji_reading(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -71,6 +88,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Chinese pinyin search key with separated syllables.
     pub fn pinyin_full(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -80,6 +98,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Chinese pinyin search key with syllables joined.
     pub fn pinyin_joined(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -89,6 +108,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Chinese pinyin initials search key.
     pub fn pinyin_initials(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -98,6 +118,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Korean romanized Hangul search key.
     pub fn korean_romanized(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -107,6 +128,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Korean initial-consonant search key.
     pub fn korean_initials(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -116,6 +138,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a Korean keyboard-layout search key.
     pub fn korean_keyboard(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -125,6 +148,7 @@ impl SearchKey {
         }
     }
 
+    /// Creates a user-learned alias search key.
     pub fn learned_alias(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -135,6 +159,7 @@ impl SearchKey {
     }
 }
 
+/// Builds one indexed candidate using base and language-specific keys.
 pub fn build_candidate(
     id: usize,
     display: impl Into<String>,
@@ -152,6 +177,7 @@ pub fn build_candidate(
     Candidate { id, display, keys }
 }
 
+/// Builds an index from input strings, using Rayon for large inputs.
 pub fn build_index<I, S>(
     items: I,
     backend: &dyn LanguageBackend,
@@ -181,6 +207,7 @@ fn should_build_index_parallel(len: usize) -> bool {
     len >= PARALLEL_INDEX_THRESHOLD && rayon::current_num_threads() > 1
 }
 
+/// Removes duplicate keys and caps generated key growth.
 pub fn dedup_and_limit_keys(keys: Vec<SearchKey>, config: &SearchConfig) -> Vec<SearchKey> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();

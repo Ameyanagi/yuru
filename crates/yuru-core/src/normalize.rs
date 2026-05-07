@@ -1,5 +1,6 @@
 use unicode_normalization::UnicodeNormalization;
 
+/// Applies NFKC normalization, lowercasing, and dash-width folding.
 pub fn normalize(text: &str) -> String {
     text.nfkc()
         .flat_map(char::to_lowercase)
@@ -7,6 +8,7 @@ pub fn normalize(text: &str) -> String {
         .collect()
 }
 
+/// Folds width-compatible dash and prolonged-sound variants to ASCII `-`.
 pub fn fold_width_compatible_char(ch: char) -> char {
     match ch {
         '-' | '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
@@ -16,6 +18,7 @@ pub fn fold_width_compatible_char(ch: char) -> char {
     }
 }
 
+/// Converts katakana characters in `text` to hiragana.
 pub fn katakana_to_hiragana(text: &str) -> String {
     text.chars()
         .map(|ch| {
@@ -28,6 +31,7 @@ pub fn katakana_to_hiragana(text: &str) -> String {
         .collect()
 }
 
+/// Converts hiragana characters in `text` to katakana.
 pub fn hiragana_to_katakana(text: &str) -> String {
     text.chars()
         .map(|ch| {
@@ -40,6 +44,7 @@ pub fn hiragana_to_katakana(text: &str) -> String {
         .collect()
 }
 
+/// Returns true when `text` contains hiragana or katakana.
 pub fn contains_kana(text: &str) -> bool {
     text.chars()
         .any(|ch| ('ぁ'..='ゖ').contains(&ch) || ('ァ'..='ヶ').contains(&ch))

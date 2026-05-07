@@ -2,6 +2,7 @@ use std::collections::{HashSet, VecDeque};
 
 use yuru_core::{normalize::fold_width_compatible_char, SourceSpan};
 
+/// Returns kana candidates for a romaji query, capped at `max`.
 pub fn romaji_to_kana_candidates(input: &str, max: usize) -> Vec<String> {
     if max == 0 {
         return Vec::new();
@@ -47,6 +48,7 @@ pub fn romaji_to_kana_candidates(input: &str, max: usize) -> Vec<String> {
     out
 }
 
+/// Converts hiragana text to deterministic romaji where possible.
 pub fn kana_to_romaji(input: &str) -> String {
     let chars: Vec<char> = input.chars().collect();
     let mut out = String::new();
@@ -89,6 +91,7 @@ pub fn kana_to_romaji(input: &str) -> String {
     out
 }
 
+/// Converts hiragana text to romaji while carrying source spans forward.
 pub fn kana_to_romaji_with_source_map(
     input: &str,
     source_map: &[Option<SourceSpan>],

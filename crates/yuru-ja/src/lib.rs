@@ -5,7 +5,9 @@
 //! original display text.
 
 mod numeric;
+/// Kanji reading helpers backed by Lindera.
 pub mod reading;
+/// Romaji and kana conversion helpers.
 pub mod romaji;
 
 use yuru_core::{
@@ -15,17 +17,22 @@ use yuru_core::{
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Controls whether Japanese kanji readings are generated.
 pub enum JapaneseReadingMode {
+    /// Do not generate kanji reading keys.
     None,
+    /// Generate kanji reading keys with Lindera.
     Lindera,
 }
 
 #[derive(Clone, Debug)]
+/// Japanese language backend for kana, romaji, and optional kanji readings.
 pub struct JapaneseBackend {
     reading: JapaneseReadingMode,
 }
 
 impl JapaneseBackend {
+    /// Creates a Japanese backend with the selected reading mode.
     pub fn new(reading: JapaneseReadingMode) -> Self {
         Self { reading }
     }

@@ -42,16 +42,24 @@ const FINAL_KEYS: [&str; T_COUNT] = [
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Kind of generated Korean search key.
 pub enum KoreanKeyKind {
+    /// Deterministic Hangul romanization.
     Romanized,
+    /// Choseong initials.
     Initials,
+    /// Korean 2-set keyboard input sequence.
     Keyboard,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// A generated Korean search key and its source map.
 pub struct KoreanKey {
+    /// Generated key text.
     pub text: String,
+    /// Generated key family.
     pub kind: KoreanKeyKind,
+    /// Source span for each generated character, when known.
     pub source_map: Vec<Option<SourceSpan>>,
 }
 
@@ -63,10 +71,12 @@ struct HangulSyllable {
     source: SourceSpan,
 }
 
+/// Returns true when `text` contains Hangul syllables or jamo.
 pub fn contains_hangul(text: &str) -> bool {
     text.chars().any(is_hangul)
 }
 
+/// Builds Korean search keys for `text`, capped at `max`.
 pub fn build_korean_keys(text: &str, max: usize) -> Vec<String> {
     build_korean_keys_with_sources(text, max)
         .into_iter()
@@ -74,6 +84,7 @@ pub fn build_korean_keys(text: &str, max: usize) -> Vec<String> {
         .collect()
 }
 
+/// Builds Korean search keys with source maps, capped at `max`.
 pub fn build_korean_keys_with_sources(text: &str, max: usize) -> Vec<KoreanKey> {
     if text.is_empty() || max == 0 {
         return Vec::new();

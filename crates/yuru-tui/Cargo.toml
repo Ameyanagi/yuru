@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
+readme.workspace = true
 description = "Terminal user interface for Yuru"
 keywords = ["fuzzy", "finder", "tui"]
 categories = ["command-line-utilities"]

@@ -28,15 +28,22 @@ impl ScoreMode {
     }
 }
 
+/// Candidate result after scoring and ranking.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoredCandidate {
+    /// Stable input-order identifier from the indexed candidate.
     pub id: usize,
+    /// Display text selected from the indexed candidate.
     pub display: String,
+    /// Final score after key and query weights.
     pub score: i64,
+    /// Kind of key that produced the best score.
     pub key_kind: crate::KeyKind,
+    /// Index of the key that produced the best score.
     pub key_index: u32,
 }
 
+/// Searches candidates and returns ranked results.
 pub fn search(
     query: &str,
     candidates: &[crate::Candidate],
@@ -213,6 +220,7 @@ fn score_standard_candidate(
     best
 }
 
+/// Searches candidates and returns ranked results with execution counters.
 pub fn search_with_stats(
     query: &str,
     candidates: &[crate::Candidate],

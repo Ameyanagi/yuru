@@ -1,35 +1,61 @@
+/// Search and ranking configuration used by index and query execution.
 #[derive(Clone, Debug)]
 pub struct SearchConfig {
+    /// Maximum number of expanded query variants kept for one query.
     pub max_query_variants: usize,
+    /// Maximum number of search keys kept for one candidate.
     pub max_search_keys_per_candidate: usize,
+    /// Maximum total UTF-8 bytes for non-base search keys on one candidate.
     pub max_total_key_bytes_per_candidate: usize,
+    /// Maximum number of results returned after ranking.
     pub limit: usize,
+    /// Number of top candidates to rescore for quality-oriented ordering.
     pub top_b_for_quality_score: usize,
+    /// Uses exact substring scoring instead of fuzzy subsequence scoring.
     pub exact: bool,
+    /// Enables fzf-style extended query syntax.
     pub extended: bool,
+    /// Preserves case during matching when true.
     pub case_sensitive: bool,
+    /// Disables filtering and returns candidates in ranking order only.
     pub disabled: bool,
+    /// Keeps input order instead of sorting by score.
     pub no_sort: bool,
+    /// Adds normalized candidate and query keys.
     pub normalize: bool,
+    /// Fuzzy matcher implementation used for scoring.
     pub matcher_algo: MatcherAlgo,
+    /// Ordered tiebreak rules applied after score comparison.
     pub tiebreaks: Vec<Tiebreak>,
 }
 
+/// Matcher implementation selected for fuzzy scoring.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatcherAlgo {
+    /// Yuru's default greedy matcher.
     Greedy,
+    /// Greedy fzf-style matcher alias.
     FzfV1,
+    /// Nucleo-backed quality matcher alias.
     FzfV2,
+    /// Nucleo-backed quality matcher.
     Nucleo,
 }
 
+/// Secondary sort rule used when scores are equal.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tiebreak {
+    /// Prefer shorter display strings.
     Length,
+    /// Prefer fewer separated match chunks.
     Chunk,
+    /// Prefer path-like matches with better pathname position.
     Pathname,
+    /// Prefer matches closer to the beginning.
     Begin,
+    /// Prefer matches closer to the end.
     End,
+    /// Prefer lower original candidate index.
     Index,
 }
 

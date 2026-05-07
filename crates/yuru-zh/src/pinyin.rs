@@ -6,8 +6,11 @@ use crate::ChinesePolyphoneMode;
 const MAX_COMMON_READINGS_PER_CHAR: usize = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// A generated pinyin search key and its source map.
 pub struct PinyinKey {
+    /// Generated key text.
     pub text: String,
+    /// Source span for each generated character, when known.
     pub source_map: Vec<Option<SourceSpan>>,
 }
 
@@ -17,6 +20,7 @@ struct SyllableAlternatives {
     source: SourceSpan,
 }
 
+/// Builds pinyin search keys for `text`, capped at `max`.
 pub fn build_pinyin_keys(text: &str, max: usize) -> Vec<String> {
     build_pinyin_keys_with_sources(text, max)
         .into_iter()
@@ -24,10 +28,12 @@ pub fn build_pinyin_keys(text: &str, max: usize) -> Vec<String> {
         .collect()
 }
 
+/// Builds pinyin search keys with source maps, capped at `max`.
 pub fn build_pinyin_keys_with_sources(text: &str, max: usize) -> Vec<PinyinKey> {
     build_pinyin_keys_with_sources_for_mode(text, max, ChinesePolyphoneMode::None)
 }
 
+/// Builds pinyin search keys with source maps using the selected polyphone mode.
 pub fn build_pinyin_keys_with_sources_for_mode(
     text: &str,
     max: usize,

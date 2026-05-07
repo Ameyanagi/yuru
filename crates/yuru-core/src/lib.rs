@@ -5,13 +5,21 @@
 //! phonetic keys are supplied by separate backend crates through
 //! [`LanguageBackend`].
 
+/// Candidate indexing and search-key construction.
 pub mod candidate;
+/// Search configuration knobs shared by the CLI and TUI.
 pub mod config;
+/// Internal parser and scorer for fzf-style extended queries.
 pub mod fzf_query;
+/// Fuzzy and exact matching backends.
 pub mod matcher;
+/// Unicode normalization helpers used before matching.
 pub mod normalize;
+/// Query expansion and key compatibility rules.
 pub mod query;
+/// Candidate ranking and top-result selection.
 pub mod rank;
+/// Counters collected while searching.
 pub mod stats;
 
 use std::fmt;
@@ -32,10 +40,15 @@ pub use rank::{search, search_with_stats, ScoredCandidate};
 pub use stats::SearchStats;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// Language backend selected for one search run.
 pub enum LangMode {
+    /// No language-specific phonetic expansion.
     Plain,
+    /// Japanese kana and romaji expansion.
     Japanese,
+    /// Korean Hangul romanization, initials, and keyboard expansion.
     Korean,
+    /// Chinese pinyin and initials expansion.
     Chinese,
 }
 
@@ -65,38 +78,62 @@ impl FromStr for LangMode {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// Kind of indexed key attached to a candidate.
 pub enum KeyKind {
+    /// Original display text.
     Original,
+    /// Normalized display text.
     Normalized,
+    /// Japanese kana reading.
     KanaReading,
+    /// Japanese romaji reading.
     RomajiReading,
+    /// Chinese pinyin syllables separated by spaces.
     PinyinFull,
+    /// Chinese pinyin joined without separators.
     PinyinJoined,
+    /// Chinese pinyin initials.
     PinyinInitials,
+    /// Korean romanized Hangul.
     KoreanRomanized,
+    /// Korean Hangul initial consonants.
     KoreanInitials,
+    /// Korean keyboard-layout spelling.
     KoreanKeyboard,
+    /// User-learned alias key.
     LearnedAlias,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// Kind of query expansion produced before scoring.
 pub enum QueryVariantKind {
+    /// Query text exactly as entered.
     Original,
+    /// Normalized query text.
     Normalized,
+    /// Kana query text.
     Kana,
+    /// Romaji query converted to kana.
     RomajiToKana,
+    /// Pinyin query text.
     Pinyin,
+    /// Initial-letter query text.
     Initials,
 }
 
+/// Language-specific candidate and query expansion.
 pub trait LanguageBackend: Send + Sync {
+    /// Returns the language mode implemented by this backend.
     fn mode(&self) -> LangMode;
 
+    /// Normalizes candidate display text before the base normalized key is added.
     fn normalize_candidate(&self, text: &str) -> String {
         normalize::normalize(text)
     }
 
+    /// Builds additional language-specific search keys for candidate text.
     fn build_candidate_keys(&self, text: &str) -> Vec<SearchKey>;
 
+    /// Expands a user query into language-specific query variants.
     fn expand_query(&self, query: &str) -> Vec<QueryVariant>;
 }

@@ -14,16 +14,21 @@ const BONUS_FIRST_CHAR_MULTIPLIER: i64 = 2;
 const START_POSITION_PENALTY: i64 = 2;
 const TEXT_LENGTH_PENALTY_DIVISOR: i64 = 8;
 
+/// Pluggable matcher that scores a pattern against one searchable text.
 pub trait MatcherBackend {
+    /// Returns a score when `pattern` matches `text`.
     fn score(&mut self, pattern: &str, text: &str) -> Option<i64>;
 }
 
+/// Greedy subsequence matcher used by the default search path.
 #[derive(Clone, Debug, Default)]
 pub struct GreedyMatcher;
 
+/// Exact substring matcher used by exact mode.
 #[derive(Clone, Debug, Default)]
 pub struct ExactMatcher;
 
+/// Wrapper around `nucleo-matcher` with reusable UTF-32 buffers.
 #[derive(Clone, Debug, Default)]
 pub struct NucleoMatcher {
     matcher: Matcher,
@@ -51,17 +56,21 @@ impl MatcherBackend for NucleoMatcher {
     }
 }
 
+/// Character positions selected for highlighting a match.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MatchPositions {
+    /// Zero-based character indices in the original display text.
     pub char_indices: Vec<usize>,
 }
 
 impl MatchPositions {
+    /// Returns true when no positions were selected.
     pub fn is_empty(&self) -> bool {
         self.char_indices.is_empty()
     }
 }
 
+/// Scores one query variant against one search key after compatibility checks.
 pub fn score_key(variant: &QueryVariant, key: &SearchKey) -> Option<i64> {
     if !key_kind_allowed(variant, key.kind) {
         return None;
@@ -70,6 +79,7 @@ pub fn score_key(variant: &QueryVariant, key: &SearchKey) -> Option<i64> {
     score_text(&variant.text, &key.text).map(|score| score + i64::from(key.weight + variant.weight))
 }
 
+/// Scores a fuzzy subsequence match between `pattern` and `text`.
 pub fn score_text(pattern: &str, text: &str) -> Option<i64> {
     if pattern.is_empty() {
         return Some(0);
@@ -189,6 +199,7 @@ fn char_bonus_at(text: &[char], position: usize) -> i64 {
     }
 }
 
+/// Finds character positions suitable for highlighting a matched pattern.
 pub fn match_positions(pattern: &str, text: &str, case_sensitive: bool) -> Option<MatchPositions> {
     if pattern.is_empty() {
         return Some(MatchPositions {
@@ -492,6 +503,7 @@ fn score_unicode_text_for_test(pattern: &str, text: &str) -> Option<i64> {
     Some(exact_bonus + compact_score)
 }
 
+/// Scores an exact substring match between `pattern` and `text`.
 pub fn score_exact_text(pattern: &str, text: &str) -> Option<i64> {
     if pattern.is_empty() {
         return Some(0);

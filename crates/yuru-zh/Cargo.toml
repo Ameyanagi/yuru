@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
+readme.workspace = true
 description = "Chinese pinyin matching support for Yuru"
 keywords = ["fuzzy", "chinese", "pinyin"]
 categories = ["text-processing"]

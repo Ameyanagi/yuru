@@ -3,11 +3,13 @@
 //! The backend adds deterministic Hangul romanization, choseong initials, and
 //! Korean 2-set keyboard keys while preserving source spans for highlighting.
 
+/// Hangul decomposition and generated key helpers.
 pub mod hangul;
 
 use yuru_core::{base_query_variants, LangMode, LanguageBackend, QueryVariant, SearchKey};
 
 #[derive(Clone, Debug)]
+/// Korean language backend for romanization, initials, and keyboard keys.
 pub struct KoreanBackend {
     romanization: bool,
     initials: bool,
@@ -15,6 +17,7 @@ pub struct KoreanBackend {
 }
 
 impl KoreanBackend {
+    /// Creates a Korean backend with selected generated key families.
     pub fn new(romanization: bool, initials: bool, keyboard: bool) -> Self {
         Self {
             romanization,

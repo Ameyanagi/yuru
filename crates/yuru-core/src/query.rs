@@ -2,14 +2,19 @@ use std::collections::HashMap;
 
 use crate::{KeyKind, LangMode, LanguageBackend, QueryVariantKind};
 
+/// Search text variant produced from the user's query.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryVariant {
+    /// Text that will be matched against compatible search keys.
     pub text: String,
+    /// Variant type used to filter compatible key kinds.
     pub kind: QueryVariantKind,
+    /// Score adjustment for this variant type.
     pub weight: i32,
 }
 
 impl QueryVariant {
+    /// Creates an original query variant.
     pub fn original(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -18,6 +23,7 @@ impl QueryVariant {
         }
     }
 
+    /// Creates a normalized query variant.
     pub fn normalized(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -26,6 +32,7 @@ impl QueryVariant {
         }
     }
 
+    /// Creates a kana query variant.
     pub fn kana(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -34,6 +41,7 @@ impl QueryVariant {
         }
     }
 
+    /// Creates a romaji-to-kana query variant.
     pub fn romaji_to_kana(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -42,6 +50,7 @@ impl QueryVariant {
         }
     }
 
+    /// Creates a pinyin query variant.
     pub fn pinyin(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -50,6 +59,7 @@ impl QueryVariant {
         }
     }
 
+    /// Creates an initials query variant.
     pub fn initials(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -60,6 +70,7 @@ impl QueryVariant {
 }
 
 #[derive(Clone, Debug, Default)]
+/// Backend that only uses original and normalized text.
 pub struct PlainBackend;
 
 impl LanguageBackend for PlainBackend {
@@ -76,6 +87,7 @@ impl LanguageBackend for PlainBackend {
     }
 }
 
+/// Builds the language-neutral original and normalized query variants.
 pub fn base_query_variants(query: &str) -> Vec<QueryVariant> {
     let mut variants = vec![QueryVariant::original(query)];
     let normalized = crate::normalize::normalize(query);
@@ -85,6 +97,7 @@ pub fn base_query_variants(query: &str) -> Vec<QueryVariant> {
     variants
 }
 
+/// Deduplicates variants by text and key coverage, then applies the query cap.
 pub fn dedup_and_limit_variants(
     variants: Vec<QueryVariant>,
     max_query_variants: usize,
@@ -140,6 +153,7 @@ fn key_kind_coverage(kind: QueryVariantKind) -> u16 {
     }
 }
 
+/// Returns whether a query variant may be scored against a key kind.
 pub fn key_kind_allowed(variant: &QueryVariant, kind: KeyKind) -> bool {
     match variant.kind {
         QueryVariantKind::Original | QueryVariantKind::Normalized => matches!(

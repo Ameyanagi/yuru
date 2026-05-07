@@ -3,25 +3,35 @@
 //! The backend adds full pinyin, joined pinyin, and initials keys for Han text
 //! and preserves source spans for CJK-aware highlighting.
 
+/// Pinyin key generation helpers.
 pub mod pinyin;
 
 use yuru_core::{base_query_variants, LangMode, LanguageBackend, QueryVariant, SearchKey};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Controls how alternate Chinese character readings are generated.
 pub enum ChinesePolyphoneMode {
+    /// Use only the primary reading for each character.
     None,
+    /// Add common alternate readings with a small cap.
     Common,
+    /// Reserved phrase mode; currently falls back to common alternate readings.
     Phrase,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Reserved Chinese script handling mode.
 pub enum ChineseScriptMode {
+    /// Reserved auto script handling.
     Auto,
+    /// Reserved simplified Chinese handling.
     Hans,
+    /// Reserved traditional Chinese handling.
     Hant,
 }
 
 #[derive(Clone, Debug)]
+/// Chinese language backend for pinyin and initials keys.
 pub struct ChineseBackend {
     pinyin: bool,
     initials: bool,
@@ -30,6 +40,7 @@ pub struct ChineseBackend {
 }
 
 impl ChineseBackend {
+    /// Creates a Chinese backend with selected pinyin and script options.
     pub fn new(
         pinyin: bool,
         initials: bool,

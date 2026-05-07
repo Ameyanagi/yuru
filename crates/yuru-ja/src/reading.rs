@@ -15,8 +15,11 @@ const MAX_CACHED_RUN_CHARS: usize = 128;
 const MAX_READING_CACHE_ENTRIES: usize = 4096;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// A generated Japanese reading and its per-character source map.
 pub struct ReadingCandidate {
+    /// Generated reading text.
     pub text: String,
+    /// Source span for each generated character, when known.
     pub source_map: Vec<Option<SourceSpan>>,
 }
 
@@ -27,6 +30,7 @@ struct CachedReading {
     used_reading: bool,
 }
 
+/// Returns kanji reading candidates for `input`, capped at `max`.
 pub fn kanji_reading_candidates(input: &str, max: usize) -> Vec<String> {
     kanji_reading_candidates_with_sources(input, max)
         .into_iter()
@@ -34,6 +38,7 @@ pub fn kanji_reading_candidates(input: &str, max: usize) -> Vec<String> {
         .collect()
 }
 
+/// Returns kanji reading candidates with source maps, capped at `max`.
 pub fn kanji_reading_candidates_with_sources(input: &str, max: usize) -> Vec<ReadingCandidate> {
     if max == 0 || !contains_han(input) {
         return Vec::new();
