@@ -13,19 +13,19 @@ Yuru 是一个快速的命令行 fuzzy finder，支持日文读音、韩文 Hang
 
 Yuru 默认安装到用户目录，不需要 `sudo`。
 
-macOS / Linux:
+macOS / Linux 交互式安装:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6
 ```
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
-`YURU_INSTALL_BIN_DIR` 修改安装目录。`--all` 会为当前 shell 添加集成配置。
-安装器会在交互环境中询问默认语言，并写入 `~/.config/yuru/config.toml`。
-直接按 Enter，或在非交互环境中运行时，会使用 `ja`。
-它也会询问 preview command。默认值 `auto` 会在文本预览中优先使用 `bat`，图片则使用内部 preview。
-它也会询问图片 preview protocol。默认值 `none` 会保留自动检测。
-安装 shell 集成时也会询问 shell path backend。默认值 `auto` 会依次尝试 `fd`、`fdfind` 和 fallback。
+`YURU_INSTALL_BIN_DIR` 修改安装目录。这个命令会在交互式终端中询问默认语言、
+preview command、图片 preview protocol、shell binding 和 shell path backend，
+并写入 `~/.config/yuru/config.toml`。直接按 Enter 会使用各项默认值。
+preview command 默认值 `auto` 会在文本预览中优先使用 `bat`，图片则使用内部 preview。
+图片 preview protocol 默认值是 `none`。shell path backend 默认值 `auto` 会依次尝试
+`fd`、`fdfind` 和 fallback。
 
 无需提示直接指定语言和快捷键:
 

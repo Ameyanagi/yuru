@@ -2,7 +2,7 @@
 
 Yuru installers are user-space installers. They do not require `sudo`.
 
-## Release-Pinned Install
+## Release-Pinned Guided Install
 
 macOS and Linux:
 
@@ -17,12 +17,16 @@ $script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.
 Invoke-Expression "& { $script } -All -Version v0.1.6"
 ```
 
-The Unix installer writes the binary to `~/.local/bin` unless `XDG_BIN_HOME`, `YURU_INSTALL_BIN_DIR`, or `--bin-dir` overrides it. The Windows installer writes to `%LOCALAPPDATA%\Yuru\bin`.
+The Unix installer writes the binary to `~/.local/bin` unless `XDG_BIN_HOME`,
+`YURU_INSTALL_BIN_DIR`, or `--bin-dir` overrides it. The Windows installer
+writes to `%LOCALAPPDATA%\Yuru\bin`.
 
-`--all` can also add shell integration and write config. Interactive installs
-ask for the default language. Pressing Enter, or running without an interactive
-prompt, uses Japanese (`ja`). Use `--default-lang ask|plain|ja|ko|zh|auto|none` or
-`-DefaultLang` to override it or skip the prompt.
+The Unix command above is the recommended interactive install command. With an
+interactive terminal, `--all` asks for shell integration and user config choices:
+default language, preview command, preview image protocol, shell bindings, and
+shell path backend. Pressing Enter accepts the prompt defaults.
+Use `--default-lang ask|plain|ja|ko|zh|auto|none` or `-DefaultLang` to override
+the language prompt or skip it.
 Interactive installs also ask whether to force an image preview protocol; the
 default `none` leaves automatic detection enabled. Use
 `--preview-image-protocol none|halfblocks|sixel|kitty|iterm2` or

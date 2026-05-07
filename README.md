@@ -64,7 +64,7 @@ Localized documentation:
 
 Yuru installs into user space by default. It does not require `sudo`.
 
-macOS and Linux:
+macOS and Linux guided install:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh -s -- --all --version v0.1.6
@@ -72,14 +72,14 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.6/install | sh 
 
 This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
 `YURU_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
-shell. The installer writes user-space defaults to `~/.config/yuru/config.toml`.
-Interactive installs ask for the default language; pressing Enter, or running
-without an interactive prompt, uses Japanese (`ja`).
-They also ask for the preview command; the default `auto` uses Yuru's built-in
-preview with `bat` when available for configured text extensions. The image
-preview protocol defaults to `none`, which keeps automatic detection. When shell
-integration is installed, they ask which path search backend to use; the default
-`auto` tries `fd`, then `fdfind`, then the portable fallback.
+shell. Run from an interactive terminal, this command asks for install-time
+choices such as default language, preview command, image preview protocol, shell
+bindings, and shell path backend, then writes user-space defaults to
+`~/.config/yuru/config.toml`. Pressing Enter accepts the prompt defaults. The
+preview command default `auto` uses Yuru's built-in preview with `bat` when
+available for configured text extensions. The image preview protocol default is
+`none`. The shell path backend default `auto` tries `fd`, then `fdfind`, then the
+portable fallback.
 
 To choose language or key bindings explicitly without prompts:
 
