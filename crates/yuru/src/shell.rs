@@ -1,3 +1,9 @@
+use std::fs;
+
+use anyhow::{Context, Result};
+
+use crate::config::{yuru_config_source, ConfigSource};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShellKind {
     Bash,
@@ -1177,3 +1183,238 @@ if (Get-Command Set-PSReadLineKeyHandler -ErrorAction SilentlyContinue) {
     }
 }
 "#;
+
+#[derive(Clone, Debug)]
+pub(crate) struct ShellConfigDefaults {
+    pub(crate) bindings: String,
+    pub(crate) path_backend: String,
+    pub(crate) ctrl_t_command: String,
+    pub(crate) ctrl_t_opts: String,
+    pub(crate) alt_c_command: String,
+    pub(crate) alt_c_opts: String,
+}
+
+impl Default for ShellConfigDefaults {
+    fn default() -> Self {
+        Self {
+            bindings: "all".to_string(),
+            path_backend: "auto".to_string(),
+            ctrl_t_command: default_ctrl_t_command().to_string(),
+            ctrl_t_opts: default_ctrl_t_opts().to_string(),
+            alt_c_command: default_alt_c_command().to_string(),
+            alt_c_opts: default_alt_c_opts().to_string(),
+        }
+    }
+}
+
+fn default_ctrl_t_command() -> &'static str {
+    #[cfg(windows)]
+    {
+        "Get-YuruPathItems ."
+    }
+    #[cfg(not(windows))]
+    {
+        "__yuru_compgen_path__ ."
+    }
+}
+
+fn default_ctrl_t_opts() -> &'static str {
+    "--preview-auto"
+}
+
+fn default_alt_c_command() -> &'static str {
+    #[cfg(windows)]
+    {
+        "Get-YuruDirItems ."
+    }
+    #[cfg(not(windows))]
+    {
+        "__yuru_compgen_dir__ ."
+    }
+}
+
+fn default_alt_c_opts() -> &'static str {
+    default_ctrl_t_opts()
+}
+
+pub(crate) fn print_shell_script(kind: ShellKind) -> Result<()> {
+    let config = shell_config_defaults().unwrap_or_else(|error| {
+        eprintln!("yuru: warning: failed to load shell config defaults: {error:#}");
+        ShellConfigDefaults::default()
+    });
+    print!("{}", shell_config_prefix(kind, &config));
+    print!("{}", script(kind));
+    Ok(())
+}
+
+fn shell_config_defaults() -> Result<ShellConfigDefaults> {
+    let mut defaults = ShellConfigDefaults::default();
+    let Some(ConfigSource::Toml(path)) = yuru_config_source() else {
+        return Ok(defaults);
+    };
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value = content
+        .parse::<toml::Value>()
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    if let Some(shell) = value.get("shell") {
+        if let Some(bindings) = shell.get("bindings").and_then(toml::Value::as_str) {
+            defaults.bindings = bindings.to_string();
+        }
+        if let Some(path_backend) = shell.get("path_backend").and_then(toml::Value::as_str) {
+            defaults.path_backend = path_backend.to_string();
+        }
+        if let Some(command) = shell.get("ctrl_t_command").and_then(toml::Value::as_str) {
+            defaults.ctrl_t_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("ctrl_t_opts").and_then(toml::Value::as_str) {
+            defaults.ctrl_t_opts = opts.to_string();
+        }
+        if let Some(command) = shell.get("alt_c_command").and_then(toml::Value::as_str) {
+            defaults.alt_c_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("alt_c_opts").and_then(toml::Value::as_str) {
+            defaults.alt_c_opts = opts.to_string();
+        }
+    }
+    Ok(defaults)
+}
+
+pub(crate) fn shell_config_prefix(kind: ShellKind, config: &ShellConfigDefaults) -> String {
+    match kind {
+        ShellKind::Bash | ShellKind::Zsh => format!(
+            "# yuru config defaults\n\
+             if [ -z \"${{YURU_SHELL_BINDINGS+x}}\" ]; then export YURU_SHELL_BINDINGS={}; fi\n\
+             if [ -z \"${{YURU_PATH_BACKEND+x}}\" ]; then export YURU_PATH_BACKEND={}; fi\n\
+             if [ -z \"${{YURU_CTRL_T_COMMAND+x}}\" ]; then export YURU_CTRL_T_COMMAND={}; fi\n\
+             if [ -z \"${{YURU_CTRL_T_OPTS+x}}\" ]; then export YURU_CTRL_T_OPTS={}; fi\n\
+             if [ -z \"${{YURU_ALT_C_COMMAND+x}}\" ]; then export YURU_ALT_C_COMMAND={}; fi\n\
+             if [ -z \"${{YURU_ALT_C_OPTS+x}}\" ]; then export YURU_ALT_C_OPTS={}; fi\n\n",
+            sh_quote(&config.bindings),
+            sh_quote(&config.path_backend),
+            sh_quote(&config.ctrl_t_command),
+            sh_quote(&config.ctrl_t_opts),
+            sh_quote(&config.alt_c_command),
+            sh_quote(&config.alt_c_opts)
+        ),
+        ShellKind::Fish => format!(
+            "# yuru config defaults\n\
+             if not set -q YURU_SHELL_BINDINGS\n  set -gx YURU_SHELL_BINDINGS {}\nend\n\
+             if not set -q YURU_PATH_BACKEND\n  set -gx YURU_PATH_BACKEND {}\nend\n\
+             if not set -q YURU_CTRL_T_COMMAND\n  set -gx YURU_CTRL_T_COMMAND {}\nend\n\
+             if not set -q YURU_CTRL_T_OPTS\n  set -gx YURU_CTRL_T_OPTS {}\nend\n\
+             if not set -q YURU_ALT_C_COMMAND\n  set -gx YURU_ALT_C_COMMAND {}\nend\n\
+             if not set -q YURU_ALT_C_OPTS\n  set -gx YURU_ALT_C_OPTS {}\nend\n\n",
+            fish_quote(&config.bindings),
+            fish_quote(&config.path_backend),
+            fish_quote(&config.ctrl_t_command),
+            fish_quote(&config.ctrl_t_opts),
+            fish_quote(&config.alt_c_command),
+            fish_quote(&config.alt_c_opts)
+        ),
+        ShellKind::PowerShell => format!(
+            "# yuru config defaults\n\
+             if (-not $env:YURU_SHELL_BINDINGS) {{ $env:YURU_SHELL_BINDINGS = {} }}\n\
+             if (-not $env:YURU_PATH_BACKEND) {{ $env:YURU_PATH_BACKEND = {} }}\n\
+             if (-not $env:YURU_CTRL_T_COMMAND) {{ $env:YURU_CTRL_T_COMMAND = {} }}\n\
+             if (-not $env:YURU_CTRL_T_OPTS) {{ $env:YURU_CTRL_T_OPTS = {} }}\n\
+             if (-not $env:YURU_ALT_C_COMMAND) {{ $env:YURU_ALT_C_COMMAND = {} }}\n\
+             if (-not $env:YURU_ALT_C_OPTS) {{ $env:YURU_ALT_C_OPTS = {} }}\n\n",
+            ps_quote(&config.bindings),
+            ps_quote(&config.path_backend),
+            ps_quote(&config.ctrl_t_command),
+            ps_quote(&config.ctrl_t_opts),
+            ps_quote(&config.alt_c_command),
+            ps_quote(&config.alt_c_opts)
+        ),
+    }
+}
+
+fn sh_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn fish_quote(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('$', "\\$")
+            .replace('\n', "\\n")
+    )
+}
+
+fn ps_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+pub(crate) fn shell_config_from_value(value: &toml::Value) -> ShellConfigDefaults {
+    let mut config = ShellConfigDefaults::default();
+    if let Some(shell) = value.get("shell") {
+        if let Some(bindings) = shell.get("bindings").and_then(toml::Value::as_str) {
+            config.bindings = bindings.to_string();
+        }
+        if let Some(path_backend) = shell.get("path_backend").and_then(toml::Value::as_str) {
+            config.path_backend = path_backend.to_string();
+        }
+        if let Some(command) = shell.get("ctrl_t_command").and_then(toml::Value::as_str) {
+            config.ctrl_t_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("ctrl_t_opts").and_then(toml::Value::as_str) {
+            config.ctrl_t_opts = opts.to_string();
+        }
+        if let Some(command) = shell.get("alt_c_command").and_then(toml::Value::as_str) {
+            config.alt_c_command = command.to_string();
+        }
+        if let Some(opts) = shell.get("alt_c_opts").and_then(toml::Value::as_str) {
+            config.alt_c_opts = opts.to_string();
+        }
+    }
+    config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_config_from_toml_overrides_generated_defaults() {
+        let value = r#"
+[shell]
+bindings = "ctrl-t,ctrl-r"
+path_backend = "find"
+ctrl_t_command = "__yuru_compgen_path__ ."
+ctrl_t_opts = "--preview 'cat {}'"
+alt_c_command = "__yuru_compgen_dir__ ."
+alt_c_opts = "--preview 'ls {}'"
+"#
+        .parse::<toml::Value>()
+        .unwrap();
+
+        let config = shell_config_from_value(&value);
+
+        assert_eq!(config.bindings, "ctrl-t,ctrl-r");
+        assert_eq!(config.path_backend, "find");
+        assert_eq!(config.ctrl_t_command, "__yuru_compgen_path__ .");
+        assert_eq!(config.ctrl_t_opts, "--preview 'cat {}'");
+        assert_eq!(config.alt_c_command, "__yuru_compgen_dir__ .");
+        assert_eq!(config.alt_c_opts, "--preview 'ls {}'");
+        assert!(shell_config_prefix(ShellKind::Zsh, &config).contains("YURU_SHELL_BINDINGS"));
+        assert!(shell_config_prefix(ShellKind::Bash, &config).contains("YURU_PATH_BACKEND"));
+        assert!(shell_config_prefix(ShellKind::Fish, &config)
+            .contains("set -gx YURU_CTRL_T_OPTS \"--preview 'cat {}'\""));
+    }
+
+    #[test]
+    fn generated_shell_scripts_avoid_eval_for_completion_paths_and_option_parsing() {
+        for kind in [ShellKind::Bash, ShellKind::Zsh, ShellKind::Fish] {
+            let script = script(kind);
+            assert!(!script.contains("eval \"base=$base\""));
+            assert!(!script.contains("eval \"opt_args=($opts)\""));
+            assert!(!script.contains("eval \"set opts $raw\""));
+            assert!(!script.contains("yuru-history.$$"));
+            assert!(script.contains("mktemp"));
+        }
+    }
+}

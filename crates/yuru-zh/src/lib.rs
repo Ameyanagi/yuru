@@ -6,7 +6,9 @@
 /// Pinyin key generation helpers.
 pub mod pinyin;
 
-use yuru_core::{base_query_variants, LangMode, LanguageBackend, QueryVariant, SearchKey};
+use yuru_core::{
+    base_query_variants, KeyBudget, LangMode, LanguageBackend, QueryBudget, QueryVariant, SearchKey,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Controls how alternate Chinese character readings are generated.
@@ -72,14 +74,14 @@ impl LanguageBackend for ChineseBackend {
         LangMode::Chinese
     }
 
-    fn build_candidate_keys(&self, text: &str) -> Vec<SearchKey> {
+    fn build_candidate_keys(&self, text: &str, budget: KeyBudget) -> Vec<SearchKey> {
         if !self.pinyin {
             return Vec::new();
         }
 
         let _script = self.script;
 
-        pinyin::build_pinyin_keys_with_sources_for_mode(text, 8, self.polyphone)
+        pinyin::build_pinyin_keys_with_sources_for_mode(text, budget.max_keys, self.polyphone)
             .into_iter()
             .filter_map(|key| {
                 let search_key = if key.text.contains(' ') {
@@ -97,7 +99,7 @@ impl LanguageBackend for ChineseBackend {
             .collect()
     }
 
-    fn expand_query(&self, query: &str) -> Vec<QueryVariant> {
+    fn expand_query(&self, query: &str, _budget: QueryBudget) -> Vec<QueryVariant> {
         let mut variants = base_query_variants(query);
         if !self.pinyin {
             return variants;
@@ -139,8 +141,8 @@ mod tests {
             .find(|key| key.kind == KeyKind::PinyinInitials && key.text == "bjdx")
             .unwrap();
 
-        assert_eq!(key.source_map.as_ref().unwrap()[0].unwrap().start, 0);
-        assert_eq!(key.source_map.as_ref().unwrap()[1].unwrap().start, 1);
+        assert_eq!(key.source_map.as_ref().unwrap()[0].unwrap().start_char, 0);
+        assert_eq!(key.source_map.as_ref().unwrap()[1].unwrap().start_char, 1);
     }
 
     #[test]
@@ -245,9 +247,9 @@ mod tests {
             ChineseScriptMode::Hant,
         );
 
-        let auto_keys = auto.build_candidate_keys("臺灣");
-        let hans_keys = hans.build_candidate_keys("臺灣");
-        let hant_keys = hant.build_candidate_keys("臺灣");
+        let auto_keys = auto.build_candidate_keys("臺灣", KeyBudget::default());
+        let hans_keys = hans.build_candidate_keys("臺灣", KeyBudget::default());
+        let hant_keys = hant.build_candidate_keys("臺灣", KeyBudget::default());
 
         assert_eq!(auto_keys, hans_keys);
         assert_eq!(auto_keys, hant_keys);

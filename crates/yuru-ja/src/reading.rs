@@ -157,8 +157,8 @@ fn append_surface_segment(candidates: &mut [CachedReading], segment: &str, start
         for (offset, ch) in segment.chars().enumerate() {
             candidate.text.push(ch);
             candidate.source_map.push(Some(SourceSpan {
-                start: start_char + offset,
-                end: start_char + offset + 1,
+                start_char: start_char + offset,
+                end_char: start_char + offset + 1,
             }));
         }
     }
@@ -207,8 +207,8 @@ fn push_unique_reading(readings: &mut Vec<CachedReading>, reading: CachedReading
 
 fn offset_source_map(source_map: &mut [Option<SourceSpan>], start_char: usize) {
     for span in source_map.iter_mut().flatten() {
-        span.start += start_char;
-        span.end += start_char;
+        span.start_char += start_char;
+        span.end_char += start_char;
     }
 }
 
@@ -262,8 +262,8 @@ fn compute_run_reading_with_source_map(
         let span = transformed_source_map
             .and_then(|source_map| merge_source_span_slice(source_map, token_start, token_end))
             .or(Some(SourceSpan {
-                start: token_start,
-                end: token_end,
+                start_char: token_start,
+                end_char: token_end,
             }));
 
         used_reading |= reading != surface;
@@ -336,8 +336,8 @@ fn compute_numeric_preserving_run_reading(
         }
 
         let span = token_span.or(Some(SourceSpan {
-            start: token_start,
-            end: token_end,
+            start_char: token_start,
+            end_char: token_end,
         }));
         used_reading |= reading != surface;
         text.push_str(&reading);
@@ -473,8 +473,8 @@ fn merge_source_span_slice(
     let first = source_map.get(start)?;
     let mut merged = *first;
     for span in source_map.get(start + 1..end).unwrap_or_default() {
-        merged.start = merged.start.min(span.start);
-        merged.end = merged.end.max(span.end);
+        merged.start_char = merged.start_char.min(span.start_char);
+        merged.end_char = merged.end_char.max(span.end_char);
     }
     Some(merged)
 }
@@ -576,11 +576,17 @@ mod tests {
 
         assert_eq!(
             candidate.source_map[ni_index],
-            Some(SourceSpan { start: 6, end: 9 })
+            Some(SourceSpan {
+                start_char: 6,
+                end_char: 9
+            })
         );
         assert_eq!(
             candidate.source_map[no_index],
-            Some(SourceSpan { start: 9, end: 10 })
+            Some(SourceSpan {
+                start_char: 9,
+                end_char: 10
+            })
         );
     }
 
@@ -605,11 +611,17 @@ mod tests {
 
         assert_eq!(
             candidate.source_map[nen_char],
-            Some(SourceSpan { start: 4, end: 5 })
+            Some(SourceSpan {
+                start_char: 4,
+                end_char: 5
+            })
         );
         assert_eq!(
             candidate.source_map[gatsu_char],
-            Some(SourceSpan { start: 5, end: 7 })
+            Some(SourceSpan {
+                start_char: 5,
+                end_char: 7
+            })
         );
     }
 
@@ -633,11 +645,17 @@ mod tests {
 
         assert_eq!(
             candidate.source_map[first_char],
-            Some(SourceSpan { start: 3, end: 6 })
+            Some(SourceSpan {
+                start_char: 3,
+                end_char: 6
+            })
         );
         assert_eq!(
             candidate.source_map[second_char],
-            Some(SourceSpan { start: 7, end: 10 })
+            Some(SourceSpan {
+                start_char: 7,
+                end_char: 10
+            })
         );
     }
 }

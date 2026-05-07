@@ -10,7 +10,7 @@ pub mod candidate;
 /// Search configuration knobs shared by the CLI and TUI.
 pub mod config;
 /// Internal parser and scorer for fzf-style extended queries.
-pub mod fzf_query;
+mod fzf_query;
 /// Fuzzy and exact matching backends.
 pub mod matcher;
 /// Unicode normalization helpers used before matching.
@@ -26,9 +26,10 @@ use std::fmt;
 use std::str::FromStr;
 
 pub use candidate::{
-    build_candidate, build_index, dedup_and_limit_keys, Candidate, SearchKey, SourceSpan,
+    build_candidate, build_index, dedup_and_limit_keys, Candidate, MappedText, MappedTextBuilder,
+    SearchKey, SourceSpan,
 };
-pub use config::{MatcherAlgo, SearchConfig, Tiebreak};
+pub use config::{KeyBudget, MatcherAlgo, QueryBudget, SearchConfig, Tiebreak};
 pub use matcher::{
     match_positions, score_exact_text, score_text, ExactMatcher, GreedyMatcher, MatchPositions,
     MatcherBackend, NucleoMatcher,
@@ -132,8 +133,8 @@ pub trait LanguageBackend: Send + Sync {
     }
 
     /// Builds additional language-specific search keys for candidate text.
-    fn build_candidate_keys(&self, text: &str) -> Vec<SearchKey>;
+    fn build_candidate_keys(&self, text: &str, budget: KeyBudget) -> Vec<SearchKey>;
 
     /// Expands a user query into language-specific query variants.
-    fn expand_query(&self, query: &str) -> Vec<QueryVariant>;
+    fn expand_query(&self, query: &str, budget: QueryBudget) -> Vec<QueryVariant>;
 }

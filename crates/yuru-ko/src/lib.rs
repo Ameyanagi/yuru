@@ -6,7 +6,9 @@
 /// Hangul decomposition and generated key helpers.
 pub mod hangul;
 
-use yuru_core::{base_query_variants, LangMode, LanguageBackend, QueryVariant, SearchKey};
+use yuru_core::{
+    base_query_variants, KeyBudget, LangMode, LanguageBackend, QueryBudget, QueryVariant, SearchKey,
+};
 
 #[derive(Clone, Debug)]
 /// Korean language backend for romanization, initials, and keyboard keys.
@@ -42,8 +44,8 @@ impl LanguageBackend for KoreanBackend {
         LangMode::Korean
     }
 
-    fn build_candidate_keys(&self, text: &str) -> Vec<SearchKey> {
-        hangul::build_korean_keys_with_sources(text, 8)
+    fn build_candidate_keys(&self, text: &str, budget: KeyBudget) -> Vec<SearchKey> {
+        hangul::build_korean_keys_with_sources(text, budget.max_keys)
             .into_iter()
             .filter_map(|key| {
                 let search_key = match key.kind {
@@ -71,7 +73,7 @@ impl LanguageBackend for KoreanBackend {
             .collect()
     }
 
-    fn expand_query(&self, query: &str) -> Vec<QueryVariant> {
+    fn expand_query(&self, query: &str, _budget: QueryBudget) -> Vec<QueryVariant> {
         base_query_variants(query)
     }
 }

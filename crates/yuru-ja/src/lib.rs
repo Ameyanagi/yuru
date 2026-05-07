@@ -13,8 +13,10 @@ pub mod romaji;
 use yuru_core::{
     base_query_variants, normalize,
     normalize::{contains_kana, katakana_to_hiragana},
-    LangMode, LanguageBackend, QueryVariant, SearchKey, SourceSpan,
+    KeyBudget, LangMode, LanguageBackend, QueryBudget, QueryVariant, SearchKey, SourceSpan,
 };
+
+const ROMAJI_TO_KANA_FANOUT_LIMIT: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Controls whether Japanese kanji readings are generated.
@@ -51,7 +53,7 @@ impl LanguageBackend for JapaneseBackend {
         LangMode::Japanese
     }
 
-    fn build_candidate_keys(&self, text: &str) -> Vec<SearchKey> {
+    fn build_candidate_keys(&self, text: &str, budget: KeyBudget) -> Vec<SearchKey> {
         let mut keys = Vec::new();
 
         if contains_kana(text) {
@@ -59,28 +61,32 @@ impl LanguageBackend for JapaneseBackend {
             push_reading_keys_with_map(&mut keys, &hira, &source_map);
         }
         if self.reading != JapaneseReadingMode::None {
-            for reading in reading::kanji_reading_candidates_with_sources(text, 8) {
+            for reading in reading::kanji_reading_candidates_with_sources(text, budget.max_keys) {
                 let (hira, source_map) =
                     katakana_to_hiragana_with_source_map(&reading.text, &reading.source_map);
                 push_reading_keys_with_map(&mut keys, &hira, &source_map);
+                if keys.len() >= budget.max_keys {
+                    break;
+                }
             }
         }
 
         keys
     }
 
-    fn expand_query(&self, query: &str) -> Vec<QueryVariant> {
+    fn expand_query(&self, query: &str, budget: QueryBudget) -> Vec<QueryVariant> {
         let mut variants = base_query_variants(query);
+        let romaji_limit = budget.max_variants.max(ROMAJI_TO_KANA_FANOUT_LIMIT);
         let normalized = normalize::normalize(query);
         if contains_kana(&normalized) {
             variants.push(QueryVariant::kana(katakana_to_hiragana(&normalized)));
         }
         if let Some(numeric_romaji) = numeric::numeric_romaji_query(query) {
-            for kana in romaji::romaji_to_kana_candidates(&numeric_romaji, 16) {
+            for kana in romaji::romaji_to_kana_candidates(&numeric_romaji, romaji_limit) {
                 variants.push(QueryVariant::romaji_to_kana(kana));
             }
         }
-        for kana in romaji::romaji_to_kana_candidates(query, 16) {
+        for kana in romaji::romaji_to_kana_candidates(query, romaji_limit) {
             variants.push(QueryVariant::romaji_to_kana(kana));
         }
         variants
@@ -95,8 +101,8 @@ fn hiragana_with_source_map(text: &str) -> (String, Vec<Option<SourceSpan>>) {
         let normalized = normalize::normalize(&ch.to_string());
         let hira = katakana_to_hiragana(&normalized);
         let source = Some(SourceSpan {
-            start: char_index,
-            end: char_index + 1,
+            start_char: char_index,
+            end_char: char_index + 1,
         });
         out.push_str(&hira);
         source_map.extend(hira.chars().map(|_| source));
@@ -165,8 +171,20 @@ mod tests {
             .find(|k| k.kind == KeyKind::RomajiReading && k.text.contains("kamera"))
             .unwrap();
         let map = key.source_map.as_ref().unwrap();
-        assert_eq!(map[0], Some(SourceSpan { start: 0, end: 1 }));
-        assert_eq!(map[2], Some(SourceSpan { start: 1, end: 2 }));
+        assert_eq!(
+            map[0],
+            Some(SourceSpan {
+                start_char: 0,
+                end_char: 1
+            })
+        );
+        assert_eq!(
+            map[2],
+            Some(SourceSpan {
+                start_char: 1,
+                end_char: 2
+            })
+        );
     }
 
     #[test]
@@ -244,10 +262,19 @@ mod tests {
         let no_char_index = key.text[..no_index].chars().count();
         let source_map = key.source_map.as_ref().unwrap();
 
-        assert_eq!(source_map[ni_index], Some(SourceSpan { start: 6, end: 9 }));
+        assert_eq!(
+            source_map[ni_index],
+            Some(SourceSpan {
+                start_char: 6,
+                end_char: 9
+            })
+        );
         assert_eq!(
             source_map[no_char_index],
-            Some(SourceSpan { start: 9, end: 10 })
+            Some(SourceSpan {
+                start_char: 9,
+                end_char: 10
+            })
         );
     }
 

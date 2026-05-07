@@ -1,5 +1,5 @@
 use pinyin::{ToPinyin, ToPinyinMulti};
-use yuru_core::SourceSpan;
+use yuru_core::{MappedTextBuilder, SourceSpan};
 
 use crate::ChinesePolyphoneMode;
 
@@ -72,15 +72,15 @@ fn extract_syllable_alternatives(
             out.push(SyllableAlternatives {
                 readings: vec!["chong".to_string()],
                 source: SourceSpan {
-                    start: index,
-                    end: index + 1,
+                    start_char: index,
+                    end_char: index + 1,
                 },
             });
             out.push(SyllableAlternatives {
                 readings: vec!["qing".to_string()],
                 source: SourceSpan {
-                    start: index + 1,
-                    end: index + 2,
+                    start_char: index + 1,
+                    end_char: index + 2,
                 },
             });
             index += 2;
@@ -97,8 +97,8 @@ fn extract_syllable_alternatives(
             out.push(SyllableAlternatives {
                 readings,
                 source: SourceSpan {
-                    start: index,
-                    end: index + 1,
+                    start_char: index,
+                    end_char: index + 1,
                 },
             });
         }
@@ -188,45 +188,50 @@ fn push_sequence_keys(out: &mut Vec<PinyinKey>, syllables: &[(String, SourceSpan
 }
 
 fn full_pinyin_key(syllables: &[(String, SourceSpan)]) -> PinyinKey {
-    let mut text = String::new();
-    let mut source_map = Vec::new();
+    let mut mapped = MappedTextBuilder::new();
 
     for (index, (syllable, source)) in syllables.iter().enumerate() {
         if index > 0 {
-            text.push(' ');
-            source_map.push(None);
+            mapped.push_unmapped_char(' ');
         }
-        text.push_str(syllable);
-        source_map.extend(syllable.chars().map(|_| Some(*source)));
+        mapped.push_str(syllable, Some(*source));
     }
 
-    PinyinKey { text, source_map }
+    let mapped = mapped.finish();
+    PinyinKey {
+        text: mapped.text,
+        source_map: mapped.source_map,
+    }
 }
 
 fn joined_pinyin_key(syllables: &[(String, SourceSpan)]) -> PinyinKey {
-    let mut text = String::new();
-    let mut source_map = Vec::new();
+    let mut mapped = MappedTextBuilder::new();
 
     for (syllable, source) in syllables {
-        text.push_str(syllable);
-        source_map.extend(syllable.chars().map(|_| Some(*source)));
+        mapped.push_str(syllable, Some(*source));
     }
 
-    PinyinKey { text, source_map }
+    let mapped = mapped.finish();
+    PinyinKey {
+        text: mapped.text,
+        source_map: mapped.source_map,
+    }
 }
 
 fn initials_pinyin_key(syllables: &[(String, SourceSpan)]) -> PinyinKey {
-    let mut text = String::new();
-    let mut source_map = Vec::new();
+    let mut mapped = MappedTextBuilder::new();
 
     for (syllable, source) in syllables {
         if let Some(initial) = syllable.chars().next() {
-            text.push(initial);
-            source_map.push(Some(*source));
+            mapped.push_char(initial, Some(*source));
         }
     }
 
-    PinyinKey { text, source_map }
+    let mapped = mapped.finish();
+    PinyinKey {
+        text: mapped.text,
+        source_map: mapped.source_map,
+    }
 }
 
 fn push_unique(out: &mut Vec<PinyinKey>, value: PinyinKey, max: usize) {
@@ -275,19 +280,31 @@ mod tests {
         assert_eq!(initials.source_map.len(), 4);
         assert_eq!(
             initials.source_map[0],
-            Some(SourceSpan { start: 0, end: 1 })
+            Some(SourceSpan {
+                start_char: 0,
+                end_char: 1
+            })
         );
         assert_eq!(
             initials.source_map[1],
-            Some(SourceSpan { start: 1, end: 2 })
+            Some(SourceSpan {
+                start_char: 1,
+                end_char: 2
+            })
         );
         assert_eq!(
             initials.source_map[2],
-            Some(SourceSpan { start: 2, end: 3 })
+            Some(SourceSpan {
+                start_char: 2,
+                end_char: 3
+            })
         );
         assert_eq!(
             initials.source_map[3],
-            Some(SourceSpan { start: 3, end: 4 })
+            Some(SourceSpan {
+                start_char: 3,
+                end_char: 4
+            })
         );
 
         let full = keys
@@ -295,7 +312,13 @@ mod tests {
             .find(|key| key.text == "bei jing da xue")
             .unwrap();
         assert_eq!(full.source_map[3], None);
-        assert_eq!(full.source_map[4], Some(SourceSpan { start: 1, end: 2 }));
+        assert_eq!(
+            full.source_map[4],
+            Some(SourceSpan {
+                start_char: 1,
+                end_char: 2
+            })
+        );
     }
 
     #[test]
@@ -339,9 +362,33 @@ mod tests {
         let joined = keys.iter().find(|key| key.text == "huanmei").unwrap();
 
         assert_eq!(joined.source_map.len(), 7);
-        assert_eq!(joined.source_map[0], Some(SourceSpan { start: 0, end: 1 }));
-        assert_eq!(joined.source_map[3], Some(SourceSpan { start: 0, end: 1 }));
-        assert_eq!(joined.source_map[4], Some(SourceSpan { start: 1, end: 2 }));
-        assert_eq!(joined.source_map[6], Some(SourceSpan { start: 1, end: 2 }));
+        assert_eq!(
+            joined.source_map[0],
+            Some(SourceSpan {
+                start_char: 0,
+                end_char: 1
+            })
+        );
+        assert_eq!(
+            joined.source_map[3],
+            Some(SourceSpan {
+                start_char: 0,
+                end_char: 1
+            })
+        );
+        assert_eq!(
+            joined.source_map[4],
+            Some(SourceSpan {
+                start_char: 1,
+                end_char: 2
+            })
+        );
+        assert_eq!(
+            joined.source_map[6],
+            Some(SourceSpan {
+                start_char: 1,
+                end_char: 2
+            })
+        );
     }
 }

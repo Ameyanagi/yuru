@@ -152,8 +152,8 @@ pub fn kana_to_romaji_with_source_map(
 fn merge_source_spans(left: Option<SourceSpan>, right: Option<SourceSpan>) -> Option<SourceSpan> {
     match (left, right) {
         (Some(left), Some(right)) => Some(SourceSpan {
-            start: left.start.min(right.start),
-            end: left.end.max(right.end),
+            start_char: left.start_char.min(right.start_char),
+            end_char: left.end_char.max(right.end_char),
         }),
         (Some(span), None) | (None, Some(span)) => Some(span),
         (None, None) => None,
@@ -669,16 +669,43 @@ mod tests {
     #[test]
     fn kana_to_romaji_preserves_source_map() {
         let source_map = vec![
-            Some(SourceSpan { start: 0, end: 1 }),
-            Some(SourceSpan { start: 1, end: 2 }),
-            Some(SourceSpan { start: 2, end: 3 }),
+            Some(SourceSpan {
+                start_char: 0,
+                end_char: 1,
+            }),
+            Some(SourceSpan {
+                start_char: 1,
+                end_char: 2,
+            }),
+            Some(SourceSpan {
+                start_char: 2,
+                end_char: 3,
+            }),
         ];
 
         let (romaji, map) = kana_to_romaji_with_source_map("かめら", &source_map);
 
         assert_eq!(romaji, "kamera");
-        assert_eq!(map[0], Some(SourceSpan { start: 0, end: 1 }));
-        assert_eq!(map[2], Some(SourceSpan { start: 1, end: 2 }));
-        assert_eq!(map[4], Some(SourceSpan { start: 2, end: 3 }));
+        assert_eq!(
+            map[0],
+            Some(SourceSpan {
+                start_char: 0,
+                end_char: 1
+            })
+        );
+        assert_eq!(
+            map[2],
+            Some(SourceSpan {
+                start_char: 1,
+                end_char: 2
+            })
+        );
+        assert_eq!(
+            map[4],
+            Some(SourceSpan {
+                start_char: 2,
+                end_char: 3
+            })
+        );
     }
 }

@@ -1,4 +1,4 @@
-use yuru_core::SourceSpan;
+use yuru_core::{MappedTextBuilder, SourceSpan};
 
 const S_BASE: u32 = 0xac00;
 const S_END: u32 = 0xd7a3;
@@ -112,8 +112,8 @@ fn extract_syllables(text: &str) -> Vec<HangulSyllable> {
                 vowel,
                 final_consonant,
                 source: SourceSpan {
-                    start: index,
-                    end: index + 1,
+                    start_char: index,
+                    end_char: index + 1,
                 },
             })
         })
@@ -142,24 +142,22 @@ fn is_hangul(ch: char) -> bool {
 }
 
 fn romanized_key(syllables: &[HangulSyllable], spaced: bool) -> KoreanKey {
-    let mut text = String::new();
-    let mut source_map = Vec::new();
+    let mut mapped = MappedTextBuilder::new();
 
     for (index, syllable) in syllables.iter().enumerate() {
         if spaced && index > 0 {
-            text.push(' ');
-            source_map.push(None);
+            mapped.push_unmapped_char(' ');
         }
 
         let romanized = romanized_syllable(*syllable);
-        text.push_str(&romanized);
-        source_map.extend(romanized.chars().map(|_| Some(syllable.source)));
+        mapped.push_str(&romanized, Some(syllable.source));
     }
 
+    let mapped = mapped.finish();
     KoreanKey {
-        text,
+        text: mapped.text,
         kind: KoreanKeyKind::Romanized,
-        source_map,
+        source_map: mapped.source_map,
     }
 }
 
@@ -172,24 +170,22 @@ fn romanized_syllable(syllable: HangulSyllable) -> String {
 }
 
 fn initials_key(syllables: &[HangulSyllable]) -> KoreanKey {
-    let mut text = String::new();
-    let mut source_map = Vec::new();
+    let mut mapped = MappedTextBuilder::new();
 
     for syllable in syllables {
-        text.push(CHOSEONG[syllable.initial]);
-        source_map.push(Some(syllable.source));
+        mapped.push_char(CHOSEONG[syllable.initial], Some(syllable.source));
     }
 
+    let mapped = mapped.finish();
     KoreanKey {
-        text,
+        text: mapped.text,
         kind: KoreanKeyKind::Initials,
-        source_map,
+        source_map: mapped.source_map,
     }
 }
 
 fn keyboard_key(syllables: &[HangulSyllable]) -> KoreanKey {
-    let mut text = String::new();
-    let mut source_map = Vec::new();
+    let mut mapped = MappedTextBuilder::new();
 
     for syllable in syllables {
         for token in [
@@ -197,15 +193,15 @@ fn keyboard_key(syllables: &[HangulSyllable]) -> KoreanKey {
             VOWEL_KEYS[syllable.vowel],
             FINAL_KEYS[syllable.final_consonant],
         ] {
-            text.push_str(token);
-            source_map.extend(token.chars().map(|_| Some(syllable.source)));
+            mapped.push_str(token, Some(syllable.source));
         }
     }
 
+    let mapped = mapped.finish();
     KoreanKey {
-        text,
+        text: mapped.text,
         kind: KoreanKeyKind::Keyboard,
-        source_map,
+        source_map: mapped.source_map,
     }
 }
 
@@ -259,20 +255,44 @@ mod tests {
         assert_eq!(initials.source_map.len(), 2);
         assert_eq!(
             initials.source_map[0],
-            Some(SourceSpan { start: 5, end: 6 })
+            Some(SourceSpan {
+                start_char: 5,
+                end_char: 6
+            })
         );
         assert_eq!(
             initials.source_map[1],
-            Some(SourceSpan { start: 6, end: 7 })
+            Some(SourceSpan {
+                start_char: 6,
+                end_char: 7
+            })
         );
 
         let joined = keys.iter().find(|key| key.text == "hangeul").unwrap();
-        assert_eq!(joined.source_map[0], Some(SourceSpan { start: 5, end: 6 }));
-        assert_eq!(joined.source_map[3], Some(SourceSpan { start: 6, end: 7 }));
+        assert_eq!(
+            joined.source_map[0],
+            Some(SourceSpan {
+                start_char: 5,
+                end_char: 6
+            })
+        );
+        assert_eq!(
+            joined.source_map[3],
+            Some(SourceSpan {
+                start_char: 6,
+                end_char: 7
+            })
+        );
 
         let spaced = keys.iter().find(|key| key.text == "han geul").unwrap();
         assert_eq!(spaced.source_map[3], None);
-        assert_eq!(spaced.source_map[4], Some(SourceSpan { start: 6, end: 7 }));
+        assert_eq!(
+            spaced.source_map[4],
+            Some(SourceSpan {
+                start_char: 6,
+                end_char: 7
+            })
+        );
     }
 
     #[test]
