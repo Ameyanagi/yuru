@@ -78,10 +78,12 @@ pub fn run_interactive(
             }
         }
 
-        let viewport = Viewport::from_terminal(options.height);
+        let has_prompt = !options.no_input;
+        let viewport = Viewport::from_terminal(options.height, has_prompt);
         let preview_geometry = preview_geometry(
             viewport,
             options.layout,
+            has_prompt,
             options.preview.is_some() && !results.is_empty(),
         );
         preview_cache.request_for_selection(
@@ -233,10 +235,12 @@ pub fn run_interactive_streaming(
             }
         }
 
-        let viewport = Viewport::from_terminal(options.height);
+        let has_prompt = !options.no_input;
+        let viewport = Viewport::from_terminal(options.height, has_prompt);
         let preview_geometry = preview_geometry(
             viewport,
             options.layout,
+            has_prompt,
             options.preview.is_some() && !results.is_empty(),
         );
         preview_cache.request_for_selection(
@@ -296,7 +300,7 @@ pub fn run_interactive_streaming(
         let Event::Key(key) = event::read()? else {
             continue;
         };
-        let viewport = Viewport::from_terminal(options.height);
+        let viewport = Viewport::from_terminal(options.height, !options.no_input);
         match classify_key(key, viewport.rows, &options.expect_keys, &options.bindings) {
             KeyDecision::Accept(expect) => {
                 let ids = state.accepted_ids(&results, options.multi);

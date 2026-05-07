@@ -16,6 +16,8 @@ use yuru_core::{
     KeyBudget, LangMode, LanguageBackend, QueryBudget, QueryVariant, SearchKey, SourceSpan,
 };
 
+const ROMAJI_TO_KANA_FANOUT_LIMIT: usize = 16;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Controls whether Japanese kanji readings are generated.
 pub enum JapaneseReadingMode {
@@ -74,16 +76,17 @@ impl LanguageBackend for JapaneseBackend {
 
     fn expand_query(&self, query: &str, budget: QueryBudget) -> Vec<QueryVariant> {
         let mut variants = base_query_variants(query);
+        let romaji_limit = budget.max_variants.max(ROMAJI_TO_KANA_FANOUT_LIMIT);
         let normalized = normalize::normalize(query);
         if contains_kana(&normalized) {
             variants.push(QueryVariant::kana(katakana_to_hiragana(&normalized)));
         }
         if let Some(numeric_romaji) = numeric::numeric_romaji_query(query) {
-            for kana in romaji::romaji_to_kana_candidates(&numeric_romaji, budget.max_variants) {
+            for kana in romaji::romaji_to_kana_candidates(&numeric_romaji, romaji_limit) {
                 variants.push(QueryVariant::romaji_to_kana(kana));
             }
         }
-        for kana in romaji::romaji_to_kana_candidates(query, budget.max_variants) {
+        for kana in romaji::romaji_to_kana_candidates(query, romaji_limit) {
             variants.push(QueryVariant::romaji_to_kana(kana));
         }
         variants

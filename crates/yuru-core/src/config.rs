@@ -34,8 +34,6 @@ pub struct SearchConfig {
 pub struct KeyBudget {
     /// Maximum number of generated search keys to produce for one candidate.
     pub max_keys: usize,
-    /// Maximum total UTF-8 bytes to spend on generated key text.
-    pub max_total_key_bytes: usize,
 }
 
 /// Query-variant generation budget passed to language backends.
@@ -50,7 +48,6 @@ impl SearchConfig {
     pub fn key_budget(&self) -> KeyBudget {
         KeyBudget {
             max_keys: self.max_search_keys_per_candidate,
-            max_total_key_bytes: self.max_total_key_bytes_per_candidate,
         }
     }
 

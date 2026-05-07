@@ -6,7 +6,6 @@ use crate::{
 };
 
 pub(crate) fn enforce_fzf_compat(args: &Args) -> Result<()> {
-    let _ = accepted_fzf_option_count(args);
     let mode = effective_fzf_compat(args)?;
     let ignored = ignored_fzf_options(args);
     if ignored.is_empty() || mode == FzfCompatArg::Ignore {
@@ -42,6 +41,7 @@ pub(crate) fn warn_reserved_zh_options(args: &Args) {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn accepted_fzf_option_count(args: &Args) -> usize {
     macro_rules! count_bool {
         ($($field:ident),* $(,)?) => {

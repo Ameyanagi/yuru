@@ -10,9 +10,13 @@ pub(crate) struct Viewport {
 }
 
 impl Viewport {
-    pub(crate) fn from_terminal(height: Option<usize>) -> Self {
+    pub(crate) fn from_terminal(height: Option<usize>, reserve_prompt_row: bool) -> Self {
         let (width, terminal_rows) = terminal::size().unwrap_or((80, 24));
-        let max_rows = usize::from(terminal_rows).saturating_sub(1).max(1);
+        let max_rows = if reserve_prompt_row {
+            usize::from(terminal_rows).saturating_sub(1).max(1)
+        } else {
+            usize::from(terminal_rows).max(1)
+        };
         Self {
             width: usize::from(width).max(1),
             rows: height.unwrap_or(max_rows).clamp(1, max_rows),
@@ -24,8 +28,12 @@ pub(super) fn visible_line_count(text: Option<&str>) -> usize {
     text.map(|text| text.lines().count()).unwrap_or(0)
 }
 
+pub(super) fn content_start_row(layout: TuiLayout, has_prompt: bool) -> usize {
+    usize::from(has_prompt && !layout.prompt_at_bottom())
+}
+
 pub(super) fn footer_start_row(
-    layout: TuiLayout,
+    content_top: usize,
     viewport_rows: usize,
     footer_rows: usize,
 ) -> usize {
@@ -33,11 +41,9 @@ pub(super) fn footer_start_row(
         return 0;
     }
 
-    if layout.prompt_at_bottom() {
-        viewport_rows.saturating_sub(footer_rows)
-    } else {
-        viewport_rows.saturating_add(1).saturating_sub(footer_rows)
-    }
+    content_top
+        .saturating_add(viewport_rows)
+        .saturating_sub(footer_rows)
 }
 
 pub(super) fn preview_width(total_width: usize, preview: Option<&PreviewRender<'_>>) -> usize {
@@ -55,6 +61,7 @@ fn preview_width_for_presence(total_width: usize, has_preview: bool) -> usize {
 pub(crate) fn preview_geometry(
     viewport: Viewport,
     layout: TuiLayout,
+    has_prompt: bool,
     has_preview: bool,
 ) -> Option<PreviewGeometry> {
     let columns = preview_width_for_presence(viewport.width, has_preview);
@@ -62,7 +69,7 @@ pub(crate) fn preview_geometry(
         return None;
     }
     let left = viewport.width.saturating_sub(columns);
-    let top = if layout.prompt_at_bottom() { 0 } else { 1 };
+    let top = content_start_row(layout, has_prompt);
     Some(PreviewGeometry {
         columns,
         lines: viewport.rows,

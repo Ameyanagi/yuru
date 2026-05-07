@@ -1219,14 +1219,7 @@ fn default_ctrl_t_command() -> &'static str {
 }
 
 fn default_ctrl_t_opts() -> &'static str {
-    #[cfg(windows)]
-    {
-        "--preview-auto"
-    }
-    #[cfg(not(windows))]
-    {
-        "--preview-auto"
-    }
+    "--preview-auto"
 }
 
 fn default_alt_c_command() -> &'static str {
@@ -1241,14 +1234,7 @@ fn default_alt_c_command() -> &'static str {
 }
 
 fn default_alt_c_opts() -> &'static str {
-    #[cfg(windows)]
-    {
-        "--preview-auto"
-    }
-    #[cfg(not(windows))]
-    {
-        "--preview-auto"
-    }
+    default_ctrl_t_opts()
 }
 
 pub(crate) fn print_shell_script(kind: ShellKind) -> Result<()> {

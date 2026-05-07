@@ -22,6 +22,7 @@ pub(super) fn render_preview(
     output: &mut impl Write,
     context: &mut RenderContext<'_>,
     preview_width: usize,
+    start_row: usize,
 ) -> Result<()> {
     if context.preview.is_none() {
         return Ok(());
@@ -31,11 +32,6 @@ pub(super) fn render_preview(
     }
 
     let x = context.viewport.width.saturating_sub(preview_width);
-    let start_row = if context.layout.prompt_at_bottom() {
-        0
-    } else {
-        1
-    };
     let max_rows = context.viewport.rows;
 
     queue!(output, SetForegroundColor(PREVIEW_SEPARATOR_COLOR))?;

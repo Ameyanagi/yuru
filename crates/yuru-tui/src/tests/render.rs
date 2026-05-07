@@ -2,7 +2,7 @@ use yuru_core::KeyKind;
 
 use crate::api::{TuiLayout, TuiStyle};
 use crate::preview::PreviewRender;
-use crate::render::{render, RenderContext, Viewport};
+use crate::render::{preview_geometry, render, RenderContext, Viewport};
 use crate::state::TuiState;
 
 use super::helpers::{force_test_color_output, scored, scored_with_id};
@@ -121,6 +121,63 @@ fn render_reverse_layout_places_prompt_at_top() {
 
     let rendered = String::from_utf8(output).unwrap();
     assert!(rendered.contains("\u{1b}[1;1H> al"), "{rendered:?}");
+}
+
+#[test]
+fn render_reverse_no_input_uses_first_row_for_results_and_preview() {
+    force_test_color_output();
+    let mut output = Vec::new();
+    let state = TuiState::new("");
+    let results = vec![scored("alpha", KeyKind::Original)];
+    render(
+        &mut output,
+        &state,
+        &results,
+        RenderContext {
+            candidates: &[],
+            prompt: "> ",
+            header: None,
+            footer: None,
+            viewport: Viewport { width: 80, rows: 3 },
+            layout: TuiLayout::Reverse,
+            preview: Some(PreviewRender::Text {
+                text: "preview alpha",
+                scroll: 0,
+            }),
+            style: &TuiStyle::default(),
+            highlight_line: true,
+            case_sensitive: false,
+            multi: false,
+            no_input: true,
+            pointer: ">",
+            marker: "*",
+            ellipsis: "..",
+        },
+    )
+    .unwrap();
+
+    let rendered = String::from_utf8(output).unwrap();
+    assert!(
+        rendered.contains("\u{1b}[1;1H\u{1b}[48;2;52;58;70m> "),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered.contains("\u{1b}[1;41Hpreview alpha"),
+        "{rendered:?}"
+    );
+}
+
+#[test]
+fn preview_geometry_tracks_prompt_presence() {
+    let viewport = Viewport { width: 80, rows: 3 };
+
+    let with_prompt = preview_geometry(viewport, TuiLayout::Reverse, true, true).unwrap();
+    assert_eq!(with_prompt.top, 1);
+    assert_eq!(with_prompt.lines, 3);
+
+    let without_prompt = preview_geometry(viewport, TuiLayout::Reverse, false, true).unwrap();
+    assert_eq!(without_prompt.top, 0);
+    assert_eq!(without_prompt.lines, 3);
 }
 
 #[test]

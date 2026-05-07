@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::Command;
+use std::{fs::File, io::Read};
 
 use super::cache::PreviewPayload;
 
@@ -135,11 +136,16 @@ fn is_text_path(path: &Path, text_extensions: &[String]) -> bool {
 }
 
 fn is_ascii_text_file(path: &Path) -> bool {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
+    let mut file = match File::open(path) {
+        Ok(file) => file,
         Err(_) => return false,
     };
-    let sample = &bytes[..bytes.len().min(ASCII_TEXT_SNIFF_BYTES)];
+    let mut sample = [0u8; ASCII_TEXT_SNIFF_BYTES];
+    let len = match file.read(&mut sample) {
+        Ok(len) => len,
+        Err(_) => return false,
+    };
+    let sample = &sample[..len];
     !sample.is_empty() && sample.iter().all(|byte| is_ascii_text_byte(*byte))
 }
 

@@ -17,8 +17,8 @@ use crate::state::TuiState;
 
 use super::highlight::highlight_segments_for_result;
 use super::layout::{
-    footer_start_row, preview_width, scroll_offset, truncate_to_width_with_ellipsis,
-    visible_line_count, Viewport,
+    content_start_row, footer_start_row, preview_width, scroll_offset,
+    truncate_to_width_with_ellipsis, visible_line_count, Viewport,
 };
 use super::preview_pane::render_preview;
 
@@ -36,6 +36,7 @@ pub(crate) fn render(
     } else {
         Some(0)
     };
+    let content_top = content_start_row(context.layout, prompt_row.is_some());
     if let Some(prompt_row) = prompt_row {
         let input = if state.query().is_empty() {
             format!("{}{}", context.prompt, "")
@@ -55,15 +56,10 @@ pub(crate) fn render(
 
     let header_rows = visible_line_count(context.header);
     if let Some(header) = context.header {
-        let header_start = if context.layout.prompt_at_bottom() {
-            0
-        } else {
-            1
-        };
         for (row, line) in header.lines().enumerate() {
             queue!(
                 output,
-                MoveTo(0, (header_start + row) as u16),
+                MoveTo(0, (content_top + row) as u16),
                 Print(truncate_to_width_with_ellipsis(
                     line,
                     context.viewport.width,
@@ -74,7 +70,7 @@ pub(crate) fn render(
     }
     let footer_rows = visible_line_count(context.footer);
     if let Some(footer) = context.footer {
-        let footer_start = footer_start_row(context.layout, context.viewport.rows, footer_rows);
+        let footer_start = footer_start_row(content_top, context.viewport.rows, footer_rows);
         for (row, line) in footer.lines().enumerate() {
             queue!(
                 output,
@@ -104,15 +100,15 @@ pub(crate) fn render(
         .rows
         .saturating_sub(header_rows + footer_rows)
         .max(1);
-    let result_bottom = context.viewport.rows.saturating_sub(footer_rows + 1);
+    let result_bottom = content_top
+        .saturating_add(context.viewport.rows)
+        .saturating_sub(footer_rows + 1);
     let offset = scroll_offset(state.selected(), results.len(), result_rows);
     for (row, result) in results.iter().skip(offset).take(result_rows).enumerate() {
         let result_row = if context.layout.list_bottom_up() {
             result_bottom.saturating_sub(row)
-        } else if context.layout.prompt_at_bottom() {
-            row + header_rows
         } else {
-            row + 1 + header_rows
+            content_top + row + header_rows
         };
         queue!(output, MoveTo(0, result_row as u16))?;
         let mark = if context.multi && state.marked().contains(&result.id) {
@@ -168,7 +164,7 @@ pub(crate) fn render(
         queue!(output, SetAttribute(Attribute::Reset))?;
     }
 
-    render_preview(output, &mut context, preview_width)?;
+    render_preview(output, &mut context, preview_width, content_top)?;
 
     if let Some(prompt_row) = prompt_row {
         let cursor_column =
