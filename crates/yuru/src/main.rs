@@ -1167,6 +1167,7 @@ fn run_interactive_mode(
         preview_shell: args.with_shell.clone(),
         preview_image_protocol: preview_image_protocol(args),
         style: parse_tui_style(&args.color),
+        highlight_line: highlight_line_enabled(args),
         cycle: cycle_enabled(args),
         multi: multi_enabled(args),
         multi_limit: multi_limit(args),
@@ -1224,6 +1225,7 @@ fn run_interactive_streaming_mode(
         preview_shell: args.with_shell.clone(),
         preview_image_protocol: preview_image_protocol(args),
         style: parse_tui_style(&args.color),
+        highlight_line: highlight_line_enabled(args),
         cycle: cycle_enabled(args),
         multi: multi_enabled(args),
         multi_limit: multi_limit(args),
@@ -1859,6 +1861,30 @@ image_protocol = "sixel"
     }
 
     #[test]
+    fn parse_tui_style_supports_selected_row_colors() {
+        let style = parse_tui_style(&[Some(
+            "pointer:#ff0000,hl:#00ff00,hl+:#00aa00,fg+:#ddeeff,bg+:#112233".to_string(),
+        )]);
+
+        assert_eq!(
+            style.selected_fg,
+            Some(yuru_tui::TuiRgb {
+                r: 0xdd,
+                g: 0xee,
+                b: 0xff,
+            })
+        );
+        assert_eq!(
+            style.selected_bg,
+            Some(yuru_tui::TuiRgb {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33,
+            })
+        );
+    }
+
+    #[test]
     fn common_navigation_bind_actions_are_supported() {
         assert!(!has_unsupported_bindings(&[
             "ctrl-k:up,ctrl-j:down".to_string(),
@@ -2164,11 +2190,17 @@ fn parse_tui_style(raw: &[Option<String>]) -> yuru_tui::TuiStyle {
                 "pointer" => style.pointer = Some(color),
                 "hl" => style.highlight = Some(color),
                 "hl+" => style.highlight_selected = Some(color),
+                "fg+" => style.selected_fg = Some(color),
+                "bg+" => style.selected_bg = Some(color),
                 _ => {}
             }
         }
     }
     style
+}
+
+fn highlight_line_enabled(args: &Args) -> bool {
+    !args.no_highlight_line
 }
 
 fn first_line(value: &str) -> String {

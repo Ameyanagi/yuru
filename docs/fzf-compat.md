@@ -28,7 +28,7 @@ yuru --fzf-compat ignore
 | `--preview-auto` | Yuru extension | Built-in preview: render images internally, use `bat` for configured text extensions or ASCII text files when available, and fall back to `cat`-style plain text. |
 | `--with-shell` | Supported for preview | Preview commands use the configured shell command. |
 | `--multi[=MAX]`, `--multi MAX`, `-mMAX`, `--pointer`, `--marker`, `--ellipsis`, `--footer`, `--no-input` | Supported | Implemented in the current crossterm TUI. |
-| `--color` | Partial | Supports `pointer`, `hl`, and `hl+` hex colors. Other entries are accepted and ignored. |
+| `--color` | Partial | Supports `pointer`, `hl`, `hl+`, `fg+`, and `bg+` hex colors. Other entries are accepted and ignored. |
 | Layout/style-only options such as `--preview-window`, `--border`, `--style`, labels, gutters, gaps, scrollbars, margins, padding | Accepted | Parsed for fzf config compatibility. Full visual parity with fzf is still evolving. |
 
 Known gaps that matter for script migration:

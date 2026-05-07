@@ -21,7 +21,9 @@ use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute, queue,
-    style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
+    style::{
+        Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
+    },
     terminal::{
         self, disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
         LeaveAlternateScreen,
@@ -48,6 +50,12 @@ const PREVIEW_WORKER_POLL: Duration = Duration::from_millis(25);
 const SEARCH_WORKER_POLL: Duration = Duration::from_millis(16);
 const PREVIEW_LOADING: &str = "loading preview...";
 const ASCII_TEXT_SNIFF_BYTES: usize = 8192;
+const DEFAULT_SELECTED_ROW_BG: Color = Color::Rgb {
+    r: 52,
+    g: 58,
+    b: 70,
+};
+const PREVIEW_SEPARATOR_COLOR: Color = Color::DarkGrey;
 #[cfg(feature = "image")]
 const IMAGE_PREVIEW_LOADING: &str = "loading image preview...";
 
@@ -78,6 +86,8 @@ pub struct TuiOptions {
     pub preview_image_protocol: Option<ImagePreviewProtocol>,
     /// Display colors for selected UI elements.
     pub style: TuiStyle,
+    /// Whether the selected row uses a full-width background.
+    pub highlight_line: bool,
     /// Whether selection wraps at list boundaries.
     pub cycle: bool,
     /// Whether multiple candidates can be marked.
@@ -109,6 +119,7 @@ impl Default for TuiOptions {
             preview_shell: None,
             preview_image_protocol: None,
             style: TuiStyle::default(),
+            highlight_line: true,
             cycle: false,
             multi: false,
             multi_limit: None,
@@ -208,6 +219,10 @@ pub struct TuiStyle {
     pub highlight: Option<TuiRgb>,
     /// Color for matched text on the selected row.
     pub highlight_selected: Option<TuiRgb>,
+    /// Foreground color for the selected row.
+    pub selected_fg: Option<TuiRgb>,
+    /// Background color for the selected row.
+    pub selected_bg: Option<TuiRgb>,
 }
 
 impl TuiStyle {
@@ -224,6 +239,16 @@ impl TuiStyle {
         } else {
             self.highlight.map(Color::from).unwrap_or(Color::Yellow)
         }
+    }
+
+    fn selected_bg_color(&self) -> Color {
+        self.selected_bg
+            .map(Color::from)
+            .unwrap_or(DEFAULT_SELECTED_ROW_BG)
+    }
+
+    fn selected_fg_color(&self) -> Option<Color> {
+        self.selected_fg.map(Color::from)
     }
 }
 
@@ -807,6 +832,7 @@ pub fn run_interactive(
                 layout: options.layout,
                 preview: preview_cache.render(),
                 style: &options.style,
+                highlight_line: options.highlight_line,
                 case_sensitive: config.case_sensitive,
                 multi: options.multi,
                 no_input: options.no_input,
@@ -962,6 +988,7 @@ pub fn run_interactive_streaming(
                 layout: options.layout,
                 preview: preview_cache.render(),
                 style: &options.style,
+                highlight_line: options.highlight_line,
                 case_sensitive: config.case_sensitive,
                 multi: options.multi,
                 no_input: options.no_input,
@@ -2213,25 +2240,50 @@ fn render(
             " "
         };
         let selected = offset + row == state.selected();
+        let pointer_width = context.pointer.chars().count() + context.marker.chars().count();
+        let result_width = list_width.saturating_sub(pointer_width);
+        let selected_row_background = selected && context.highlight_line;
+        if selected_row_background {
+            queue!(
+                output,
+                SetBackgroundColor(context.style.selected_bg_color())
+            )?;
+            if let Some(color) = context.style.selected_fg_color() {
+                queue!(output, SetForegroundColor(color))?;
+            }
+        }
         if selected {
-            queue!(output, SetAttribute(Attribute::Reverse))?;
             if let Some(color) = context.style.pointer_color() {
                 queue!(output, SetForegroundColor(color))?;
             }
             queue!(output, Print(context.pointer), Print(mark))?;
-            queue!(output, ResetColor)?;
+            if selected_row_background {
+                if let Some(color) = context.style.selected_fg_color() {
+                    queue!(output, SetForegroundColor(color))?;
+                } else {
+                    queue!(output, SetForegroundColor(Color::Reset))?;
+                }
+            } else {
+                queue!(output, SetForegroundColor(Color::Reset))?;
+            }
         } else {
             queue!(output, Print(" "), Print(mark))?;
         }
-        render_highlighted_result(
+        let printed = render_highlighted_result(
             output,
             state.query(),
             result,
             &context,
-            list_width
-                .saturating_sub(context.pointer.chars().count() + context.marker.chars().count()),
+            result_width,
             selected,
         )?;
+        if selected_row_background {
+            let padding = result_width.saturating_sub(printed);
+            if padding > 0 {
+                queue!(output, Print(" ".repeat(padding)))?;
+            }
+            queue!(output, ResetColor)?;
+        }
         queue!(output, SetAttribute(Attribute::Reset))?;
     }
 
@@ -2277,6 +2329,7 @@ struct RenderContext<'a> {
     layout: TuiLayout,
     preview: Option<PreviewRender<'a>>,
     style: &'a TuiStyle,
+    highlight_line: bool,
     case_sensitive: bool,
     multi: bool,
     no_input: bool,
@@ -2336,13 +2389,15 @@ fn render_preview(
     };
     let max_rows = context.viewport.rows;
 
+    queue!(output, SetForegroundColor(PREVIEW_SEPARATOR_COLOR))?;
     for row in 0..max_rows {
         queue!(
             output,
             MoveTo(x.saturating_sub(1) as u16, (start_row + row) as u16),
-            Print("|")
+            Print("│")
         )?;
     }
+    queue!(output, SetForegroundColor(Color::Reset))?;
 
     match context.preview.as_mut().expect("preview exists") {
         PreviewRender::Text { text, scroll } => {
@@ -2468,7 +2523,8 @@ fn render_highlighted_result(
     context: &RenderContext<'_>,
     width: usize,
     selected: bool,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut printed = 0;
     for segment in highlight_segments_for_result(
         query,
         result,
@@ -2483,12 +2539,22 @@ fn render_highlighted_result(
                 SetAttribute(Attribute::Bold)
             )?;
         }
+        printed += segment.text.chars().count();
         queue!(output, Print(segment.text))?;
         if segment.highlighted {
-            queue!(output, ResetColor, SetAttribute(Attribute::NormalIntensity))?;
+            if selected && context.highlight_line {
+                if let Some(color) = context.style.selected_fg_color() {
+                    queue!(output, SetForegroundColor(color))?;
+                } else {
+                    queue!(output, SetForegroundColor(Color::Reset))?;
+                }
+            } else {
+                queue!(output, SetForegroundColor(Color::Reset))?;
+            }
+            queue!(output, SetAttribute(Attribute::NormalIntensity))?;
         }
     }
-    Ok(())
+    Ok(printed)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2702,6 +2768,10 @@ impl Drop for TerminalGuard {
 mod tests {
     use super::*;
     use yuru_core::SourceSpan;
+
+    fn force_test_color_output() {
+        crossterm::style::force_color_output(true);
+    }
 
     #[test]
     fn editing_actions_update_query_and_cursor() {
@@ -3034,6 +3104,7 @@ mod tests {
 
     #[test]
     fn render_default_layout_places_prompt_at_bottom() {
+        force_test_color_output();
         let mut output = Vec::new();
         let state = TuiState::new("al");
         let results = vec![scored("alpha", KeyKind::Original)];
@@ -3050,6 +3121,7 @@ mod tests {
                 layout: TuiLayout::Default,
                 preview: None,
                 style: &TuiStyle::default(),
+                highlight_line: true,
                 case_sensitive: false,
                 multi: false,
                 no_input: false,
@@ -3062,11 +3134,16 @@ mod tests {
 
         let rendered = String::from_utf8(output).unwrap();
         assert!(rendered.contains("\u{1b}[4;1H> al"), "{rendered:?}");
-        assert!(rendered.contains("\u{1b}[3;1H\u{1b}[7m> "), "{rendered:?}");
+        assert!(
+            rendered.contains("\u{1b}[3;1H\u{1b}[48;2;52;58;70m> "),
+            "{rendered:?}"
+        );
+        assert!(!rendered.contains("\u{1b}[7m"), "{rendered:?}");
     }
 
     #[test]
     fn render_default_layout_paints_results_bottom_up() {
+        force_test_color_output();
         let mut output = Vec::new();
         let state = TuiState::new("");
         let results = vec![
@@ -3087,6 +3164,7 @@ mod tests {
                 layout: TuiLayout::Default,
                 preview: None,
                 style: &TuiStyle::default(),
+                highlight_line: true,
                 case_sensitive: false,
                 multi: false,
                 no_input: false,
@@ -3099,7 +3177,7 @@ mod tests {
 
         let rendered = String::from_utf8(output).unwrap();
         assert!(
-            rendered.contains("\u{1b}[3;1H\u{1b}[7m> \u{1b}[0malpha"),
+            rendered.contains("\u{1b}[3;1H\u{1b}[48;2;52;58;70m> \u{1b}[39malpha"),
             "{rendered:?}"
         );
         assert!(rendered.contains("\u{1b}[2;1H  beta"), "{rendered:?}");
@@ -3108,6 +3186,7 @@ mod tests {
 
     #[test]
     fn render_reverse_layout_places_prompt_at_top() {
+        force_test_color_output();
         let mut output = Vec::new();
         let state = TuiState::new("al");
         let results = vec![scored("alpha", KeyKind::Original)];
@@ -3124,6 +3203,7 @@ mod tests {
                 layout: TuiLayout::Reverse,
                 preview: None,
                 style: &TuiStyle::default(),
+                highlight_line: true,
                 case_sensitive: false,
                 multi: false,
                 no_input: false,
@@ -3140,6 +3220,7 @@ mod tests {
 
     #[test]
     fn render_preview_pane_prints_preview_text() {
+        force_test_color_output();
         let mut output = Vec::new();
         let state = TuiState::new("");
         let results = vec![scored("alpha", KeyKind::Original)];
@@ -3159,6 +3240,7 @@ mod tests {
                     scroll: 0,
                 }),
                 style: &TuiStyle::default(),
+                highlight_line: true,
                 case_sensitive: false,
                 multi: false,
                 no_input: false,
@@ -3179,6 +3261,7 @@ mod tests {
 
     #[test]
     fn render_preview_pane_uses_scroll_offset() {
+        force_test_color_output();
         let mut output = Vec::new();
         let state = TuiState::new("");
         let results = vec![scored("alpha", KeyKind::Original)];
@@ -3198,6 +3281,7 @@ mod tests {
                     scroll: 1,
                 }),
                 style: &TuiStyle::default(),
+                highlight_line: true,
                 case_sensitive: false,
                 multi: false,
                 no_input: false,
