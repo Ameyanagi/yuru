@@ -91,6 +91,11 @@ To preselect guided-install defaults:
 curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh -s -- --all --version v0.1.8 --default-lang none --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
+To make a language backend the default during install, use `--default-lang ja`,
+`--default-lang zh`, or `--default-lang ko` on Unix. In PowerShell, use
+`-DefaultLang ja`, `-DefaultLang zh`, or `-DefaultLang ko`. The localized
+READMEs show commands prefilled for each language.
+
 `--bindings` accepts `all`, `none`, `ask`, or a comma-separated list such as
 `ctrl-t,ctrl-r,completion`. You can re-run the guided config later with
 `yuru configure`.

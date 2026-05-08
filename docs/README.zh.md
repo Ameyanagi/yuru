@@ -1,13 +1,15 @@
 # Yuru
 
-Yuru 是一个快速的命令行 fuzzy finder，支持日文读音、韩文 Hangul 和中文拼音搜索。
-它的使用方式接近 fzf，同时针对 CJK 文本提供更准确的 phonetic match 高亮。
+Yuru 是一个高速命令行 fuzzy finder，支持按日语读音、韩语 Hangul 和中文拼音搜索。
+它保持接近 fzf 的使用体验，同时让 CJK 文本可以按读音匹配，并准确高亮原始文本。
 
-## Demo Video
+## 演示视频
 
-[观看 Yuru command demo](../demo.mp4)
+![Yuru 中文命令演示](assets/yuru-demo-zh.gif)
 
-<video src="../demo.mp4" controls muted playsinline width="100%"></video>
+[观看完整质量的 Yuru 中文命令演示](../demo-zh.mp4)
+
+<video src="../demo-zh.mp4" controls muted playsinline width="100%"></video>
 
 ## 安装
 
@@ -20,17 +22,17 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh 
 ```
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
-`YURU_INSTALL_BIN_DIR` 修改安装目录。这个命令会在交互式终端中询问默认语言、
-preview command、preview text extensions、图片 preview protocol、shell binding 和
-shell path backend，并写入 `~/.config/yuru/config.toml`。直接按 Enter 会使用各项默认值。
-preview command 默认值 `auto` 会在文本预览中优先使用 `bat`，图片则使用内部 preview。
-图片 preview protocol 默认值是 `none`。shell path backend 默认值 `auto` 会依次尝试
-`fd`、`fdfind` 和 fallback。
+`YURU_INSTALL_BIN_DIR` 修改安装目录。在交互式终端中运行时，这个命令会询问默认语言、
+预览命令、用于文本预览的扩展名、图片预览协议、shell 绑定和 shell 路径搜索后端，
+然后写入 `~/.config/yuru/config.toml`。每个提示直接按 Enter 会使用该项默认值。
+预览命令的默认值 `auto` 会在文本预览中优先使用 `bat`，图片则使用 Yuru 内置预览。
+图片预览协议默认值是 `none`。shell 路径搜索后端默认值 `auto` 会依次尝试
+`fd`、`fdfind` 和可移植的后备实现。
 
-显式设置交互式安装的默认值:
+如果希望把中文设为默认搜索语言，并显式给出交互式安装的默认值:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh -s -- --all --version v0.1.8 --default-lang none --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh -s -- --all --version v0.1.8 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 之后可以运行 `yuru configure` 重新配置。
@@ -42,8 +44,14 @@ $script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.
 Invoke-Expression "& { $script } -All -Version v0.1.8"
 ```
 
-这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并加入 PowerShell profile。
-交互环境中会询问默认语言、preview command、preview text extensions、图片 preview protocol、shell binding 和 shell path backend。可以使用 `-DefaultLang none`、`-PreviewCommand auto`、`-PreviewImageProtocol none`、`-PathBackend auto` 或 `-Bindings all` 显式设置交互式安装的默认值。
+这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并写入 PowerShell profile。
+交互式环境会询问默认语言、预览命令、用于文本预览的扩展名、图片预览协议、shell 绑定和 shell 路径搜索后端。
+如果希望把中文设为默认语言，可以这样显式指定:
+
+```powershell
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.8 -DefaultLang zh -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
+```
 
 只安装二进制文件:
 
@@ -57,10 +65,10 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh 
 cargo install yuru
 ```
 
-crates.io package 名称和安装后的命令都是 `yuru`。
-源码构建会使用 Lindera embedded IPADIC 来生成日文读音，因此需要 C compiler。
-macOS 请安装 Xcode Command Line Tools；仓库的 Cargo config 和脚本会在 Apple target 上优先使用
-`/usr/bin/clang`。GitHub release 的预编译二进制不需要本地 compiler。
+crates.io 包名和安装后的命令名都是 `yuru`。
+从源码构建时，Yuru 会使用 Lindera embedded IPADIC 生成日语读音，因此需要 C 编译器。
+macOS 请安装 Xcode Command Line Tools；这个仓库的 Cargo config 和 scripts 会在 Apple target 上优先使用
+`/usr/bin/clang`。GitHub release 提供的预编译二进制文件不需要本地编译器。
 
 更多信息见 [install / uninstall docs](install-uninstall.md)。
 
@@ -78,7 +86,7 @@ PowerShell:
 yuru --powershell | Invoke-Expression
 ```
 
-可用快捷键:
+可用操作:
 
 - `CTRL-T`: 选择文件或目录并插入到命令行
 - `CTRL-R`: 搜索命令历史
@@ -93,13 +101,13 @@ yuru --powershell | Invoke-Expression
 printf "北京大学.txt\nnotes.txt\n" | yuru --lang zh --filter bjdx
 ```
 
-日文 romaji:
+日语 romaji:
 
 ```sh
 printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamera
 ```
 
-韩文 Hangul romanization / 初声 / 2-set keyboard:
+韩语 Hangul romanization / 初声 / 2-set keyboard:
 
 ```sh
 printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter hangeul
@@ -113,9 +121,11 @@ printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter gksrmf
 fd --hidden --exclude .git . | yuru --scheme path
 ```
 
-## fzf 兼容和配置
+## fzf 兼容性与配置
 
-Yuru 可以解析 fzf 的主要 option surface，因此现有 shell binding 和 `FZF_DEFAULT_OPTS` 不容易因为解析失败而中断。`--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect` 已实现。`--bind` 仍是子集支持，未支持的 action 默认会输出 warning。
+Yuru 可以解析 fzf 的主要选项集合，因此现有 shell 绑定和 `FZF_DEFAULT_OPTS` 不容易因为解析错误而中断。
+`--filter`、`--query`、`--read0`、`--print0`、`--nth`、`--with-nth`、`--scheme`、`--walker`、`--expect` 已经实现。
+`--bind` 仍是部分支持，未支持的动作默认会输出警告。
 
 ```sh
 yuru --fzf-compat warn
@@ -123,12 +133,14 @@ yuru --fzf-compat strict
 yuru --fzf-compat ignore
 ```
 
-如果 preview command 输出图片 bytes，Yuru 会通过 `ratatui-image` 渲染。需要时可用
-`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` 固定协议。
-图片 preview 由默认启用的 `image` feature 提供。如需更小的源码构建，可使用
+如果预览命令输出图片字节数据，Yuru 会通过 `ratatui-image` 渲染。需要时可用
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` 固定预览协议。
+图片预览由默认启用的 `image` feature 提供。如需更小的源码构建，可使用
 `cargo install yuru --no-default-features`。
 
-`~/.config/yuru/config.toml` 可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、`[ja] reading = "none" | "lindera"`、`[ko] initials = true`、`[zh] initials = true` 等。CLI 参数优先级最高。
+如果要把中文设为默认语言，可以在 `~/.config/yuru/config.toml` 中设置 `lang = "zh"`。
+还可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、
+`[ja] reading = "none" | "lindera"`、`[ko] initials = true`、`[zh] initials = true` 等。CLI 参数优先级最高。
 
 详细兼容性见 [fzf compatibility](fzf-compat.md)，语言匹配行为见 [language matching](language-matching.md)。
 
@@ -141,12 +153,12 @@ yuru --fzf-compat ignore
 YURU_BENCH_1M=1 ./scripts/bench
 ```
 
-git hook 会运行 formatter、linter、测试和 benchmark。只有在确实需要快速本地提交时才使用
+git hook 会运行 formatter、linter、test 和 benchmark。只有在确实需要临时跳过本地 benchmark 时才使用
 `YURU_SKIP_BENCH=1`。
 
 ## 发布
 
-push version tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的 release assets，并发布到 crates.io。
+推送 version tag 后，GitHub Actions 会生成 macOS、Linux、Windows 的发布文件，并发布到 crates.io。
 release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
@@ -156,5 +168,5 @@ git push origin v0.1.8
 
 ## 许可证
 
-Yuru 同时按照 MIT license 和 Apache License 2.0 的条款发布。请参阅
+Yuru 同时按照 MIT 许可证和 Apache License 2.0 的条款发布。请参阅
 [LICENSE-MIT](../LICENSE-MIT) 和 [LICENSE-APACHE](../LICENSE-APACHE)。
