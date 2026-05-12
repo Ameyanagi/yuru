@@ -20,6 +20,7 @@ pub(crate) enum LangArg {
     Ja,
     Ko,
     Zh,
+    All,
     Auto,
 }
 

@@ -51,6 +51,8 @@ pub enum LangMode {
     Korean,
     /// Chinese pinyin and initials expansion.
     Chinese,
+    /// Japanese, Korean, and Chinese expansion together.
+    All,
 }
 
 impl fmt::Display for LangMode {
@@ -60,6 +62,7 @@ impl fmt::Display for LangMode {
             LangMode::Japanese => f.write_str("ja"),
             LangMode::Korean => f.write_str("ko"),
             LangMode::Chinese => f.write_str("zh"),
+            LangMode::All => f.write_str("all"),
         }
     }
 }
@@ -73,6 +76,7 @@ impl FromStr for LangMode {
             "ja" | "japanese" => Ok(LangMode::Japanese),
             "ko" | "korean" => Ok(LangMode::Korean),
             "zh" | "chinese" => Ok(LangMode::Chinese),
+            "all" => Ok(LangMode::All),
             other => Err(format!("unsupported language mode: {other}")),
         }
     }

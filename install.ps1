@@ -3,7 +3,7 @@ param(
     [string]$BinDir,
     [string]$Repo = "Ameyanagi/yuru",
     [string]$Version = "latest",
-    [ValidateSet("ask", "plain", "ja", "ko", "zh", "auto", "none")]
+    [ValidateSet("ask", "plain", "ja", "ko", "zh", "all", "auto", "none")]
     [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ask" }),
     [string]$PreviewCommand = $(if ($env:YURU_INSTALL_PREVIEW_COMMAND) { $env:YURU_INSTALL_PREVIEW_COMMAND } else { "ask" }),
     [string]$PreviewTextExtensions = $(if ($env:YURU_INSTALL_PREVIEW_TEXT_EXTENSIONS) { $env:YURU_INSTALL_PREVIEW_TEXT_EXTENSIONS } else { "txt,md,markdown,rst,toml,json,jsonl,yaml,yml,csv,tsv,log,rs,py,js,jsx,ts,tsx,go,java,c,h,cpp,hpp,cs,rb,php,sh,bash,zsh,fish,ps1,sql,html,htm,css,scss,xml" }),
@@ -48,16 +48,17 @@ function Read-YuruDefaultLanguage {
     if (-not (Test-YuruCanPrompt)) { return "none" }
 
     while ($true) {
-        $answer = Read-Host "Choose Yuru default language [plain/ja/ko/zh/auto/none] (none)"
+        $answer = Read-Host "Choose Yuru default language [plain/ja/ko/zh/all/auto/none] (none)"
         if ([string]::IsNullOrWhiteSpace($answer)) { return "none" }
         switch ($answer.Trim()) {
             "plain" { return "plain" }
             "ja" { return "ja" }
             "ko" { return "ko" }
             "zh" { return "zh" }
+            "all" { return "all" }
             "auto" { return "auto" }
             "none" { return "none" }
-            default { Write-Host "Please enter plain, ja, ko, zh, auto, or none." }
+            default { Write-Host "Please enter plain, ja, ko, zh, all, auto, or none." }
         }
     }
 }

@@ -258,6 +258,55 @@ fn cli_zh_query_bjdx_matches_beijing_university() {
         .stdout(predicate::str::contains("北京大学.txt"));
 }
 #[test]
+fn cli_lang_all_matches_mixed_language_inputs() {
+    let mixed = "北京大学.txt\nカメラ.txt\n한글.txt\n";
+
+    command()
+        .args(["--lang", "all", "--filter", "bjdx"])
+        .write_stdin(mixed)
+        .assert()
+        .success()
+        .stdout(predicate::eq("北京大学.txt\n"));
+
+    command()
+        .args(["--lang", "all", "--filter", "kamera"])
+        .write_stdin(mixed)
+        .assert()
+        .success()
+        .stdout(predicate::eq("カメラ.txt\n"));
+
+    command()
+        .args(["--lang", "all", "--filter", "hangeul"])
+        .write_stdin(mixed)
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+
+    command()
+        .args(["--lang", "all", "--filter", "ㅎㄱ"])
+        .write_stdin(mixed)
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+
+    command()
+        .args(["--lang", "all", "--filter", "gksrmf"])
+        .write_stdin(mixed)
+        .assert()
+        .success()
+        .stdout(predicate::eq("한글.txt\n"));
+}
+#[test]
+fn cli_lang_auto_still_uses_one_backend_for_mixed_language_inputs() {
+    command()
+        .env("LC_ALL", "C")
+        .args(["--lang", "auto", "--filter", "hangeul"])
+        .write_stdin("北京大学.txt\nカメラ.txt\n한글.txt\n")
+        .assert()
+        .failure()
+        .stdout(predicate::eq(""));
+}
+#[test]
 fn cli_lang_auto_selects_japanese_for_japanese_locale_and_han_candidates() {
     command()
         .env("LC_ALL", "ja_JP.UTF-8")

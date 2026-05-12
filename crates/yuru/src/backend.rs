@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use yuru_core::{LanguageBackend, PlainBackend};
+use yuru_core::{
+    base_query_variants, KeyBudget, KeyKind, LangMode, LanguageBackend, PlainBackend, QueryBudget,
+    QueryVariant, QueryVariantKind, SearchKey,
+};
 use yuru_ja::{JapaneseBackend, JapaneseReadingMode};
 use yuru_ko::KoreanBackend;
 use yuru_zh::{ChineseBackend, ChinesePolyphoneMode, ChineseScriptMode};
@@ -22,20 +25,126 @@ pub(crate) fn create_backend(
 
     match lang {
         LangArg::Plain => Arc::new(PlainBackend),
-        LangArg::Ja => Arc::new(JapaneseBackend::new(japanese_reading_mode(args.ja_reading))),
-        LangArg::Ko => Arc::new(KoreanBackend::new(
-            args.ko_romanization && !args.no_ko_romanization,
-            args.ko_initials && !args.no_ko_initials,
-            args.ko_keyboard && !args.no_ko_keyboard,
-        )),
-        LangArg::Zh => Arc::new(ChineseBackend::new(
-            args.zh_pinyin && !args.no_zh_pinyin,
-            args.zh_initials && !args.no_zh_initials,
-            chinese_polyphone_mode(args.zh_polyphone),
-            chinese_script_mode(args.zh_script),
+        LangArg::Ja => Arc::new(japanese_backend(args)),
+        LangArg::Ko => Arc::new(korean_backend(args)),
+        LangArg::Zh => Arc::new(chinese_backend(args)),
+        LangArg::All => Arc::new(AllBackend::new(
+            japanese_backend(args),
+            korean_backend(args),
+            chinese_backend(args),
         )),
         LangArg::Auto => unreachable!("auto language mode is resolved before backend creation"),
     }
+}
+
+fn japanese_backend(args: &Args) -> JapaneseBackend {
+    JapaneseBackend::new(japanese_reading_mode(args.ja_reading))
+}
+
+fn korean_backend(args: &Args) -> KoreanBackend {
+    KoreanBackend::new(
+        args.ko_romanization && !args.no_ko_romanization,
+        args.ko_initials && !args.no_ko_initials,
+        args.ko_keyboard && !args.no_ko_keyboard,
+    )
+}
+
+fn chinese_backend(args: &Args) -> ChineseBackend {
+    ChineseBackend::new(
+        args.zh_pinyin && !args.no_zh_pinyin,
+        args.zh_initials && !args.no_zh_initials,
+        chinese_polyphone_mode(args.zh_polyphone),
+        chinese_script_mode(args.zh_script),
+    )
+}
+
+#[derive(Clone, Debug)]
+struct AllBackend {
+    japanese: JapaneseBackend,
+    korean: KoreanBackend,
+    chinese: ChineseBackend,
+}
+
+impl AllBackend {
+    fn new(japanese: JapaneseBackend, korean: KoreanBackend, chinese: ChineseBackend) -> Self {
+        Self {
+            japanese,
+            korean,
+            chinese,
+        }
+    }
+}
+
+impl LanguageBackend for AllBackend {
+    fn mode(&self) -> LangMode {
+        LangMode::All
+    }
+
+    fn build_candidate_keys(&self, text: &str, budget: KeyBudget) -> Vec<SearchKey> {
+        let mut chinese_keys = self.chinese.build_candidate_keys(text, budget);
+        prioritize_all_mode_keys(&mut chinese_keys);
+
+        interleave_key_groups(
+            [
+                self.japanese.build_candidate_keys(text, budget),
+                self.korean.build_candidate_keys(text, budget),
+                chinese_keys,
+            ],
+            budget.max_keys,
+        )
+    }
+
+    fn expand_query(&self, query: &str, budget: QueryBudget) -> Vec<QueryVariant> {
+        let mut variants = base_query_variants(query);
+        variants.extend(language_only_query_variants(
+            self.chinese.expand_query(query, budget),
+        ));
+        variants.extend(language_only_query_variants(
+            self.japanese.expand_query(query, budget),
+        ));
+        variants
+    }
+}
+
+fn prioritize_all_mode_keys(keys: &mut [SearchKey]) {
+    keys.sort_by_key(|key| match key.kind {
+        KeyKind::PinyinInitials => 0,
+        _ => 1,
+    });
+}
+
+fn interleave_key_groups<const N: usize>(
+    groups: [Vec<SearchKey>; N],
+    max_keys: usize,
+) -> Vec<SearchKey> {
+    let mut indexes = [0usize; N];
+    let mut out = Vec::new();
+
+    loop {
+        let mut progressed = false;
+        for (group_index, group) in groups.iter().enumerate() {
+            if out.len() >= max_keys {
+                return out;
+            }
+            if let Some(key) = group.get(indexes[group_index]) {
+                out.push(key.clone());
+                indexes[group_index] += 1;
+                progressed = true;
+            }
+        }
+        if !progressed {
+            return out;
+        }
+    }
+}
+
+fn language_only_query_variants(variants: Vec<QueryVariant>) -> impl Iterator<Item = QueryVariant> {
+    variants.into_iter().filter(|variant| {
+        !matches!(
+            variant.kind,
+            QueryVariantKind::Original | QueryVariantKind::Normalized
+        )
+    })
 }
 
 fn japanese_reading_mode(value: JaReadingArg) -> JapaneseReadingMode {
@@ -123,4 +232,39 @@ fn contains_hangul(text: &str) -> bool {
             || ('\u{ac00}'..='\u{d7a3}').contains(&ch)
             || ('\u{d7b0}'..='\u{d7ff}').contains(&ch)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use yuru_core::{build_candidate, KeyKind, SearchConfig};
+
+    use super::*;
+
+    #[test]
+    fn all_backend_builds_japanese_korean_and_chinese_keys() {
+        let backend = AllBackend::new(
+            JapaneseBackend::default(),
+            KoreanBackend::default(),
+            ChineseBackend::default(),
+        );
+        let candidate = build_candidate(
+            0,
+            "カメラ 北京大学 한글",
+            &backend,
+            &SearchConfig::default(),
+        );
+
+        assert!(candidate
+            .keys
+            .iter()
+            .any(|key| key.kind == KeyKind::RomajiReading));
+        assert!(candidate
+            .keys
+            .iter()
+            .any(|key| key.kind == KeyKind::KoreanRomanized));
+        assert!(candidate
+            .keys
+            .iter()
+            .any(|key| key.kind == KeyKind::PinyinInitials));
+    }
 }

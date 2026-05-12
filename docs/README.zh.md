@@ -139,6 +139,7 @@ yuru --fzf-compat ignore
 `cargo install yuru --no-default-features`。
 
 如果要把中文设为默认语言，可以在 `~/.config/yuru/config.toml` 中设置 `lang = "zh"`。
+如果同一个候选列表需要同时支持日语、韩语和中文搜索，可以使用 `lang = "all"`。
 还可以设置 `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、
 `[ja] reading = "none" | "lindera"`、`[ko] initials = true`、`[zh] initials = true` 等。CLI 参数优先级最高。
 

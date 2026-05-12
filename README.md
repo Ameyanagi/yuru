@@ -92,9 +92,10 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.8/install | sh 
 ```
 
 To make a language backend the default during install, use `--default-lang ja`,
-`--default-lang zh`, or `--default-lang ko` on Unix. In PowerShell, use
-`-DefaultLang ja`, `-DefaultLang zh`, or `-DefaultLang ko`. The localized
-READMEs show commands prefilled for each language.
+`--default-lang zh`, `--default-lang ko`, or `--default-lang all` on Unix. In
+PowerShell, use `-DefaultLang ja`, `-DefaultLang zh`, `-DefaultLang ko`, or
+`-DefaultLang all`. The localized READMEs show commands prefilled for each
+language.
 
 `--bindings` accepts `all`, `none`, `ask`, or a comma-separated list such as
 `ctrl-t,ctrl-r,completion`. You can re-run the guided config later with
@@ -226,6 +227,12 @@ Auto language mode keeps one backend active per run:
 printf "北京大学.txt\n" | LANG=zh_CN.UTF-8 yuru --lang auto --filter bjdx
 ```
 
+Use all-language mode for mixed Japanese, Korean, and Chinese candidate lists:
+
+```sh
+printf "北京大学.txt\nカメラ.txt\n한글.txt\n" | yuru --lang all --filter bjdx
+```
+
 Explain a match:
 
 ```sh
@@ -281,7 +288,7 @@ Yuru reads `~/.config/yuru/config.toml` after safe fzf defaults and before
 
 ```toml
 [defaults]
-lang = "auto"          # plain | ja | ko | zh | auto
+lang = "auto"          # plain | ja | ko | zh | all | auto
 scheme = "path"        # default | path | history
 case = "smart"         # smart | ignore | respect
 limit = 200

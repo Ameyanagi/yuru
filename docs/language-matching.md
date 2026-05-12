@@ -73,6 +73,19 @@ implemented yet.
 the currently available candidate sample influence the choice. It does not build
 Japanese, Korean, and Chinese keys at the same time.
 
+## All Mode
+
+`--lang all` builds Japanese, Korean, and Chinese phonetic keys together. Use it
+for mixed-language candidate lists where one run should match queries such as
+Japanese romaji, Korean romanization, Korean initials, Chinese pinyin, and
+Chinese initials.
+
+```sh
+printf "北京大学.txt\nカメラ.txt\n한글.txt\n" | yuru --lang all --filter bjdx
+printf "北京大学.txt\nカメラ.txt\n한글.txt\n" | yuru --lang all --filter kamera
+printf "北京大学.txt\nカメラ.txt\n한글.txt\n" | yuru --lang all --filter hangeul
+```
+
 Use `--explain` to inspect the winning key:
 
 ```sh

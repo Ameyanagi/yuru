@@ -73,6 +73,20 @@ fn cli_reads_toml_config_file() {
         .stdout(predicate::eq("tests/日本語.txt\n"));
 }
 #[test]
+fn cli_reads_all_language_from_toml_config_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(&config, "[defaults]\nlang = \"all\"\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .args(["--filter", "bjdx"])
+        .write_stdin("北京大学.txt\nカメラ.txt\n한글.txt\n")
+        .assert()
+        .success()
+        .stdout(predicate::eq("北京大学.txt\n"));
+}
+#[test]
 fn cli_doctor_reports_missing_config_without_loading_fzf_opts() {
     command()
         .env("FZF_DEFAULT_OPTS", "--definitely-not-a-yuru-option")
@@ -100,6 +114,19 @@ fn cli_doctor_reports_toml_default_language() {
             config.display()
         )))
         .stdout(predicate::str::contains("info default language: ja"));
+}
+#[test]
+fn cli_doctor_reports_all_default_language() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(&config, "[defaults]\nlang = \"all\"\n").unwrap();
+
+    command()
+        .env("YURU_CONFIG_FILE", &config)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("info default language: all"));
 }
 #[test]
 fn cli_doctor_reports_legacy_default_language() {

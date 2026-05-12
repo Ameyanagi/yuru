@@ -26,7 +26,7 @@ interactive terminal, `--all` asks for shell integration and user config choices
 default language, preview command, preview text extensions, preview image
 protocol, shell bindings, and shell path backend. Pressing Enter accepts the
 prompt defaults.
-Use `--default-lang ask|plain|ja|ko|zh|auto|none` or `-DefaultLang` to override
+Use `--default-lang ask|plain|ja|ko|zh|all|auto|none` or `-DefaultLang` to override
 the language prompt or skip it.
 Interactive installs also ask whether to force an image preview protocol; the
 default `none` leaves automatic detection enabled. Use

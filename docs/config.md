@@ -4,7 +4,7 @@ Yuru reads `~/.config/yuru/config.toml` on Unix and `%APPDATA%\yuru\config.toml`
 
 ```toml
 [defaults]
-lang = "auto"          # plain | ja | ko | zh | auto
+lang = "auto"          # plain | ja | ko | zh | all | auto
 scheme = "path"        # default | path | history
 case = "smart"         # smart | ignore | respect
 limit = 200
@@ -48,6 +48,10 @@ alt_c_opts = "--preview-auto"
 ```
 
 `lang = "auto"` chooses one active backend per run. It does not build every language key for every candidate.
+Use `lang = "all"` when one candidate list should support Japanese, Korean, and
+Chinese phonetic keys at the same time. The `all` value for language selection
+is separate from `shell.bindings = "all"`, which only controls shell key
+bindings.
 
 `[matching].algo` selects Yuru matcher backends, not byte-for-byte fzf
 algorithm implementations. `greedy` and `fzf-v1` use Yuru's greedy scorer.

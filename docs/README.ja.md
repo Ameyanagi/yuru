@@ -138,6 +138,7 @@ yuru --fzf-compat ignore
 `cargo install yuru --no-default-features` を使えます。
 
 日本語を既定にするには、`~/.config/yuru/config.toml` に `lang = "ja"` を設定します。
+日本語、韓国語、中国語を同じ候補リストで同時に検索したい場合は `lang = "all"` を使います。
 ほかにも `lang = "auto"`、`load_fzf_defaults = "safe"`、`algo = "greedy" | "fzf-v1" | "fzf-v2" | "nucleo"`、
 `[ja] reading = "none" | "lindera"`、`[ko] initials = true`、`[zh] initials = true` などを設定できます。
 CLI 引数が最優先です。

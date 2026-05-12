@@ -52,7 +52,7 @@ pub(crate) fn configure_interactive() -> Result<()> {
     let lang = prompt_choice(
         "Default language",
         &current_lang,
-        &["plain", "ja", "ko", "zh", "auto", "none"],
+        &["plain", "ja", "ko", "zh", "all", "auto", "none"],
     )?;
     let load_fzf_defaults = prompt_choice(
         "Load FZF_DEFAULT_OPTS",
