@@ -391,15 +391,59 @@ function Install-YuruConfig {
     Write-YuruInstallLog "configured preview image protocol '$selectedPreviewImageProtocol' in $configPath"
 }
 
+function Test-YuruWindows {
+    $isWindowsVariable = Get-Variable -Name IsWindows -ErrorAction SilentlyContinue
+    if ($isWindowsVariable) {
+        return [bool]$isWindowsVariable.Value
+    }
+    try {
+        return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+    } catch {
+        return [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+    }
+}
+
+function Get-YuruWindowsArchitecture {
+    try {
+        $runtimeArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+        $runtimeArchName = [string]$runtimeArch
+        if (-not [string]::IsNullOrWhiteSpace($runtimeArchName)) {
+            return $runtimeArchName
+        }
+    } catch {
+        # Older Windows PowerShell/.NET combinations may not expose OSArchitecture.
+    }
+
+    $envArch = $env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrWhiteSpace($envArch)) {
+        $envArch = $env:PROCESSOR_ARCHITECTURE
+    }
+    if (-not [string]::IsNullOrWhiteSpace($envArch)) {
+        return $envArch
+    }
+
+    if ([Environment]::Is64BitOperatingSystem) {
+        return "X64"
+    }
+    return ""
+}
+
 function Get-YuruTarget {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-    if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+    if (-not (Test-YuruWindows)) {
         throw "install.ps1 currently supports Windows user-space installs. Use ./install on macOS/Linux."
     }
-    if ($arch -ne [System.Runtime.InteropServices.Architecture]::X64) {
-        throw "unsupported Windows architecture: $arch"
+    $arch = Get-YuruWindowsArchitecture
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        throw "could not determine Windows architecture"
     }
-    "x86_64-pc-windows-msvc"
+
+    switch ($arch.ToString().Trim().ToUpperInvariant()) {
+        "X64" { return "x86_64-pc-windows-msvc" }
+        "AMD64" { return "x86_64-pc-windows-msvc" }
+        "X86_64" { return "x86_64-pc-windows-msvc" }
+    }
+
+    throw "unsupported Windows architecture: $arch"
 }
 
 function Install-YuruFromSource {
