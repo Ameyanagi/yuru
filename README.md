@@ -170,7 +170,7 @@ yuru --fish | source
 PowerShell:
 
 ```powershell
-yuru --powershell | Invoke-Expression
+Invoke-Expression ((yuru --powershell) -join "`n")
 ```
 
 The shell integration provides:

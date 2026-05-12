@@ -539,21 +539,59 @@ function Install-YuruPowerShellIntegration {
     }
 
     $marker = "yuru shell integration"
-    $content = Get-Content -Raw -Path $profilePath
-    if ($content -like "*$marker*") {
-        Write-YuruInstallLog "PowerShell integration already present in $profilePath"
-        return
-    }
-
+    $endMarker = "end yuru shell integration"
     $installedBinary = (Join-Path $BinDir "yuru.exe").Replace("'", "''")
-    Add-Content -Path $profilePath -Value @"
-
+    $block = @"
 # yuru shell integration
 `$env:YURU_BIN = '$installedBinary'
 if (Test-Path -LiteralPath `$env:YURU_BIN) {
-    & `$env:YURU_BIN --powershell | Invoke-Expression
+    `$yuruPowerShellIntegration = (& `$env:YURU_BIN --powershell) -join "``n"
+    if (-not [string]::IsNullOrWhiteSpace(`$yuruPowerShellIntegration)) {
+        Invoke-Expression `$yuruPowerShellIntegration
+    }
 }
+# end yuru shell integration
 "@
+
+    $content = Get-Content -Raw -Path $profilePath
+    $lines = @($content -split "`r?`n")
+    $start = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].Trim() -eq "# $marker") {
+            $start = $i
+            break
+        }
+    }
+
+    if ($start -ge 0) {
+        $end = -1
+        for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].Trim() -eq "# $endMarker") {
+                $end = $i
+                break
+            }
+        }
+        if ($end -lt 0) {
+            for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+                if ($lines[$i].Trim() -eq "}") {
+                    $end = $i
+                    break
+                }
+            }
+        }
+        if ($end -lt 0) {
+            $end = $start
+        }
+
+        $before = if ($start -gt 0) { $lines[0..($start - 1)] } else { @() }
+        $after = if (($end + 1) -lt $lines.Count) { $lines[($end + 1)..($lines.Count - 1)] } else { @() }
+        $next = (@($before) + @($block -split "`r?`n") + @($after)) -join [Environment]::NewLine
+        Set-Content -Path $profilePath -Value $next
+        Write-YuruInstallLog "updated PowerShell integration in $profilePath"
+        return
+    }
+
+    Add-Content -Path $profilePath -Value "`n$block"
     Write-YuruInstallLog "updated $profilePath"
 }
 

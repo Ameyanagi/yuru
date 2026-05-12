@@ -876,7 +876,7 @@ end
 "#;
 
 const POWERSHELL: &str = r#"# yuru shell integration for PowerShell
-# Install with: yuru --powershell | Invoke-Expression
+# Install with: Invoke-Expression ((yuru --powershell) -join "`n")
 
 function Get-YuruCommand {
     if ($env:YURU_BIN) { return $env:YURU_BIN }

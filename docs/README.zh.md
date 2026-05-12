@@ -83,7 +83,7 @@ yuru --fish | source
 PowerShell:
 
 ```powershell
-yuru --powershell | Invoke-Expression
+Invoke-Expression ((yuru --powershell) -join "`n")
 ```
 
 可用操作:
