@@ -1044,7 +1044,8 @@ function Invoke-YuruWithItems {
     try {
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllLines($tmp, [string[]]$itemsArray, $utf8NoBom)
-        & $yuru @($YuruArgs + @("--input", $tmp))
+        $argv = @($YuruArgs) + @("--input", $tmp)
+        & $yuru @argv
     } finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
@@ -1059,7 +1060,8 @@ function Invoke-YuruWithOptionalCommand {
     if ($null -ne $CommandText) {
         if ($CommandText.Trim().Length -eq 0) { return @() }
         try {
-            return @(Invoke-Expression $CommandText 2>$null | & $yuru @YuruArgs)
+            $items = @(Invoke-Expression $CommandText 2>$null | ForEach-Object { [string]$_ })
+            return @(Invoke-YuruWithItems -Items $items -YuruArgs $YuruArgs)
         } catch {
             return @()
         }
@@ -1084,7 +1086,6 @@ function Invoke-YuruCtrlT {
 }
 
 function Invoke-YuruCtrlR {
-    $yuru = Get-YuruCommand
     $opts = @(Get-YuruCtrlROptions)
     $line = $null
     $cursor = $null
@@ -1147,12 +1148,13 @@ function Invoke-YuruCompletion {
             $query = $base.Substring($dir.Length).TrimStart([char[]]@([char]'/', [char]'\'))
         }
     }
-    $yuru = Get-YuruCommand
     $opts = @(Get-YuruCompletionOptions)
     if (Test-YuruDirectoryCompletion $left) {
-        $selected = @(Get-YuruDirItems $root | & $yuru --scheme path --no-multi --query $query --fzf-compat ignore @opts)
+        $yuruArgs = @("--scheme", "path", "--no-multi", "--query", $query, "--fzf-compat", "ignore") + $opts
+        $selected = @(Invoke-YuruWithItems -Items @(Get-YuruDirItems $root) -YuruArgs $yuruArgs)
     } else {
-        $selected = @(Get-YuruPathItems $root | & $yuru --scheme path -m --query $query --fzf-compat ignore @opts)
+        $yuruArgs = @("--scheme", "path", "-m", "--query", $query, "--fzf-compat", "ignore") + $opts
+        $selected = @(Invoke-YuruWithItems -Items @(Get-YuruPathItems $root) -YuruArgs $yuruArgs)
     }
     if ($selected.Count -eq 0) { return }
     $insert = Join-YuruSelection $selected

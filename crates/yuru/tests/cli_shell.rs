@@ -61,6 +61,8 @@ fn cli_prints_powershell_shell_integration() {
         .stdout(predicate::str::contains("Set-PSReadLineKeyHandler"))
         .stdout(predicate::str::contains("Invoke-YuruCtrlT"))
         .stdout(predicate::str::contains("Invoke-YuruWithItems"))
+        .stdout(predicate::str::contains("--input"))
+        .stdout(predicate::str::contains("| & $yuru").not())
         .stdout(predicate::str::contains("Get-YuruCompletionTrigger"))
         .stdout(predicate::str::contains("**<Tab>"));
 }
