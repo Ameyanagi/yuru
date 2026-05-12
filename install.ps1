@@ -12,6 +12,7 @@ param(
     [ValidateSet("ask", "auto", "fd", "fdfind", "find")]
     [string]$PathBackend = $(if ($env:YURU_INSTALL_PATH_BACKEND) { $env:YURU_INSTALL_PATH_BACKEND } else { "ask" }),
     [string]$Bindings = $(if ($env:YURU_INSTALL_BINDINGS) { $env:YURU_INSTALL_BINDINGS } else { "ask" }),
+    [string]$ProfilePath = $(if ($env:YURU_INSTALL_PROFILE_PATH) { $env:YURU_INSTALL_PROFILE_PATH } else { "" }),
     [switch]$NoConfig,
     [switch]$FromSource
 )
@@ -531,10 +532,12 @@ function Add-YuruToUserPath {
 }
 
 function Install-YuruPowerShellIntegration {
-    $profilePath = $PROFILE.CurrentUserAllHosts
+    $profilePath = $(if ([string]::IsNullOrWhiteSpace($ProfilePath)) { $PROFILE.CurrentUserAllHosts } else { $ProfilePath })
     $profileDir = Split-Path -Parent $profilePath
-    New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
-    if (-not (Test-Path $profilePath)) {
+    if (-not [string]::IsNullOrWhiteSpace($profileDir)) {
+        New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+    }
+    if (-not (Test-Path -LiteralPath $profilePath)) {
         New-Item -ItemType File -Force -Path $profilePath | Out-Null
     }
 
@@ -553,7 +556,7 @@ if (Test-Path -LiteralPath `$env:YURU_BIN) {
 # end yuru shell integration
 "@
 
-    $content = Get-Content -Raw -Path $profilePath
+    $content = Get-Content -Raw -LiteralPath $profilePath
     $lines = @($content -split "`r?`n")
     $start = -1
     for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -586,12 +589,12 @@ if (Test-Path -LiteralPath `$env:YURU_BIN) {
         $before = if ($start -gt 0) { $lines[0..($start - 1)] } else { @() }
         $after = if (($end + 1) -lt $lines.Count) { $lines[($end + 1)..($lines.Count - 1)] } else { @() }
         $next = (@($before) + @($block -split "`r?`n") + @($after)) -join [Environment]::NewLine
-        Set-Content -Path $profilePath -Value $next
+        Set-Content -LiteralPath $profilePath -Value $next
         Write-YuruInstallLog "updated PowerShell integration in $profilePath"
         return
     }
 
-    Add-Content -Path $profilePath -Value "`n$block"
+    Add-Content -LiteralPath $profilePath -Value "`n$block"
     Write-YuruInstallLog "updated $profilePath"
 }
 

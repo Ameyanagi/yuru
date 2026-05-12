@@ -412,9 +412,17 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $binDir = Join-Path $env:RUNNER_TEMP "yuru-bin"
+          $profilePath = Join-Path $env:RUNNER_TEMP "Microsoft.PowerShell_profile.ps1"
+          Set-Content -LiteralPath $profilePath -Value @'
+          # yuru shell integration
+          $env:YURU_BIN = 'C:\old\yuru.exe'
+          if (Test-Path -LiteralPath $env:YURU_BIN) {
+              & $env:YURU_BIN --powershell | Invoke-Expression
+          }
+          '@
           $script = Invoke-RestMethod "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/install.ps1"
           $installer = [scriptblock]::Create($script)
-          & $installer -Repo $env:GITHUB_REPOSITORY -Version $env:RELEASE_TAG -BinDir $binDir -NoConfig
+          & $installer -Repo $env:GITHUB_REPOSITORY -Version $env:RELEASE_TAG -BinDir $binDir -NoConfig -All -Bindings all -ProfilePath $profilePath
           $yuru = Join-Path $binDir "yuru.exe"
           & $yuru --help
           $matchOutput = "tests/日本語.txt`nplan.md`n" | & $yuru --lang ja --filter ni
@@ -422,4 +430,27 @@ jobs:
             throw "expected Japanese filter smoke output to contain tests/日本語.txt"
           }
           $powershellIntegration = (& $yuru --powershell) -join "`n"
+          if (-not $powershellIntegration.Contains("--input")) {
+            throw "PowerShell integration should pass candidates with --input"
+          }
+          if ($powershellIntegration.Contains('| & $yuru')) {
+            throw "PowerShell integration should not pipe candidates into yuru"
+          }
           $null = [scriptblock]::Create($powershellIntegration)
+          $env:YURU_INTEGRATION_SCRIPT = Join-Path $env:RUNNER_TEMP "yuru-powershell-integration.ps1"
+          Set-Content -LiteralPath $env:YURU_INTEGRATION_SCRIPT -Value $powershellIntegration
+          powershell.exe -NoLogo -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw -LiteralPath $env:YURU_INTEGRATION_SCRIPT))'
+          $profileContent = Get-Content -Raw -LiteralPath $profilePath
+          if ($profileContent.Contains("--powershell | Invoke-Expression")) {
+            throw "installer did not replace old profile integration"
+          }
+          if (-not $profileContent.Contains('-join "`n"')) {
+            throw "installer profile integration should join generated PowerShell before Invoke-Expression"
+          }
+          $null = [scriptblock]::Create($profileContent)
+          . $profilePath
+          foreach ($name in @("Invoke-YuruCtrlT", "Invoke-YuruCtrlR", "Invoke-YuruAltC", "Invoke-YuruCompletion")) {
+            if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {
+              throw "expected PowerShell profile to define $name"
+            }
+          }

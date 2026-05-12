@@ -2,6 +2,13 @@
 
 All notable user-facing changes are tracked here.
 
+## 0.1.9
+
+- Fixed Windows release installs on older PowerShell/.NET environments by hardening architecture detection.
+- Fixed PowerShell profile loading so generated integration scripts are joined before `Invoke-Expression`.
+- Fixed PowerShell key bindings and completion so Yuru keeps console input instead of disappearing after launch.
+- Added Windows diagnostics and CI smoke checks for PowerShell integration freshness.
+
 ## 0.1.8
 
 - Refactored core, CLI, and TUI internals into smaller modules while preserving the existing command-line behavior.

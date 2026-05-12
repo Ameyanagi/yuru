@@ -57,11 +57,7 @@ pub(crate) fn print_doctor_report() -> Result<()> {
     )?;
     writeln!(stdout, "info locale: {}", doctor_locale())?;
     writeln!(stdout, "info default command: {}", doctor_default_command())?;
-    writeln!(
-        stdout,
-        "info shell integration: {}",
-        doctor_shell_integration()
-    )?;
+    writeln!(stdout, "{}", doctor_shell_integration())?;
     Ok(())
 }
 
@@ -172,13 +168,54 @@ fn doctor_default_command() -> String {
 
 fn doctor_shell_integration() -> String {
     match detected_shell_profile() {
-        Some((shell, path)) if profile_has_shell_integration(&path) => {
-            format!("{shell} ({})", path.display())
+        Some((shell, path)) => match fs::read_to_string(&path) {
+            Ok(content) => format_profile_status(shell, &path, classify_shell_profile(&content)),
+            Err(_) => format!(
+                "warn shell integration: {shell} profile unreadable ({})",
+                path.display()
+            ),
+        },
+        None => "warn shell integration: unknown shell/profile".to_string(),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShellProfileStatus {
+    Current,
+    MissingMarker,
+    BrokenInvokeExpressionPipe,
+    PipedYuruStdin,
+}
+
+fn classify_shell_profile(content: &str) -> ShellProfileStatus {
+    if !content.contains("yuru shell integration") {
+        return ShellProfileStatus::MissingMarker;
+    }
+    if content.contains("--powershell | Invoke-Expression") {
+        return ShellProfileStatus::BrokenInvokeExpressionPipe;
+    }
+    if content.contains("| & $yuru") {
+        return ShellProfileStatus::PipedYuruStdin;
+    }
+    ShellProfileStatus::Current
+}
+
+fn format_profile_status(shell: &str, path: &Path, status: ShellProfileStatus) -> String {
+    match status {
+        ShellProfileStatus::Current => {
+            format!("ok shell integration: {shell} current ({})", path.display())
         }
-        Some((shell, path)) => {
-            format!("{shell} profile missing marker ({})", path.display())
+        ShellProfileStatus::MissingMarker => {
+            format!("warn shell integration: {shell} profile missing marker ({})", path.display())
         }
-        None => "unknown shell/profile".to_string(),
+        ShellProfileStatus::BrokenInvokeExpressionPipe => format!(
+            "warn shell integration: {shell} profile uses line-by-line Invoke-Expression; rerun installer ({})",
+            path.display()
+        ),
+        ShellProfileStatus::PipedYuruStdin => format!(
+            "warn shell integration: {shell} profile pipes candidates into yuru; reinstall v0.1.9 or newer ({})",
+            path.display()
+        ),
     }
 }
 
@@ -215,8 +252,50 @@ fn detected_shell_profile() -> Option<(&'static str, PathBuf)> {
         .map(|path| ("powershell", path))
 }
 
-fn profile_has_shell_integration(path: &Path) -> bool {
-    fs::read_to_string(path)
-        .map(|content| content.contains("yuru shell integration"))
-        .unwrap_or(false)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_current_profile_loader() {
+        let profile = r#"# yuru shell integration
+$env:YURU_BIN = 'C:\Users\me\AppData\Local\Yuru\bin\yuru.exe'
+if (Test-Path -LiteralPath $env:YURU_BIN) {
+    $yuruPowerShellIntegration = (& $env:YURU_BIN --powershell) -join "`n"
+    Invoke-Expression $yuruPowerShellIntegration
+}
+# end yuru shell integration
+"#;
+
+        assert_eq!(classify_shell_profile(profile), ShellProfileStatus::Current);
+    }
+
+    #[test]
+    fn classifies_old_line_by_line_profile_loader() {
+        let profile = r#"# yuru shell integration
+$env:YURU_BIN = 'C:\Users\me\AppData\Local\Yuru\bin\yuru.exe'
+if (Test-Path -LiteralPath $env:YURU_BIN) {
+    & $env:YURU_BIN --powershell | Invoke-Expression
+}
+"#;
+
+        assert_eq!(
+            classify_shell_profile(profile),
+            ShellProfileStatus::BrokenInvokeExpressionPipe
+        );
+    }
+
+    #[test]
+    fn classifies_old_generated_profile_script() {
+        let profile = r#"# yuru shell integration for PowerShell
+function Invoke-YuruCompletion {
+    Get-YuruPathItems $root | & $yuru --scheme path -m --query $query
+}
+"#;
+
+        assert_eq!(
+            classify_shell_profile(profile),
+            ShellProfileStatus::PipedYuruStdin
+        );
+    }
 }

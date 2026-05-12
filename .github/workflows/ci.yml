@@ -69,8 +69,20 @@ jobs:
       - name: PowerShell syntax
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $null = [scriptblock]::Create((Get-Content -Raw install.ps1))
-          $script = ""
-          cargo run --quiet -p yuru -- --powershell |
-            ForEach-Object { $script += "$_`n" }
+          $env:YURU_INSTALL_SCRIPT = (Resolve-Path install.ps1).Path
+          powershell.exe -NoLogo -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw -LiteralPath $env:YURU_INSTALL_SCRIPT))'
+
+          $script = (cargo run --quiet -p yuru -- --powershell) -join "`n"
+          if (-not $script.Contains("--input")) {
+            throw "PowerShell integration should pass candidates with --input"
+          }
+          if ($script.Contains('| & $yuru')) {
+            throw "PowerShell integration should not pipe candidates into yuru"
+          }
           $null = [scriptblock]::Create($script)
+          $scriptPath = Join-Path $env:RUNNER_TEMP "yuru-powershell-integration.ps1"
+          Set-Content -LiteralPath $scriptPath -Value $script
+          $env:YURU_INTEGRATION_SCRIPT = $scriptPath
+          powershell.exe -NoLogo -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw -LiteralPath $env:YURU_INTEGRATION_SCRIPT))'
