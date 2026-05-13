@@ -46,6 +46,7 @@ pub(crate) struct PreviewCache {
 pub(crate) struct PreviewKey {
     command: String,
     shell: String,
+    image_protocol: Option<ImagePreviewProtocol>,
     selected_id: usize,
     display: String,
     geometry: PreviewGeometry,
@@ -55,6 +56,7 @@ impl PreviewKey {
     pub(crate) fn new(
         command: String,
         shell: String,
+        image_protocol: Option<ImagePreviewProtocol>,
         selected_id: usize,
         display: String,
         geometry: PreviewGeometry,
@@ -62,6 +64,7 @@ impl PreviewKey {
         Self {
             command,
             shell,
+            image_protocol,
             selected_id,
             display,
             geometry,
@@ -73,6 +76,7 @@ struct PreviewRequest {
     key: PreviewKey,
     command: PreviewCommand,
     shell: Option<String>,
+    image_protocol: Option<ImagePreviewProtocol>,
     item: String,
     geometry: PreviewGeometry,
     requested_at: Instant,
@@ -103,6 +107,7 @@ impl PreviewCache {
         results: &[ScoredCandidate],
         state: &TuiState,
         geometry: Option<PreviewGeometry>,
+        image_protocol: Option<ImagePreviewProtocol>,
     ) {
         let Some(command) = command else {
             self.clear();
@@ -119,6 +124,7 @@ impl PreviewCache {
         let key = PreviewKey::new(
             command.cache_key(),
             shell.unwrap_or_default().to_string(),
+            image_protocol,
             selected.id,
             selected.display.clone(),
             geometry,
@@ -142,6 +148,7 @@ impl PreviewCache {
                 key,
                 command: command.clone(),
                 shell: shell.map(str::to_string),
+                image_protocol,
                 item: selected.display.clone(),
                 geometry,
                 requested_at: Instant::now(),
@@ -183,6 +190,7 @@ impl PreviewCache {
                 pending.shell.as_deref(),
                 &pending.item,
                 pending.geometry,
+                pending.image_protocol,
             );
             let _ = sender.send((key, payload));
         });
@@ -326,7 +334,7 @@ impl PreviewCache {
     }
 
     #[cfg(feature = "image")]
-    fn image_picker(&mut self, protocol: Option<ImagePreviewProtocol>) -> &Picker {
+    fn image_picker(&mut self, protocol: ImagePreviewProtocol) -> &Picker {
         self.image_picker
             .get_or_insert_with(|| image_picker_from_env(protocol))
     }
@@ -340,6 +348,9 @@ impl PreviewCache {
     ) -> bool {
         let mut changed = self.receive_image_result();
         let area = (width as u16, rows as u16);
+        let Some(protocol) = protocol else {
+            return changed;
+        };
         if area.0 == 0 || area.1 == 0 {
             return changed;
         }

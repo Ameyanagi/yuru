@@ -132,8 +132,8 @@ yuru --fzf-compat strict
 yuru --fzf-compat ignore
 ```
 
-プレビューコマンドが画像のバイト列を出力する場合は `ratatui-image` で描画します。必要に応じて
-`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` でプロトコルを固定できます。
+`preview.image_protocol = "auto"` のとき、プレビューコマンドが画像のバイト列を出力する場合は `ratatui-image` で描画します。必要に応じて
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` でプロトコルを固定できます。`none` では画像を描画せず、形式などの短い情報だけを表示します。
 画像プレビューは既定の `image` feature で有効です。ソースビルドを軽くしたい場合は
 `cargo install yuru --no-default-features` を使えます。
 

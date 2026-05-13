@@ -103,6 +103,7 @@ pub fn run_interactive(
             &results,
             &state,
             preview_geometry,
+            options.preview_image_protocol,
         );
         render_needed |= preview_cache.poll();
         preview_cache.clamp_scroll(viewport.rows);
@@ -261,6 +262,7 @@ pub fn run_interactive_streaming(
             &results,
             &state,
             preview_geometry,
+            options.preview_image_protocol,
         );
         let preview_changed = preview_cache.poll();
         render_needed |= preview_changed;

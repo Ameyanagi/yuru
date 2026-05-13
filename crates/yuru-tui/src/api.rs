@@ -105,6 +105,8 @@ impl PreviewCommand {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Terminal graphics protocol used for image previews.
 pub enum ImagePreviewProtocol {
+    /// Auto-detect an image protocol from terminal environment hints.
+    Auto,
     /// Render images with Unicode half-block characters.
     Halfblocks,
     /// Render images with Sixel graphics.

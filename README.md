@@ -272,12 +272,14 @@ rendered internally, configured text extensions use `bat` when available and
 fall back to `cat`-style plain text output. Files outside the configured
 extension list also use the text path when their contents look like ASCII text.
 Preview commands that emit image bytes,
-or select image files directly, are rendered through the default `image` feature
-with `ratatui-image`; raster images and SVG files are supported. Ghostty uses
-the Kitty graphics protocol, including inside tmux when passthrough is enabled. Set
-`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` or
-`[preview] image_protocol = "kitty"` in config to force a protocol. The config
-default `none` leaves automatic detection enabled.
+or select image files directly, can be rendered through the default `image`
+feature with `ratatui-image`; raster images and SVG files are supported. Set
+`[preview] image_protocol = "auto"` to enable environment/terminal detection.
+Ghostty uses the Kitty graphics protocol, including inside tmux when passthrough
+is enabled. Set `YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` with
+`auto`, or set `[preview] image_protocol = "kitty"` in config, to force a
+protocol. The config default `none` disables image rendering and shows compact
+image metadata instead.
 
 See the full [fzf compatibility matrix](docs/fzf-compat.md).
 
@@ -301,7 +303,7 @@ text_extensions = [
   "txt", "md", "markdown", "toml", "json", "yaml", "yml", "csv", "tsv",
   "log", "rs", "py", "js", "ts", "tsx", "sh", "ps1", "sql", "html", "css",
 ]
-image_protocol = "none" # none | halfblocks | sixel | kitty | iterm2
+image_protocol = "none" # none | auto | halfblocks | sixel | kitty | iterm2
 
 [matching]
 algo = "greedy"        # greedy | fzf-v1 | fzf-v2 | nucleo

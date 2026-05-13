@@ -38,7 +38,7 @@ Options:
   --preview-text-extensions LIST
                         Comma-separated extensions handled by the built-in text preview
   --preview-image-protocol PROTOCOL
-                        Configure image preview protocol: ask, none, halfblocks, sixel, kitty, iterm2
+                        Configure image preview protocol: ask, none, auto, halfblocks, sixel, kitty, iterm2
                         (default: ask; no TTY: none)
   --path-backend BACKEND
                         Shell path search backend: ask, auto, fd, fdfind, find
@@ -210,10 +210,10 @@ validate_default_lang() {
 
 validate_preview_image_protocol() {
   case "$1" in
-    ask | none | halfblocks | sixel | kitty | iterm2) ;;
+    ask | none | auto | halfblocks | sixel | kitty | iterm2) ;;
     *)
       echo "install: unsupported preview image protocol: $1" >&2
-      echo "install: expected one of: ask, none, halfblocks, sixel, kitty, iterm2" >&2
+      echo "install: expected one of: ask, none, auto, halfblocks, sixel, kitty, iterm2" >&2
       exit 2
       ;;
   esac
@@ -357,16 +357,16 @@ prompt_preview_image_protocol() {
   fi
 
   while :; do
-    printf 'Choose Yuru preview image protocol [none/halfblocks/sixel/kitty/iterm2] (none): ' >/dev/tty
+    printf 'Choose Yuru preview image protocol [none/auto/halfblocks/sixel/kitty/iterm2] (none): ' >/dev/tty
     IFS= read -r answer </dev/tty || answer=""
     answer="${answer:-none}"
     case "$answer" in
-      none | halfblocks | sixel | kitty | iterm2)
+      none | auto | halfblocks | sixel | kitty | iterm2)
         printf '%s' "$answer"
         return
         ;;
       *)
-        printf 'Please enter none, halfblocks, sixel, kitty, or iterm2.\n' >/dev/tty
+        printf 'Please enter none, auto, halfblocks, sixel, kitty, or iterm2.\n' >/dev/tty
         ;;
     esac
   done

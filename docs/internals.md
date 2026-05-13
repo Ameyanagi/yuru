@@ -236,13 +236,14 @@ Yuru recognizes `png`, `jpg`, `jpeg`, `gif`, `bmp`, `ico`, `tif`, `tiff`,
 crate; SVGs are rasterized with `resvg`, capped to a 2048-pixel maximum axis.
 The decoded image is cached separately from terminal encoding.
 
-Terminal image encoding is also asynchronous. The UI chooses a `viuer` picker
-from the explicit `--preview-image-protocol` / config value when set; otherwise
-`YURU_PREVIEW_IMAGE_PROTOCOL` wins, then terminal environment heuristics choose
-Kitty/Ghostty, iTerm2/WezTerm/Rio, or Sixel-capable terminals. If no protocol is
-detected, the picker falls back to half-block rendering. The image worker
-resizes to fit the current preview area and re-encodes only when that area
-changes.
+Terminal image encoding is also asynchronous. `--preview-image-protocol none`
+disables image rendering and reports compact image metadata. With
+`--preview-image-protocol auto`, `YURU_PREVIEW_IMAGE_PROTOCOL` wins, then terminal
+environment heuristics choose Kitty/Ghostty, iTerm2/WezTerm/Rio, or
+Sixel-capable terminals. Explicit `halfblocks`, `sixel`, `kitty`, and `iterm2`
+values force that protocol. If `auto` detects no protocol, the picker falls back
+to half-block rendering. The image worker resizes to fit the current preview area
+and re-encodes only when that area changes.
 
 This keeps selection movement and query input responsive even when a preview
 command, image decoder, or terminal image encoder is slower than the search

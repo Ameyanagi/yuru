@@ -1,26 +1,39 @@
 use std::process::Command;
 
-use crate::api::PreviewCommand;
+use crate::api::{ImagePreviewProtocol, PreviewCommand};
 
 use super::builtin::run_builtin_preview;
 use super::cache::{PreviewGeometry, PreviewPayload};
 #[cfg(feature = "image")]
-use super::image::{preview_image_from_output, preview_image_from_path_text};
+use super::image::{
+    preview_image_from_output, preview_image_from_path_text, preview_image_metadata_from_output,
+    preview_image_metadata_from_path_text,
+};
 
 pub(crate) fn run_preview_command(
     command: &PreviewCommand,
     shell: Option<&str>,
     item: &str,
     geometry: PreviewGeometry,
+    image_protocol: Option<ImagePreviewProtocol>,
 ) -> PreviewPayload {
+    #[cfg(not(feature = "image"))]
+    let _ = image_protocol;
+
     #[cfg(feature = "image")]
-    if let Some(image) = preview_image_from_path_text(item) {
-        return PreviewPayload::Image(image);
+    {
+        if image_protocol.is_some() {
+            if let Some(image) = preview_image_from_path_text(item) {
+                return PreviewPayload::Image(image);
+            }
+        } else if let Some(metadata) = preview_image_metadata_from_path_text(item) {
+            return PreviewPayload::Text(metadata);
+        }
     }
 
     match command {
         PreviewCommand::Shell(template) => {
-            run_shell_preview_command(template, shell, item, geometry)
+            run_shell_preview_command(template, shell, item, geometry, image_protocol)
         }
         PreviewCommand::Builtin { text_extensions } => run_builtin_preview(item, text_extensions),
     }
@@ -31,7 +44,11 @@ fn run_shell_preview_command(
     shell: Option<&str>,
     item: &str,
     geometry: PreviewGeometry,
+    image_protocol: Option<ImagePreviewProtocol>,
 ) -> PreviewPayload {
+    #[cfg(not(feature = "image"))]
+    let _ = image_protocol;
+
     let command = expand_preview_template(template, item);
     let output = preview_shell_command(&command, shell, geometry).output();
 
@@ -39,13 +56,23 @@ fn run_shell_preview_command(
         Ok(output) => {
             if !output.stdout.is_empty() {
                 #[cfg(feature = "image")]
-                if let Some(image) = preview_image_from_output(&output.stdout) {
-                    return PreviewPayload::Image(image);
+                {
+                    if image_protocol.is_some() {
+                        if let Some(image) = preview_image_from_output(&output.stdout) {
+                            return PreviewPayload::Image(image);
+                        }
+                    } else if let Some(metadata) =
+                        preview_image_metadata_from_output(&output.stdout)
+                    {
+                        return PreviewPayload::Text(metadata);
+                    }
                 }
                 #[cfg(feature = "image")]
-                if output.status.success() {
-                    if let Some(image) = preview_image_from_path_text(item) {
-                        return PreviewPayload::Image(image);
+                {
+                    if image_protocol.is_some() && output.status.success() {
+                        if let Some(image) = preview_image_from_path_text(item) {
+                            return PreviewPayload::Image(image);
+                        }
                     }
                 }
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -57,8 +84,12 @@ fn run_shell_preview_command(
             }
             if output.status.success() {
                 #[cfg(feature = "image")]
-                if let Some(image) = preview_image_from_path_text(item) {
-                    return PreviewPayload::Image(image);
+                {
+                    if image_protocol.is_some() {
+                        if let Some(image) = preview_image_from_path_text(item) {
+                            return PreviewPayload::Image(image);
+                        }
+                    }
                 }
                 PreviewPayload::Text(String::new())
             } else {

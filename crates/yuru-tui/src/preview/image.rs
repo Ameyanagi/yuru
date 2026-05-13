@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 
@@ -72,15 +73,36 @@ pub(crate) fn preview_image_from_output(bytes: &[u8]) -> Option<DynamicImage> {
 }
 
 #[cfg(feature = "image")]
+pub(super) fn preview_image_metadata_from_output(bytes: &[u8]) -> Option<String> {
+    preview_image_metadata_from_bytes(bytes, None, None).or_else(|| {
+        std::str::from_utf8(bytes)
+            .ok()
+            .and_then(preview_image_metadata_from_path_text)
+    })
+}
+
+#[cfg(feature = "image")]
 pub(super) fn preview_image_from_path_text(text: &str) -> Option<DynamicImage> {
     let path = preview_image_path(text)?;
     preview_image_from_path(&path)
 }
 
 #[cfg(feature = "image")]
+pub(super) fn preview_image_metadata_from_path_text(text: &str) -> Option<String> {
+    let path = preview_image_path(text)?;
+    preview_image_metadata_from_path(&path)
+}
+
+#[cfg(feature = "image")]
 fn preview_image_from_path(path: &Path) -> Option<DynamicImage> {
     let bytes = std::fs::read(path).ok()?;
     preview_image_from_bytes(&bytes, path.parent())
+}
+
+#[cfg(feature = "image")]
+pub(super) fn preview_image_metadata_from_path(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    preview_image_metadata_from_bytes(&bytes, path.parent(), Some(path))
 }
 
 #[cfg(feature = "image")]
@@ -91,15 +113,58 @@ fn preview_image_from_bytes(bytes: &[u8], resources_dir: Option<&Path>) -> Optio
 }
 
 #[cfg(feature = "image")]
-fn preview_svg_from_bytes(bytes: &[u8], resources_dir: Option<&Path>) -> Option<DynamicImage> {
-    let mut options = resvg::usvg::Options {
-        resources_dir: resources_dir.map(Path::to_path_buf),
-        ..resvg::usvg::Options::default()
-    };
-    #[cfg(feature = "image")]
-    options.fontdb_mut().load_system_fonts();
+fn preview_image_metadata_from_bytes(
+    bytes: &[u8],
+    resources_dir: Option<&Path>,
+    path: Option<&Path>,
+) -> Option<String> {
+    image_raster_metadata(bytes)
+        .or_else(|| image_svg_metadata(bytes, resources_dir))
+        .map(|(format, width, height)| {
+            image_metadata_text(path, &format, width, height, bytes.len())
+        })
+}
 
-    let tree = resvg::usvg::Tree::from_data(bytes, &options).ok()?;
+#[cfg(feature = "image")]
+fn image_raster_metadata(bytes: &[u8]) -> Option<(String, u32, u32)> {
+    let reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let format = reader.format()?;
+    let (width, height) = reader.into_dimensions().ok()?;
+    Some((format!("{format:?}").to_ascii_uppercase(), width, height))
+}
+
+#[cfg(feature = "image")]
+fn image_svg_metadata(bytes: &[u8], resources_dir: Option<&Path>) -> Option<(String, u32, u32)> {
+    let tree = parse_svg_tree(bytes, resources_dir)?;
+    let size = tree.size();
+    Some((
+        "SVG".to_string(),
+        size.width().ceil().max(1.0) as u32,
+        size.height().ceil().max(1.0) as u32,
+    ))
+}
+
+#[cfg(feature = "image")]
+fn image_metadata_text(
+    path: Option<&Path>,
+    format: &str,
+    width: u32,
+    height: u32,
+    bytes: usize,
+) -> String {
+    let name = path
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "inline image".to_string());
+    format!(
+        "image: {name}\nformat: {format}\ndimensions: {width} x {height}\nsize: {bytes} bytes\npreview: image rendering disabled"
+    )
+}
+
+#[cfg(feature = "image")]
+fn preview_svg_from_bytes(bytes: &[u8], resources_dir: Option<&Path>) -> Option<DynamicImage> {
+    let tree = parse_svg_tree(bytes, resources_dir)?;
     let size = tree.size();
     let scale = (2048.0 / size.width()).min(2048.0 / size.height()).min(1.0);
     let width = (size.width() * scale).ceil().clamp(1.0, 2048.0) as u32;
@@ -112,6 +177,17 @@ fn preview_svg_from_bytes(bytes: &[u8], resources_dir: Option<&Path>) -> Option<
         &mut pixmap_mut,
     );
     image::RgbaImage::from_raw(width, height, pixmap.data().to_vec()).map(DynamicImage::ImageRgba8)
+}
+
+#[cfg(feature = "image")]
+fn parse_svg_tree(bytes: &[u8], resources_dir: Option<&Path>) -> Option<resvg::usvg::Tree> {
+    let mut options = resvg::usvg::Options {
+        resources_dir: resources_dir.map(Path::to_path_buf),
+        ..resvg::usvg::Options::default()
+    };
+    options.fontdb_mut().load_system_fonts();
+
+    resvg::usvg::Tree::from_data(bytes, &options).ok()
 }
 
 #[cfg(feature = "image")]
@@ -179,24 +255,22 @@ fn is_image_path(path: &Path) -> bool {
 }
 
 #[cfg(feature = "image")]
-pub(super) fn image_picker_from_env(protocol: Option<ImagePreviewProtocol>) -> Picker {
+pub(super) fn image_picker_from_env(protocol: ImagePreviewProtocol) -> Picker {
     let mut picker = image_picker_from_terminal_size().unwrap_or_else(Picker::halfblocks);
-    if let Some(protocol) = protocol
-        .map(image_protocol_type)
-        .or_else(image_protocol_from_env)
-    {
+    if let Some(protocol) = image_protocol_type(protocol).or_else(image_protocol_from_env) {
         picker.set_protocol_type(protocol);
     }
     picker
 }
 
 #[cfg(feature = "image")]
-fn image_protocol_type(protocol: ImagePreviewProtocol) -> ProtocolType {
+fn image_protocol_type(protocol: ImagePreviewProtocol) -> Option<ProtocolType> {
     match protocol {
-        ImagePreviewProtocol::Halfblocks => ProtocolType::Halfblocks,
-        ImagePreviewProtocol::Sixel => ProtocolType::Sixel,
-        ImagePreviewProtocol::Kitty => ProtocolType::Kitty,
-        ImagePreviewProtocol::Iterm2 => ProtocolType::Iterm2,
+        ImagePreviewProtocol::Auto => None,
+        ImagePreviewProtocol::Halfblocks => Some(ProtocolType::Halfblocks),
+        ImagePreviewProtocol::Sixel => Some(ProtocolType::Sixel),
+        ImagePreviewProtocol::Kitty => Some(ProtocolType::Kitty),
+        ImagePreviewProtocol::Iterm2 => Some(ProtocolType::Iterm2),
     }
 }
 

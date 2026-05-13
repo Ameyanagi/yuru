@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use ratatui_image::picker::{Picker, ProtocolType};
 
 #[cfg(unix)]
-use crate::api::PreviewCommand;
+use crate::api::{ImagePreviewProtocol, PreviewCommand};
 #[cfg(unix)]
 use crate::preview::run_preview_command;
 use crate::preview::{
@@ -58,9 +58,34 @@ fn preview_command_prefers_selected_image_path_over_text_stdout() {
         None,
         path.to_str().unwrap(),
         test_geometry(),
+        Some(ImagePreviewProtocol::Auto),
     );
 
     assert!(matches!(preview, PreviewPayload::Image(_)));
+}
+
+#[cfg(all(feature = "image", unix))]
+#[test]
+fn image_protocol_none_reports_selected_image_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ame.png");
+    std::fs::write(&path, tiny_png_bytes()).unwrap();
+
+    let preview = run_preview_command(
+        &PreviewCommand::Shell("cat {}".to_string()),
+        None,
+        path.to_str().unwrap(),
+        test_geometry(),
+        None,
+    );
+
+    assert!(matches!(
+        preview,
+        PreviewPayload::Text(text)
+            if text.contains("format: PNG")
+                && text.contains("dimensions: 1 x 1")
+                && text.contains("preview: image rendering disabled")
+    ));
 }
 
 #[cfg(feature = "image")]

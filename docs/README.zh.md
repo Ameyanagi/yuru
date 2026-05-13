@@ -133,8 +133,8 @@ yuru --fzf-compat strict
 yuru --fzf-compat ignore
 ```
 
-如果预览命令输出图片字节数据，Yuru 会通过 `ratatui-image` 渲染。需要时可用
-`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` 固定预览协议。
+当 `preview.image_protocol = "auto"` 时，如果预览命令输出图片字节数据，Yuru 会通过 `ratatui-image` 渲染。需要时可用
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` 固定预览协议。`none` 不渲染图片，只显示格式等简短信息。
 图片预览由默认启用的 `image` feature 提供。如需更小的源码构建，可使用
 `cargo install yuru --no-default-features`。
 

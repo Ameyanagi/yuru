@@ -69,14 +69,15 @@ YURU_PREVIEW_IMAGE_PROTOCOL=kitty yuru --preview 'file {}'
 `cat` text path. Files outside that list also use the text path when their
 contents look like ASCII text.
 The TOML config option `[preview] image_protocol = "none"` is the default and
-leaves this environment override plus automatic detection enabled. Set it to
-`halfblocks`, `sixel`, `kitty`, or `iterm2` to force a protocol from config.
-Without a forced protocol, Yuru uses safe environment hints and falls back to
-halfblocks.
+disables image rendering; image files show compact format metadata instead. Set
+it to `auto` to use this environment override plus automatic detection. Set it
+to `halfblocks`, `sixel`, `kitty`, or `iterm2` to force a protocol from config.
+With `auto` and no detected protocol, Yuru falls back to halfblocks.
 Ghostty is detected as Kitty protocol even inside tmux when `GHOSTTY_*` env vars
-are present and tmux passthrough is enabled. Yuru also renders the selected file
-directly when it is a raster image or SVG, so preview commands like `file {}` can
-still show the image instead of plain metadata text. It does not call
+are present and tmux passthrough is enabled. When image rendering is enabled,
+Yuru also renders the selected file directly when it is a raster image or SVG, so
+preview commands like `file {}` can still show the image instead of plain
+metadata text. It does not call
 `ratatui-image`'s stdio terminal query because Yuru reserves stdout for accepted
 selections.
 

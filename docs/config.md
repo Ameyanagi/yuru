@@ -17,7 +17,7 @@ text_extensions = [
   "txt", "md", "markdown", "toml", "json", "yaml", "yml", "csv", "tsv",
   "log", "rs", "py", "js", "ts", "tsx", "sh", "ps1", "sql", "html", "css",
 ]
-image_protocol = "none" # none | halfblocks | sixel | kitty | iterm2
+image_protocol = "none" # none | auto | halfblocks | sixel | kitty | iterm2
 
 [matching]
 algo = "greedy"        # greedy | fzf-v1 | fzf-v2 | nucleo
@@ -70,16 +70,18 @@ as `ㅎㄱ`, and `keyboard` enables Korean 2-set keyboard-layout keys such as
 uses `"common"` behavior. `[zh].script` is reserved and currently has no effect;
 it is intentionally omitted from the default config example.
 
-`preview.image_protocol = "none"` leaves image previews on automatic terminal
-detection and still allows `YURU_PREVIEW_IMAGE_PROTOCOL` to override it. Choose
-`kitty`, `sixel`, `iterm2`, or `halfblocks` to force a protocol from config.
+`preview.image_protocol = "none"` disables image rendering and shows compact image
+metadata for image files. Choose `auto` to use `YURU_PREVIEW_IMAGE_PROTOCOL` plus
+terminal detection, or choose `kitty`, `sixel`, `iterm2`, or `halfblocks` to force
+a protocol from config.
 
-`preview.command = "auto"` enables Yuru's built-in preview. It renders image
-paths internally, uses `bat` for configured text extensions when available, and
-falls back to `cat`-style plain text output. Set it to `none` to disable preview or to a
-shell command to use traditional `--preview` behavior. `preview.text_extensions`
-defines which extensions always use the text path. Files outside that list also
-use the text path when their contents look like ASCII text.
+`preview.command = "auto"` enables Yuru's built-in preview. It reports image
+metadata or renders image paths according to `preview.image_protocol`, uses `bat`
+for configured text extensions when available, and falls back to `cat`-style
+plain text output. Set it to `none` to disable preview or to a shell command to
+use traditional `--preview` behavior. `preview.text_extensions` defines which
+extensions always use the text path. Files outside that list also use the text
+path when their contents look like ASCII text.
 
 `shell.path_backend = "auto"` tries `fd`, then `fdfind`, then `find` for shell
 path search. Set it to `fd`, `fdfind`, or `find` to prefer a specific backend.

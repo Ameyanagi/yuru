@@ -28,13 +28,14 @@ protocol, shell bindings, and shell path backend. Pressing Enter accepts the
 prompt defaults.
 Use `--default-lang ask|plain|ja|ko|zh|all|auto|none` or `-DefaultLang` to override
 the language prompt or skip it.
-Interactive installs also ask whether to force an image preview protocol; the
-default `none` leaves automatic detection enabled. Use
-`--preview-image-protocol none|halfblocks|sixel|kitty|iterm2` or
+Interactive installs also ask for the image preview protocol; the default `none`
+shows compact image metadata without rendering images. Use
+`--preview-image-protocol none|auto|halfblocks|sixel|kitty|iterm2` or
 `-PreviewImageProtocol` to set it without a prompt.
 They also ask for the preview command. The default `auto` uses Yuru's built-in
 preview with `bat` or `cat`-style fallback for configured text extensions and
-internal image rendering. Use `--preview-command auto|none|COMMAND`,
+image metadata or rendering, depending on the image protocol. Use
+`--preview-command auto|none|COMMAND`,
 `--preview-text-extensions txt,md,json,...`, `-PreviewCommand`, or
 `-PreviewTextExtensions` to preselect those values. In an interactive terminal,
 the guided installer still offers a chance to edit the text extension list.

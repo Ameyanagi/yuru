@@ -67,7 +67,7 @@ pub(crate) fn configure_interactive() -> Result<()> {
     let preview_image_protocol = prompt_choice(
         "Preview image protocol",
         &current_preview_image_protocol,
-        &["none", "halfblocks", "sixel", "kitty", "iterm2"],
+        &["none", "auto", "halfblocks", "sixel", "kitty", "iterm2"],
     )?;
     let preview_command = prompt_preview_command(&current_preview_command)?;
     let preview_text_extensions = prompt_string(

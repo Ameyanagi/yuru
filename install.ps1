@@ -7,7 +7,7 @@ param(
     [string]$DefaultLang = $(if ($env:YURU_INSTALL_DEFAULT_LANG) { $env:YURU_INSTALL_DEFAULT_LANG } else { "ask" }),
     [string]$PreviewCommand = $(if ($env:YURU_INSTALL_PREVIEW_COMMAND) { $env:YURU_INSTALL_PREVIEW_COMMAND } else { "ask" }),
     [string]$PreviewTextExtensions = $(if ($env:YURU_INSTALL_PREVIEW_TEXT_EXTENSIONS) { $env:YURU_INSTALL_PREVIEW_TEXT_EXTENSIONS } else { "txt,md,markdown,rst,toml,json,jsonl,yaml,yml,csv,tsv,log,rs,py,js,jsx,ts,tsx,go,java,c,h,cpp,hpp,cs,rb,php,sh,bash,zsh,fish,ps1,sql,html,htm,css,scss,xml" }),
-    [ValidateSet("ask", "none", "halfblocks", "sixel", "kitty", "iterm2")]
+    [ValidateSet("ask", "none", "auto", "halfblocks", "sixel", "kitty", "iterm2")]
     [string]$PreviewImageProtocol = $(if ($env:YURU_INSTALL_PREVIEW_IMAGE_PROTOCOL) { $env:YURU_INSTALL_PREVIEW_IMAGE_PROTOCOL } else { "ask" }),
     [ValidateSet("ask", "auto", "fd", "fdfind", "find")]
     [string]$PathBackend = $(if ($env:YURU_INSTALL_PATH_BACKEND) { $env:YURU_INSTALL_PATH_BACKEND } else { "ask" }),
@@ -69,15 +69,16 @@ function Read-YuruPreviewImageProtocol {
     if (-not (Test-YuruCanPrompt)) { return "none" }
 
     while ($true) {
-        $answer = Read-Host "Choose Yuru preview image protocol [none/halfblocks/sixel/kitty/iterm2] (none)"
+        $answer = Read-Host "Choose Yuru preview image protocol [none/auto/halfblocks/sixel/kitty/iterm2] (none)"
         if ([string]::IsNullOrWhiteSpace($answer)) { return "none" }
         switch ($answer.Trim().ToLowerInvariant()) {
             "none" { return "none" }
+            "auto" { return "auto" }
             "halfblocks" { return "halfblocks" }
             "sixel" { return "sixel" }
             "kitty" { return "kitty" }
             "iterm2" { return "iterm2" }
-            default { Write-Host "Please enter none, halfblocks, sixel, kitty, or iterm2." }
+            default { Write-Host "Please enter none, auto, halfblocks, sixel, kitty, or iterm2." }
         }
     }
 }

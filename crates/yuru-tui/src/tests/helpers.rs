@@ -14,6 +14,7 @@ pub(super) fn preview_key(command: &str, id: usize, item: &str) -> PreviewKey {
     PreviewKey::new(
         command.to_string(),
         String::new(),
+        None,
         id,
         item.to_string(),
         test_geometry(),

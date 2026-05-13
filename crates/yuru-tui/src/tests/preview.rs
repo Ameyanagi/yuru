@@ -3,6 +3,8 @@ use crate::api::PreviewCommand;
 use crate::preview::PreviewGeometry;
 use crate::preview::{run_preview_command, PreviewCache, PreviewPayload};
 
+#[cfg(feature = "image")]
+use super::helpers::tiny_png_bytes;
 use super::helpers::{preview_key, test_geometry};
 
 #[test]
@@ -44,6 +46,7 @@ fn preview_command_returns_stderr_when_stdout_is_empty() {
         None,
         "alpha",
         test_geometry(),
+        None,
     );
 
     assert!(matches!(preview, PreviewPayload::Text(text) if text == "preview-error"));
@@ -62,6 +65,7 @@ fn preview_command_gets_fzf_preview_geometry_env() {
             left: 41,
             top: 1,
         },
+        None,
     );
 
     assert!(matches!(preview, PreviewPayload::Text(text) if text == "40,12,41,1"));
@@ -80,6 +84,7 @@ fn builtin_preview_reads_configured_text_extension() {
         None,
         path.to_str().unwrap(),
         test_geometry(),
+        None,
     );
 
     assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("alpha")));
@@ -98,6 +103,7 @@ fn builtin_preview_reads_ascii_text_without_configured_extension() {
         None,
         path.to_str().unwrap(),
         test_geometry(),
+        None,
     );
 
     assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("ascii alpha")));
@@ -116,6 +122,7 @@ fn builtin_preview_does_not_read_binary_unknown_extension_as_text() {
         None,
         path.to_str().unwrap(),
         test_geometry(),
+        None,
     );
 
     assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("no text preview")));
@@ -134,7 +141,34 @@ fn builtin_preview_reports_empty_files() {
         None,
         path.to_str().unwrap(),
         test_geometry(),
+        None,
     );
 
     assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("empty file")));
+}
+
+#[cfg(feature = "image")]
+#[test]
+fn builtin_preview_reports_image_metadata_when_protocol_is_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("image.png");
+    std::fs::write(&path, tiny_png_bytes()).unwrap();
+
+    let preview = run_preview_command(
+        &PreviewCommand::Builtin {
+            text_extensions: Vec::new(),
+        },
+        None,
+        path.to_str().unwrap(),
+        test_geometry(),
+        None,
+    );
+
+    assert!(matches!(
+        preview,
+        PreviewPayload::Text(text)
+            if text.contains("format: PNG")
+                && text.contains("dimensions: 1 x 1")
+                && text.contains("preview: image rendering disabled")
+    ));
 }

@@ -131,8 +131,8 @@ yuru --fzf-compat strict
 yuru --fzf-compat ignore
 ```
 
-미리보기 명령이 이미지 바이트 데이터를 출력하면 `ratatui-image`로 렌더링합니다. 필요한 경우
-`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks`로 프로토콜을 고정할 수 있습니다.
+`preview.image_protocol = "auto"`이면 미리보기 명령이 이미지 바이트 데이터를 출력할 때 `ratatui-image`로 렌더링합니다. 필요한 경우
+`YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks`로 프로토콜을 고정할 수 있습니다. `none`은 이미지를 렌더링하지 않고 형식 같은 짧은 정보만 표시합니다.
 이미지 미리보기는 기본으로 켜진 `image` feature로 제공됩니다. 더 작은 소스 빌드가
 필요하면 `cargo install yuru --no-default-features`를 사용할 수 있습니다.
 

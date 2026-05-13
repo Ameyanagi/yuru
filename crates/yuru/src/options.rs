@@ -231,6 +231,7 @@ pub(crate) fn default_preview_text_extensions() -> Vec<String> {
 pub(crate) fn preview_image_protocol(args: &Args) -> Option<yuru_tui::ImagePreviewProtocol> {
     match args.preview_image_protocol {
         PreviewImageProtocolArg::None => None,
+        PreviewImageProtocolArg::Auto => Some(yuru_tui::ImagePreviewProtocol::Auto),
         PreviewImageProtocolArg::Halfblocks => Some(yuru_tui::ImagePreviewProtocol::Halfblocks),
         PreviewImageProtocolArg::Sixel => Some(yuru_tui::ImagePreviewProtocol::Sixel),
         PreviewImageProtocolArg::Kitty => Some(yuru_tui::ImagePreviewProtocol::Kitty),

@@ -3,6 +3,8 @@ use std::process::Command;
 use std::{fs::File, io::Read};
 
 use super::cache::PreviewPayload;
+#[cfg(feature = "image")]
+use super::image::preview_image_metadata_from_path;
 
 const ASCII_TEXT_SNIFF_BYTES: usize = 8192;
 
@@ -25,6 +27,10 @@ pub(super) fn run_builtin_preview(item: &str, text_extensions: &[String]) -> Pre
     }
     if is_text_path(path, text_extensions) || is_ascii_text_file(path) {
         return PreviewPayload::Text(preview_text_file(path));
+    }
+    #[cfg(feature = "image")]
+    if let Some(metadata) = preview_image_metadata_from_path(path) {
+        return PreviewPayload::Text(metadata);
     }
     PreviewPayload::Text(preview_path_metadata(path))
 }

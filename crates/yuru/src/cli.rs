@@ -69,6 +69,7 @@ pub(crate) enum ZhScriptArg {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(crate) enum PreviewImageProtocolArg {
     None,
+    Auto,
     Halfblocks,
     Sixel,
     Kitty,
