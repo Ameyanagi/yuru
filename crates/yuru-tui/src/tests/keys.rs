@@ -1,7 +1,8 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::api::{BindingAction, KeyBinding};
 use crate::keys::{classify_key, KeyDecision};
+use crate::run::is_actionable_key_event;
 use crate::state::TuiAction;
 
 #[test]
@@ -26,6 +27,19 @@ fn enter_accepts_without_expected_key_name() {
     );
 
     assert_eq!(decision, KeyDecision::Accept(None));
+}
+
+#[test]
+fn key_release_events_are_ignored() {
+    assert!(is_actionable_key_event(&KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
+    assert!(!is_actionable_key_event(&KeyEvent::new_with_kind(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        KeyEventKind::Release,
+    )));
 }
 
 #[test]

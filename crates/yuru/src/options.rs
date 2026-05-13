@@ -85,11 +85,25 @@ pub(crate) fn matcher_algo(value: AlgoArg) -> MatcherAlgo {
 }
 
 pub(crate) fn should_run_interactive(args: &Args) -> bool {
-    should_run_interactive_with_tty(args, std::io::stderr().is_terminal())
+    should_run_interactive_with_tty(
+        args,
+        std::io::stderr().is_terminal() || env_flag_enabled("YURU_FORCE_INTERACTIVE"),
+    )
 }
 
 pub(crate) fn should_run_interactive_with_tty(args: &Args, ui_tty_available: bool) -> bool {
     args.filter.is_none() && !args.debug_query_variants && !explain_mode(args) && ui_tty_available
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 pub(crate) fn explain_mode(args: &Args) -> bool {

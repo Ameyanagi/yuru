@@ -4518,7 +4518,7 @@ dependencies = [
 
 [[package]]
 name = "yuru"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4538,7 +4538,7 @@ dependencies = [
 
 [[package]]
 name = "yuru-core"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "nucleo-matcher",
  "proptest",
@@ -4548,7 +4548,7 @@ dependencies = [
 
 [[package]]
 name = "yuru-ja"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "lindera",
  "yuru-core",
@@ -4556,14 +4556,14 @@ dependencies = [
 
 [[package]]
 name = "yuru-ko"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "yuru-core",
 ]
 
 [[package]]
 name = "yuru-tui"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -4577,7 +4577,7 @@ dependencies = [
 
 [[package]]
 name = "yuru-workspace"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "assert_cmd",
  "criterion",
@@ -4593,7 +4593,7 @@ dependencies = [
 
 [[package]]
 name = "yuru-zh"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "pinyin",
  "yuru-core",

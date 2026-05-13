@@ -1031,6 +1031,31 @@ function Get-YuruHistoryLines {
     $items | Select-Object -Unique
 }
 
+function Clear-YuruPendingConsoleInput {
+    try {
+        while ([Console]::KeyAvailable) {
+            $null = [Console]::ReadKey($true)
+        }
+    } catch {}
+}
+
+function Invoke-YuruCommand {
+    param([string[]]$YuruArgs)
+    $yuru = Get-YuruCommand
+    $oldForceInteractive = $env:YURU_FORCE_INTERACTIVE
+    try {
+        $env:YURU_FORCE_INTERACTIVE = "1"
+        Clear-YuruPendingConsoleInput
+        & $yuru @YuruArgs
+    } finally {
+        if ($null -eq $oldForceInteractive) {
+            Remove-Item Env:YURU_FORCE_INTERACTIVE -ErrorAction SilentlyContinue
+        } else {
+            $env:YURU_FORCE_INTERACTIVE = $oldForceInteractive
+        }
+    }
+}
+
 function Invoke-YuruWithItems {
     param(
         [string[]]$Items,
@@ -1039,13 +1064,12 @@ function Invoke-YuruWithItems {
     $itemsArray = @($Items | Where-Object { $_ })
     if ($itemsArray.Count -eq 0) { return @() }
 
-    $yuru = Get-YuruCommand
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllLines($tmp, [string[]]$itemsArray, $utf8NoBom)
         $argv = @($YuruArgs) + @("--input", $tmp)
-        & $yuru @argv
+        Invoke-YuruCommand -YuruArgs $argv
     } finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
@@ -1056,7 +1080,6 @@ function Invoke-YuruWithOptionalCommand {
         [string]$CommandText,
         [string[]]$YuruArgs
     )
-    $yuru = Get-YuruCommand
     if ($null -ne $CommandText) {
         if ($CommandText.Trim().Length -eq 0) { return @() }
         try {
@@ -1066,7 +1089,7 @@ function Invoke-YuruWithOptionalCommand {
             return @()
         }
     }
-    & $yuru @YuruArgs
+    Invoke-YuruCommand -YuruArgs $YuruArgs
 }
 
 function Invoke-YuruCtrlT {

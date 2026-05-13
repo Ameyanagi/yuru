@@ -213,7 +213,7 @@ fn format_profile_status(shell: &str, path: &Path, status: ShellProfileStatus) -
             path.display()
         ),
         ShellProfileStatus::PipedYuruStdin => format!(
-            "warn shell integration: {shell} profile pipes candidates into yuru; reinstall v0.1.9 or newer ({})",
+            "warn shell integration: {shell} profile pipes candidates into yuru; reinstall current release or newer ({})",
             path.display()
         ),
     }

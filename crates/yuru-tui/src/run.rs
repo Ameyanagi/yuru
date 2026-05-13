@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::{
     cursor::Hide,
-    event::{self, Event},
+    event::{self, Event, KeyEvent, KeyEventKind},
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
@@ -36,6 +36,17 @@ fn interaction_poll_timeout(
         .into_iter()
         .flatten()
         .min()
+}
+
+pub(crate) fn is_actionable_key_event(key: &KeyEvent) -> bool {
+    matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+}
+
+fn read_actionable_key_event() -> Result<Option<KeyEvent>> {
+    match event::read()? {
+        Event::Key(key) if is_actionable_key_event(&key) => Ok(Some(key)),
+        _ => Ok(None),
+    }
 }
 
 /// Runs the TUI over a fixed candidate slice.
@@ -133,15 +144,16 @@ pub fn run_interactive(
             if !event::poll(timeout)? {
                 continue;
             }
-            match event::read()? {
-                Event::Key(key) => key,
-                _ => continue,
-            }
-        } else {
-            let Event::Key(key) = event::read()? else {
+            let Some(key) = read_actionable_key_event()? else {
                 continue;
             };
             key
+        } else {
+            loop {
+                if let Some(key) = read_actionable_key_event()? {
+                    break key;
+                }
+            }
         };
 
         match classify_key(key, viewport.rows, &options.expect_keys, &options.bindings) {
@@ -297,7 +309,7 @@ pub fn run_interactive_streaming(
             continue;
         }
 
-        let Event::Key(key) = event::read()? else {
+        let Some(key) = read_actionable_key_event()? else {
             continue;
         };
         let viewport = Viewport::from_terminal(options.height, !options.no_input);

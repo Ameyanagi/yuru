@@ -2,6 +2,12 @@
 
 All notable user-facing changes are tracked here.
 
+## 0.1.10
+
+- Fixed PowerShell launches that opened briefly and exited by forcing interactive mode from generated key handlers.
+- Ignored Windows key-release events in the TUI so PSReadLine hotkey releases cannot be treated as selection input.
+- Drained pending PowerShell console input before starting Yuru from Ctrl-T, Ctrl-R, Alt-C, and completion handlers.
+
 ## 0.1.9
 
 - Fixed Windows release installs on older PowerShell/.NET environments by hardening architecture detection.
