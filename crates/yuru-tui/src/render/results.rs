@@ -2,7 +2,7 @@ use std::io::Write;
 
 use anyhow::Result;
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{MoveTo, Show},
     queue,
     style::{
         Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
@@ -50,7 +50,8 @@ pub(crate) fn render(
                 &input,
                 context.viewport.width,
                 context.ellipsis
-            ))
+            )),
+            Show
         )?;
     }
 
