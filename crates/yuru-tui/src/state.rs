@@ -350,17 +350,28 @@ fn next_word_boundary(text: &str, cursor: usize) -> usize {
         .map(|(_, ch)| !is_word_boundary(*ch))
         .unwrap_or(false);
 
+    let mut last_word_index = 0;
+
     if first_is_word {
-        while let Some((_, ch)) = iter.next() {
+        while let Some((index, ch)) = iter.next() {
             if is_word_boundary(ch) {
-                break;
+                return cursor + index;
             }
+            last_word_index = index + ch.len_utf8();
         }
+        return cursor + last_word_index;
     }
 
     while let Some((index, ch)) = iter.next() {
         if !is_word_boundary(ch) {
-            return cursor + index;
+            last_word_index = index + ch.len_utf8();
+            while let Some((index, ch)) = iter.next() {
+                if is_word_boundary(ch) {
+                    return cursor + index;
+                }
+                last_word_index = index + ch.len_utf8();
+            }
+            return cursor + last_word_index;
         }
     }
 
