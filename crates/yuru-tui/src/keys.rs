@@ -39,8 +39,16 @@ pub(crate) fn classify_key(
                 BindingAction::MoveCursorEnd => KeyDecision::Action(TuiAction::MoveCursorEnd),
                 BindingAction::MoveCursorLeft => KeyDecision::Action(TuiAction::MoveCursorLeft),
                 BindingAction::MoveCursorRight => KeyDecision::Action(TuiAction::MoveCursorRight),
+                BindingAction::MoveCursorWordLeft => {
+                    KeyDecision::Action(TuiAction::MoveCursorWordLeft)
+                }
+                BindingAction::MoveCursorWordRight => {
+                    KeyDecision::Action(TuiAction::MoveCursorWordRight)
+                }
                 BindingAction::Backspace => KeyDecision::Action(TuiAction::Backspace),
                 BindingAction::Delete => KeyDecision::Action(TuiAction::Delete),
+                BindingAction::DeleteToEnd => KeyDecision::Action(TuiAction::DeleteToEnd),
+                BindingAction::DeleteWord => KeyDecision::Action(TuiAction::DeleteWord),
                 BindingAction::PreviewUp => KeyDecision::Action(TuiAction::PreviewUp),
                 BindingAction::PreviewDown => KeyDecision::Action(TuiAction::PreviewDown),
                 BindingAction::PreviewPageUp => {
@@ -65,6 +73,24 @@ pub(crate) fn classify_key(
         (KeyCode::Char('e'), KeyModifiers::CONTROL) | (KeyCode::End, _) => {
             KeyDecision::Action(TuiAction::MoveCursorEnd)
         }
+        (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
+            KeyDecision::Action(TuiAction::MoveCursorLeft)
+        }
+        (KeyCode::Char('f'), KeyModifiers::CONTROL) => {
+            KeyDecision::Action(TuiAction::MoveCursorRight)
+        }
+        (KeyCode::Char('k'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::DeleteToEnd),
+        (KeyCode::Char('w'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::DeleteWord),
+        (KeyCode::Left, KeyModifiers::ALT) => KeyDecision::Action(TuiAction::MoveCursorWordLeft),
+        (KeyCode::Right, KeyModifiers::ALT) => KeyDecision::Action(TuiAction::MoveCursorWordRight),
+        (KeyCode::Char('b'), KeyModifiers::ALT) => {
+            KeyDecision::Action(TuiAction::MoveCursorWordLeft)
+        }
+        (KeyCode::Char('f'), KeyModifiers::ALT) => {
+            KeyDecision::Action(TuiAction::MoveCursorWordRight)
+        }
+        (KeyCode::Char('h'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::Backspace),
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::Delete),
         (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
             KeyDecision::Action(TuiAction::PreviewUp)
         }
