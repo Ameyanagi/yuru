@@ -181,7 +181,7 @@ pub fn run_interactive(
                     &options,
                     viewport.rows,
                 );
-                if matches!(action, TuiAction::DeleteOrExit) && state.is_empty() {
+                if matches!(action, TuiAction::DeleteOrExit) && old_query.is_empty() {
                     return Ok(TuiOutcome::NoSelection);
                 }
                 if state.query() != old_query {
@@ -342,7 +342,7 @@ pub fn run_interactive_streaming(
                     &options,
                     viewport.rows,
                 );
-                if matches!(action, TuiAction::DeleteOrExit) && state.is_empty() {
+                if matches!(action, TuiAction::DeleteOrExit) && old_query.is_empty() {
                     return Ok(TuiOutcome::NoSelection);
                 }
                 if state.query() != old_query {
