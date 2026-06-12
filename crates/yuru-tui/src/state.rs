@@ -323,17 +323,22 @@ fn next_boundary(text: &str, cursor: usize) -> usize {
 fn previous_word_boundary(text: &str, cursor: usize) -> usize {
     let mut iter = text[..cursor].char_indices().rev().peekable();
 
-    while let Some((_index, ch)) = iter.next() {
-        if is_word_boundary(ch) {
-            while let Some(&(_, next_ch)) = iter.peek() {
-                if is_word_boundary(next_ch) {
-                    break;
-                }
-                iter.next();
-            }
-            return iter.peek().map(|(i, _)| *i).unwrap_or(0);
+    // Skip any trailing boundary characters (cursor may sit right after whitespace).
+    while let Some(&(_, ch)) = iter.peek() {
+        if !is_word_boundary(ch) {
+            break;
         }
+        iter.next();
     }
+
+    // Skip word characters; the first boundary we peek at marks the word start.
+    while let Some(&(index, ch)) = iter.peek() {
+        if is_word_boundary(ch) {
+            return index + ch.len_utf8();
+        }
+        iter.next();
+    }
+
     0
 }
 
