@@ -50,6 +50,7 @@ impl TuiState {
             TuiAction::Insert(ch) => self.insert(ch),
             TuiAction::Backspace => self.backspace(),
             TuiAction::Delete => self.delete(),
+            TuiAction::DeleteOrExit => self.delete(),
             TuiAction::DeleteToEnd => self.delete_to_end(),
             TuiAction::DeleteWord => self.delete_word(),
             TuiAction::ClearQuery => self.clear_query(),
@@ -84,6 +85,11 @@ impl TuiState {
             | TuiAction::PreviewBottom => {}
         }
         self.clamp_selection(result_len);
+    }
+
+    /// Checks if the query is empty (used for Ctrl+D exit behavior).
+    pub fn is_empty(&self) -> bool {
+        self.query.is_empty()
     }
 
     pub(crate) fn apply_with_results(
@@ -294,6 +300,8 @@ pub enum TuiAction {
     PreviewTop,
     /// Scroll preview to the bottom.
     PreviewBottom,
+    /// Delete character and exit if query becomes empty (Ctrl+D).
+    DeleteOrExit,
 }
 
 fn previous_boundary(text: &str, cursor: usize) -> usize {

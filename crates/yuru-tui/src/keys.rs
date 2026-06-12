@@ -90,7 +90,7 @@ pub(crate) fn classify_key(
             KeyDecision::Action(TuiAction::MoveCursorWordRight)
         }
         (KeyCode::Char('h'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::Backspace),
-        (KeyCode::Char('d'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::Delete),
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => KeyDecision::Action(TuiAction::DeleteOrExit),
         (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
             KeyDecision::Action(TuiAction::PreviewUp)
         }

@@ -24,6 +24,7 @@ use crate::search_worker::{
 };
 use crate::state::TuiState;
 use crate::terminal::TerminalGuard;
+use crate::TuiAction;
 
 const STREAM_DRAIN_BATCH: usize = 2048;
 
@@ -180,6 +181,9 @@ pub fn run_interactive(
                     &options,
                     viewport.rows,
                 );
+                if matches!(action, TuiAction::DeleteOrExit) && state.is_empty() {
+                    return Ok(TuiOutcome::NoSelection);
+                }
                 if state.query() != old_query {
                     request_snapshot_search(
                         &mut search_worker,
@@ -338,6 +342,9 @@ pub fn run_interactive_streaming(
                     &options,
                     viewport.rows,
                 );
+                if matches!(action, TuiAction::DeleteOrExit) && state.is_empty() {
+                    return Ok(TuiOutcome::NoSelection);
+                }
                 if state.query() != old_query {
                     dirty = true;
                 }
