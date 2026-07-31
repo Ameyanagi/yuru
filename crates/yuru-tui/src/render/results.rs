@@ -9,6 +9,7 @@ use crossterm::{
     },
     terminal::{Clear, ClearType},
 };
+use unicode_width::UnicodeWidthStr;
 use yuru_core::{Candidate, ScoredCandidate};
 
 use crate::api::{TuiLayout, TuiStyle};
@@ -168,12 +169,11 @@ pub(crate) fn render(
     render_preview(output, &mut context, preview_width, content_top)?;
 
     if let Some(prompt_row) = prompt_row {
-        let cursor_column =
-            context.prompt.chars().count() + state.query()[..state.cursor()].chars().count();
+        let cursor_column = context.prompt.width() + state.query()[..state.cursor()].width();
         queue!(
             output,
             MoveTo(
-                cursor_column.min(context.viewport.width - 1) as u16,
+                cursor_column.min(context.viewport.width.saturating_sub(1)) as u16,
                 prompt_row as u16
             )
         )?;

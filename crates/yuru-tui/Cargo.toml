@@ -21,6 +21,7 @@ image = { workspace = true, optional = true }
 ratatui = { workspace = true, optional = true }
 ratatui-image = { workspace = true, optional = true }
 resvg = { workspace = true, optional = true }
+unicode-width.workspace = true
 yuru-core.workspace = true
 
 [dev-dependencies]

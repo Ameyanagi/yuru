@@ -87,11 +87,6 @@ impl TuiState {
         self.clamp_selection(result_len);
     }
 
-    /// Checks if the query is empty (used for Ctrl+D exit behavior).
-    pub fn is_empty(&self) -> bool {
-        self.query.is_empty()
-    }
-
     pub(crate) fn apply_with_results(
         &mut self,
         action: TuiAction,
@@ -350,28 +345,19 @@ fn next_word_boundary(text: &str, cursor: usize) -> usize {
         .map(|(_, ch)| !is_word_boundary(*ch))
         .unwrap_or(false);
 
-    let mut last_word_index = 0;
-
     if first_is_word {
-        while let Some((index, ch)) = iter.next() {
-            if is_word_boundary(ch) {
-                return cursor + index;
-            }
-            last_word_index = index + ch.len_utf8();
-        }
-        return cursor + last_word_index;
+        return iter
+            .find(|(_, ch)| is_word_boundary(*ch))
+            .map(|(index, _)| cursor + index)
+            .unwrap_or(text.len());
     }
 
-    while let Some((index, ch)) = iter.next() {
+    for (_, ch) in iter.by_ref() {
         if !is_word_boundary(ch) {
-            last_word_index = index + ch.len_utf8();
-            while let Some((index, ch)) = iter.next() {
-                if is_word_boundary(ch) {
-                    return cursor + index;
-                }
-                last_word_index = index + ch.len_utf8();
-            }
-            return cursor + last_word_index;
+            return iter
+                .find(|(_, next_ch)| is_word_boundary(*next_ch))
+                .map(|(index, _)| cursor + index)
+                .unwrap_or(text.len());
         }
     }
 

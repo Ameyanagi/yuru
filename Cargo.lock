@@ -4572,6 +4572,7 @@ dependencies = [
  "ratatui-image",
  "resvg",
  "tempfile",
+ "unicode-width",
  "yuru-core",
 ]
 

@@ -34,6 +34,44 @@ fn editing_actions_handle_utf8_boundaries() {
 }
 
 #[test]
+fn readline_word_actions_handle_separators_and_utf8() {
+    let mut state = TuiState::new("hello 世界");
+
+    state.apply(TuiAction::MoveCursorWordLeft, 3, false);
+    assert_eq!(state.cursor(), "hello ".len());
+
+    let mut state = TuiState::new("hello 世界");
+    state.apply(TuiAction::DeleteWord, 3, false);
+    assert_eq!(state.query(), "hello ");
+    assert_eq!(state.cursor(), "hello ".len());
+
+    state.apply(TuiAction::DeleteWord, 3, false);
+    assert_eq!(state.query(), "");
+    assert_eq!(state.cursor(), 0);
+
+    let mut state = TuiState::new("hello 世界");
+    state.apply(TuiAction::MoveCursorStart, 3, false);
+    state.apply(TuiAction::MoveCursorWordRight, 3, false);
+    assert_eq!(state.cursor(), "hello".len());
+    state.apply(TuiAction::MoveCursorWordRight, 3, false);
+    assert_eq!(state.cursor(), "hello 世界".len());
+}
+
+#[test]
+fn readline_delete_actions_preserve_cursor_invariants() {
+    let mut state = TuiState::new("hello world");
+
+    state.apply(TuiAction::MoveCursorWordLeft, 3, false);
+    state.apply(TuiAction::DeleteToEnd, 3, false);
+    assert_eq!(state.query(), "hello ");
+    assert_eq!(state.cursor(), "hello ".len());
+
+    state.apply(TuiAction::DeleteOrExit, 3, false);
+    assert_eq!(state.query(), "hello ");
+    assert_eq!(state.cursor(), "hello ".len());
+}
+
+#[test]
 fn selection_clamps_without_cycle() {
     let mut state = TuiState::new("");
 

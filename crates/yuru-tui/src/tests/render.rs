@@ -39,11 +39,48 @@ fn render_default_layout_places_prompt_at_bottom() {
 
     let rendered = String::from_utf8(output).unwrap();
     assert!(rendered.contains("\u{1b}[4;1H> al"), "{rendered:?}");
+    assert!(rendered.contains("\u{1b}[?25h"), "{rendered:?}");
     assert!(
         rendered.contains("\u{1b}[3;1H\u{1b}[48;2;52;58;70m> "),
         "{rendered:?}"
     );
     assert!(!rendered.contains("\u{1b}[7m"), "{rendered:?}");
+}
+
+#[test]
+fn render_positions_cursor_by_display_width_and_handles_zero_width() {
+    force_test_color_output();
+    let state = TuiState::new("日本");
+
+    for (width, expected_cursor) in [(40, "\u{1b}[3;7H"), (0, "\u{1b}[3;1H")] {
+        let mut output = Vec::new();
+        render(
+            &mut output,
+            &state,
+            &[],
+            RenderContext {
+                candidates: &[],
+                prompt: "> ",
+                header: None,
+                footer: None,
+                viewport: Viewport { width, rows: 2 },
+                layout: TuiLayout::Default,
+                preview: None,
+                style: &TuiStyle::default(),
+                highlight_line: true,
+                case_sensitive: false,
+                multi: false,
+                no_input: false,
+                pointer: ">",
+                marker: "*",
+                ellipsis: "..",
+            },
+        )
+        .unwrap();
+
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(rendered.contains(expected_cursor), "{rendered:?}");
+    }
 }
 
 #[test]
