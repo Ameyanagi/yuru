@@ -246,10 +246,18 @@ pub enum BindingAction {
     MoveCursorLeft,
     /// Move the query cursor right.
     MoveCursorRight,
+    /// Move the query cursor to the start of the previous word.
+    MoveCursorWordLeft,
+    /// Move the query cursor to the end of the next word.
+    MoveCursorWordRight,
     /// Delete the character before the cursor.
     Backspace,
     /// Delete the character at the cursor.
     Delete,
+    /// Delete from cursor to end of line.
+    DeleteToEnd,
+    /// Delete word before cursor.
+    DeleteWord,
     /// Scroll preview up.
     PreviewUp,
     /// Scroll preview down.
