@@ -7,6 +7,7 @@ use super::layout::{safe_sgr_sequence_len, terminal_safe_prefix, terminal_visibl
 
 const MAX_HIGHLIGHT_TEXT_CHARS: usize = 512;
 const MAX_HIGHLIGHT_PATTERN_CHARS: usize = 64;
+const MAX_HIGHLIGHT_QUERY_TERMS: usize = 32;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HighlightSegment {
@@ -37,10 +38,7 @@ pub(crate) fn highlight_segments_for_result_with_ansi(
     let visible_display = terminal_visible_text(&display);
     let match_width = width.min(MAX_HIGHLIGHT_TEXT_CHARS);
     let match_display = bounded_chars(&visible_display, match_width);
-    let patterns = highlight_patterns(query)
-        .into_iter()
-        .map(|pattern| bounded_chars(&pattern, MAX_HIGHLIGHT_PATTERN_CHARS).into_owned())
-        .collect::<Vec<_>>();
+    let patterns = highlight_patterns(query);
     let positions = highlight_positions(&patterns, &match_display, case_sensitive);
     if positions.is_empty()
         && !patterns.is_empty()
@@ -91,9 +89,10 @@ fn matched_key<'a>(candidates: &'a [Candidate], result: &ScoredCandidate) -> Opt
         .and_then(|candidate| candidate.keys.get(result.key_index as usize))
 }
 
-fn highlight_patterns(query: &str) -> Vec<String> {
+fn highlight_patterns(query: &str) -> Vec<&str> {
     query
         .split_whitespace()
+        .take(MAX_HIGHLIGHT_QUERY_TERMS)
         .filter_map(|raw| {
             if raw == "|" {
                 return None;
@@ -116,12 +115,17 @@ fn highlight_patterns(query: &str) -> Vec<String> {
                 pattern = stripped;
             }
 
-            (!pattern.is_empty()).then(|| pattern.to_string())
+            (!pattern.is_empty()
+                && pattern
+                    .char_indices()
+                    .nth(MAX_HIGHLIGHT_PATTERN_CHARS)
+                    .is_none())
+            .then_some(pattern)
         })
         .collect()
 }
 
-fn highlight_positions(patterns: &[String], text: &str, case_sensitive: bool) -> HashSet<usize> {
+fn highlight_positions(patterns: &[&str], text: &str, case_sensitive: bool) -> HashSet<usize> {
     let mut positions = HashSet::new();
     for pattern in patterns {
         if let Some(matched) = match_positions(pattern, text, case_sensitive) {
@@ -132,7 +136,7 @@ fn highlight_positions(patterns: &[String], text: &str, case_sensitive: bool) ->
 }
 
 fn source_map_highlight_positions(
-    patterns: &[String],
+    patterns: &[&str],
     key: &SearchKey,
     case_sensitive: bool,
     width: usize,
@@ -219,6 +223,8 @@ fn highlight_segments(
         current.push_str(&text[offset..offset + len]);
         offset += len;
     }
+
+    current.push_str(&pending_sgr);
 
     if let Some(highlighted) = current_highlighted {
         segments.push(HighlightSegment {

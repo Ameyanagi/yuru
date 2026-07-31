@@ -48,32 +48,36 @@ impl LanguageBackend for KoreanBackend {
         if budget.max_keys == 0 || text.len() > budget.max_total_bytes {
             return Vec::new();
         }
-        hangul::build_korean_keys_with_sources(text, budget.max_keys)
-            .into_iter()
-            .filter_map(|key| {
-                let search_key = match key.kind {
-                    hangul::KoreanKeyKind::Romanized => {
-                        if !self.romanization {
-                            return None;
-                        }
-                        SearchKey::korean_romanized(key.text)
+        hangul::build_korean_keys_with_sources_with_budget(
+            text,
+            budget.max_keys,
+            budget.max_total_bytes,
+        )
+        .into_iter()
+        .filter_map(|key| {
+            let search_key = match key.kind {
+                hangul::KoreanKeyKind::Romanized => {
+                    if !self.romanization {
+                        return None;
                     }
-                    hangul::KoreanKeyKind::Initials => {
-                        if !self.initials {
-                            return None;
-                        }
-                        SearchKey::korean_initials(key.text)
+                    SearchKey::korean_romanized(key.text)
+                }
+                hangul::KoreanKeyKind::Initials => {
+                    if !self.initials {
+                        return None;
                     }
-                    hangul::KoreanKeyKind::Keyboard => {
-                        if !self.keyboard {
-                            return None;
-                        }
-                        SearchKey::korean_keyboard(key.text)
+                    SearchKey::korean_initials(key.text)
+                }
+                hangul::KoreanKeyKind::Keyboard => {
+                    if !self.keyboard {
+                        return None;
                     }
-                };
-                Some(search_key.with_source_map(key.source_map))
-            })
-            .collect()
+                    SearchKey::korean_keyboard(key.text)
+                }
+            };
+            Some(search_key.with_source_map(key.source_map))
+        })
+        .collect()
     }
 
     fn expand_query(&self, query: &str, _budget: QueryBudget) -> Vec<QueryVariant> {

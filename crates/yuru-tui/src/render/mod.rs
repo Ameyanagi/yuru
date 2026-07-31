@@ -3,10 +3,12 @@ mod layout;
 mod preview_pane;
 mod results;
 
-#[cfg(test)]
-pub(crate) use highlight::highlight_segments_for_result;
 #[allow(unused_imports)]
 pub(crate) use highlight::HighlightSegment;
+#[cfg(test)]
+pub(crate) use highlight::{
+    highlight_segments_for_result, highlight_segments_for_result_with_ansi,
+};
 pub(crate) use layout::{preview_geometry, Viewport};
 #[cfg(feature = "image")]
 #[allow(unused_imports)]
