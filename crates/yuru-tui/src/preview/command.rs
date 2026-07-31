@@ -9,13 +9,34 @@ use super::image::{
     preview_image_from_output, preview_image_from_path_text, preview_image_metadata_from_output,
     preview_image_metadata_from_path_text,
 };
+use super::process::run_bounded_process;
+use super::PreviewCancellation;
 
+#[cfg(test)]
 pub(crate) fn run_preview_command(
     command: &PreviewCommand,
     shell: Option<&str>,
     item: &str,
     geometry: PreviewGeometry,
     image_protocol: Option<ImagePreviewProtocol>,
+) -> PreviewPayload {
+    run_preview_command_cancellable(
+        command,
+        shell,
+        item,
+        geometry,
+        image_protocol,
+        &PreviewCancellation::default(),
+    )
+}
+
+pub(super) fn run_preview_command_cancellable(
+    command: &PreviewCommand,
+    shell: Option<&str>,
+    item: &str,
+    geometry: PreviewGeometry,
+    image_protocol: Option<ImagePreviewProtocol>,
+    cancellation: &PreviewCancellation,
 ) -> PreviewPayload {
     #[cfg(not(feature = "image"))]
     let _ = image_protocol;
@@ -32,10 +53,17 @@ pub(crate) fn run_preview_command(
     }
 
     match command {
-        PreviewCommand::Shell(template) => {
-            run_shell_preview_command(template, shell, item, geometry, image_protocol)
+        PreviewCommand::Shell(template) => run_shell_preview_command(
+            template,
+            shell,
+            item,
+            geometry,
+            image_protocol,
+            cancellation,
+        ),
+        PreviewCommand::Builtin { text_extensions } => {
+            run_builtin_preview(item, text_extensions, cancellation)
         }
-        PreviewCommand::Builtin { text_extensions } => run_builtin_preview(item, text_extensions),
     }
 }
 
@@ -45,15 +73,28 @@ fn run_shell_preview_command(
     item: &str,
     geometry: PreviewGeometry,
     image_protocol: Option<ImagePreviewProtocol>,
+    cancellation: &PreviewCancellation,
 ) -> PreviewPayload {
     #[cfg(not(feature = "image"))]
     let _ = image_protocol;
 
     let command = expand_preview_template(template, item);
-    let output = preview_shell_command(&command, shell, geometry).output();
+    let mut process = preview_shell_command(&command, shell, geometry);
+    let output = run_bounded_process(&mut process, cancellation);
 
     match output {
         Ok(output) => {
+            if output.cancelled {
+                return PreviewPayload::Text("preview cancelled".to_string());
+            }
+            if output.timed_out {
+                return PreviewPayload::Text("preview timed out after 5 seconds".to_string());
+            }
+            let truncation_notice = if output.truncated {
+                "\n... preview output truncated ...\n"
+            } else {
+                ""
+            };
             if !output.stdout.is_empty() {
                 #[cfg(feature = "image")]
                 {
@@ -69,20 +110,22 @@ fn run_shell_preview_command(
                 }
                 #[cfg(feature = "image")]
                 {
-                    if image_protocol.is_some() && output.status.success() {
+                    if image_protocol.is_some()
+                        && output.status.is_some_and(|status| status.success())
+                    {
                         if let Some(image) = preview_image_from_path_text(item) {
                             return PreviewPayload::Image(image);
                         }
                     }
                 }
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                return PreviewPayload::Text(stdout.into_owned());
+                return PreviewPayload::Text(format!("{stdout}{truncation_notice}"));
             }
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !stderr.is_empty() {
-                return PreviewPayload::Text(stderr.into_owned());
+                return PreviewPayload::Text(format!("{stderr}{truncation_notice}"));
             }
-            if output.status.success() {
+            if output.status.is_some_and(|status| status.success()) {
                 #[cfg(feature = "image")]
                 {
                     if image_protocol.is_some() {
@@ -93,7 +136,12 @@ fn run_shell_preview_command(
                 }
                 PreviewPayload::Text(String::new())
             } else {
-                PreviewPayload::Text(format!("preview exited with {}", output.status))
+                PreviewPayload::Text(
+                    output
+                        .status
+                        .map(|status| format!("preview exited with {status}"))
+                        .unwrap_or_else(|| "preview process stopped".to_string()),
+                )
             }
         }
         Err(error) => PreviewPayload::Text(format!("preview failed: {error}")),

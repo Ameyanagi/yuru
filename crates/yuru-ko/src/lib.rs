@@ -45,6 +45,9 @@ impl LanguageBackend for KoreanBackend {
     }
 
     fn build_candidate_keys(&self, text: &str, budget: KeyBudget) -> Vec<SearchKey> {
+        if budget.max_keys == 0 || text.len() > budget.max_total_bytes {
+            return Vec::new();
+        }
         hangul::build_korean_keys_with_sources(text, budget.max_keys)
             .into_iter()
             .filter_map(|key| {

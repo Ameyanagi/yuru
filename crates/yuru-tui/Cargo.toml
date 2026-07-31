@@ -23,5 +23,8 @@ ratatui-image = { workspace = true, optional = true }
 resvg = { workspace = true, optional = true }
 yuru-core.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile.workspace = true

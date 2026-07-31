@@ -40,7 +40,17 @@ pub fn kanji_reading_candidates(input: &str, max: usize) -> Vec<String> {
 
 /// Returns kanji reading candidates with source maps, capped at `max`.
 pub fn kanji_reading_candidates_with_sources(input: &str, max: usize) -> Vec<ReadingCandidate> {
-    if max == 0 || !contains_han(input) {
+    kanji_reading_candidates_with_sources_with_budget(input, max, usize::MAX)
+}
+
+/// Returns reading candidates while enforcing the generated-text and
+/// source-map budget during construction rather than after expansion.
+pub fn kanji_reading_candidates_with_sources_with_budget(
+    input: &str,
+    max: usize,
+    max_bytes: usize,
+) -> Vec<ReadingCandidate> {
+    if max == 0 || max_bytes == 0 || !contains_han(input) {
         return Vec::new();
     }
 
@@ -58,14 +68,17 @@ pub fn kanji_reading_candidates_with_sources(input: &str, max: usize) -> Vec<Rea
         if let Some(current_kind) = segment_kind {
             if current_kind != is_reading_context {
                 let segment = &input[segment_start_byte..byte_index];
-                if !append_segment(
+                match append_segment(
                     segment,
                     segment_start_char,
                     current_kind,
                     &mut candidates,
                     max,
+                    max_bytes,
                 ) {
-                    return Vec::new();
+                    AppendResult::Continue => {}
+                    AppendResult::BudgetExhausted => return Vec::new(),
+                    AppendResult::Failed => return Vec::new(),
                 }
                 if candidates.is_empty() {
                     return Vec::new();
@@ -83,14 +96,17 @@ pub fn kanji_reading_candidates_with_sources(input: &str, max: usize) -> Vec<Rea
 
     if let Some(is_reading_context) = segment_kind {
         let segment = &input[segment_start_byte..];
-        if !append_segment(
+        match append_segment(
             segment,
             segment_start_char,
             is_reading_context,
             &mut candidates,
             max,
+            max_bytes,
         ) {
-            return Vec::new();
+            AppendResult::Continue => {}
+            AppendResult::BudgetExhausted => return Vec::new(),
+            AppendResult::Failed => return Vec::new(),
         }
     }
 
@@ -105,22 +121,36 @@ pub fn kanji_reading_candidates_with_sources(input: &str, max: usize) -> Vec<Rea
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AppendResult {
+    Continue,
+    BudgetExhausted,
+    Failed,
+}
+
 fn append_segment(
     segment: &str,
     start_char: usize,
     is_reading_context: bool,
     candidates: &mut Vec<CachedReading>,
     max: usize,
-) -> bool {
+    max_bytes: usize,
+) -> AppendResult {
+    if segment.len() > max_bytes || segment.chars().count() > max_bytes {
+        return AppendResult::BudgetExhausted;
+    }
     if is_reading_context && contains_han(segment) {
         let Some(mut base) = cached_run_reading(segment) else {
-            return false;
+            return AppendResult::Failed;
         };
         offset_source_map(&mut base.source_map, start_char);
 
         let Some(numeric_variants) = numeric_context_run_readings(segment) else {
-            append_single_segment(candidates, &base);
-            return true;
+            return if append_single_segment(candidates, &base, max_bytes) {
+                AppendResult::Continue
+            } else {
+                AppendResult::BudgetExhausted
+            };
         };
 
         let mut variants = Vec::new();
@@ -131,18 +161,36 @@ fn append_segment(
         push_unique_reading(&mut variants, base);
 
         if variants.len() == 1 {
-            append_single_segment(candidates, &variants[0]);
+            if !append_single_segment(candidates, &variants[0], max_bytes) {
+                return AppendResult::BudgetExhausted;
+            }
         } else {
-            append_segment_variants(candidates, &variants, max);
+            if !append_segment_variants(candidates, &variants, max, max_bytes) {
+                return AppendResult::BudgetExhausted;
+            }
         }
-    } else {
-        append_surface_segment(candidates, segment, start_char);
+    } else if !append_surface_segment(candidates, segment, start_char, max_bytes) {
+        return AppendResult::BudgetExhausted;
     }
 
-    true
+    AppendResult::Continue
 }
 
-fn append_single_segment(candidates: &mut [CachedReading], segment: &CachedReading) {
+fn append_single_segment(
+    candidates: &mut [CachedReading],
+    segment: &CachedReading,
+    max_bytes: usize,
+) -> bool {
+    if candidates.iter().any(|candidate| {
+        !can_append(
+            candidate,
+            &segment.text,
+            segment.source_map.len(),
+            max_bytes,
+        )
+    }) {
+        return false;
+    }
     for candidate in candidates {
         candidate.text.push_str(&segment.text);
         candidate
@@ -150,9 +198,22 @@ fn append_single_segment(candidates: &mut [CachedReading], segment: &CachedReadi
             .extend(segment.source_map.iter().copied());
         candidate.used_reading |= segment.used_reading;
     }
+    true
 }
 
-fn append_surface_segment(candidates: &mut [CachedReading], segment: &str, start_char: usize) {
+fn append_surface_segment(
+    candidates: &mut [CachedReading],
+    segment: &str,
+    start_char: usize,
+    max_bytes: usize,
+) -> bool {
+    let segment_chars = segment.chars().count();
+    if candidates
+        .iter()
+        .any(|candidate| !can_append(candidate, segment, segment_chars, max_bytes))
+    {
+        return false;
+    }
     for candidate in candidates {
         for (offset, ch) in segment.chars().enumerate() {
             candidate.text.push(ch);
@@ -162,21 +223,30 @@ fn append_surface_segment(candidates: &mut [CachedReading], segment: &str, start
             }));
         }
     }
+    true
 }
 
 fn append_segment_variants(
     candidates: &mut Vec<CachedReading>,
     segment_variants: &[CachedReading],
     max: usize,
-) {
+    max_bytes: usize,
+) -> bool {
     if segment_variants.len() == 1 {
-        append_single_segment(candidates, &segment_variants[0]);
-        return;
+        return append_single_segment(candidates, &segment_variants[0], max_bytes);
     }
 
     let mut combined = Vec::new();
     for candidate in candidates.iter() {
         for segment in segment_variants {
+            if !can_append(
+                candidate,
+                &segment.text,
+                segment.source_map.len(),
+                max_bytes,
+            ) {
+                continue;
+            }
             let mut next = CachedReading {
                 text: candidate.text.clone(),
                 source_map: candidate.source_map.clone(),
@@ -193,7 +263,21 @@ fn append_segment_variants(
             break;
         }
     }
+    if combined.is_empty() {
+        return false;
+    }
     *candidates = combined;
+    true
+}
+
+fn can_append(
+    candidate: &CachedReading,
+    text: &str,
+    source_chars: usize,
+    max_bytes: usize,
+) -> bool {
+    candidate.text.len().saturating_add(text.len()) <= max_bytes
+        && candidate.source_map.len().saturating_add(source_chars) <= max_bytes
 }
 
 fn push_unique_reading(readings: &mut Vec<CachedReading>, reading: CachedReading) {
@@ -549,6 +633,14 @@ fn byte_to_char_index(char_starts: &[usize], byte_index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reading_expansion_stops_before_cloning_beyond_budget() {
+        let input = "一日/".repeat(2_000);
+        let readings = kanji_reading_candidates_with_sources_with_budget(&input, 8, 128);
+
+        assert!(readings.is_empty());
+    }
 
     #[test]
     fn reading_candidates_for_japanese_language_files() {

@@ -29,6 +29,21 @@ fn highlight_segments_mark_visible_fuzzy_positions() {
 }
 
 #[test]
+fn highlight_work_is_bounded_to_the_visible_prefix() {
+    let display = "a_".repeat(100_000);
+    let result = scored(&display, KeyKind::Original);
+    let segments = highlight_segments_for_result(&"a".repeat(32), &result, &[], false, 80);
+
+    assert_eq!(
+        segments
+            .iter()
+            .flat_map(|segment| segment.text.chars())
+            .count(),
+        80
+    );
+}
+
+#[test]
 fn plain_mode_highlight_marks_direct_matches_from_normalized_key() {
     let result = scored("README.md", KeyKind::Normalized);
     let segments = highlight_segments_for_result("read", &result, &[], false, 80);

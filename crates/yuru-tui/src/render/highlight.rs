@@ -1,6 +1,12 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use yuru_core::{match_positions, Candidate, KeyKind, ScoredCandidate, SearchKey};
+
+use super::layout::{safe_sgr_sequence_len, terminal_safe_prefix, terminal_visible_text};
+
+const MAX_HIGHLIGHT_TEXT_CHARS: usize = 512;
+const MAX_HIGHLIGHT_PATTERN_CHARS: usize = 64;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HighlightSegment {
@@ -8,6 +14,7 @@ pub(crate) struct HighlightSegment {
     pub(crate) highlighted: bool,
 }
 
+#[cfg(test)]
 pub(crate) fn highlight_segments_for_result(
     query: &str,
     result: &ScoredCandidate,
@@ -15,8 +22,26 @@ pub(crate) fn highlight_segments_for_result(
     case_sensitive: bool,
     width: usize,
 ) -> Vec<HighlightSegment> {
-    let patterns = highlight_patterns(query);
-    let positions = highlight_positions(&patterns, &result.display, case_sensitive);
+    highlight_segments_for_result_with_ansi(query, result, candidates, case_sensitive, width, false)
+}
+
+pub(crate) fn highlight_segments_for_result_with_ansi(
+    query: &str,
+    result: &ScoredCandidate,
+    candidates: &[Candidate],
+    case_sensitive: bool,
+    width: usize,
+    allow_ansi: bool,
+) -> Vec<HighlightSegment> {
+    let (display, _) = terminal_safe_prefix(&result.display, allow_ansi, width);
+    let visible_display = terminal_visible_text(&display);
+    let match_width = width.min(MAX_HIGHLIGHT_TEXT_CHARS);
+    let match_display = bounded_chars(&visible_display, match_width);
+    let patterns = highlight_patterns(query)
+        .into_iter()
+        .map(|pattern| bounded_chars(&pattern, MAX_HIGHLIGHT_PATTERN_CHARS).into_owned())
+        .collect::<Vec<_>>();
+    let positions = highlight_positions(&patterns, &match_display, case_sensitive);
     if positions.is_empty()
         && !patterns.is_empty()
         && matches!(
@@ -35,23 +60,23 @@ pub(crate) fn highlight_segments_for_result(
         if let Some(key) = matched_key(candidates, result) {
             let positions = source_map_highlight_positions(&patterns, key, case_sensitive, width);
             if !positions.is_empty() {
-                return highlight_segments(&result.display, &positions, width);
+                return highlight_segments(&display, &positions, width);
             }
         }
 
-        let positions = phonetic_fallback_positions(&result.display, width);
+        let positions = phonetic_fallback_positions(&visible_display, width);
         if !positions.is_empty() {
-            return highlight_segments(&result.display, &positions, width);
+            return highlight_segments(&display, &positions, width);
         }
 
         return highlight_segments(
-            &result.display,
-            &(0..result.display.chars().take(width).count()).collect(),
+            &display,
+            &(0..visible_display.chars().take(width).count()).collect(),
             width,
         );
     }
 
-    highlight_segments(&result.display, &positions, width)
+    highlight_segments(&display, &positions, width)
 }
 
 fn matched_key<'a>(candidates: &'a [Candidate], result: &ScoredCandidate) -> Option<&'a SearchKey> {
@@ -118,7 +143,8 @@ fn source_map_highlight_positions(
 
     let mut positions = HashSet::new();
     for pattern in patterns {
-        let Some(matched) = match_positions(pattern, &key.text, case_sensitive) else {
+        let bounded_key = bounded_chars(&key.text, MAX_HIGHLIGHT_TEXT_CHARS);
+        let Some(matched) = match_positions(pattern, &bounded_key, case_sensitive) else {
             continue;
         };
 
@@ -133,6 +159,13 @@ fn source_map_highlight_positions(
     positions
 }
 
+fn bounded_chars(text: &str, max_chars: usize) -> Cow<'_, str> {
+    let Some((byte_index, _)) = text.char_indices().nth(max_chars) else {
+        return Cow::Borrowed(text);
+    };
+    Cow::Owned(text[..byte_index].to_string())
+}
+
 fn highlight_segments(
     text: &str,
     highlighted_positions: &HashSet<usize>,
@@ -142,21 +175,49 @@ fn highlight_segments(
     let mut current = String::new();
     let mut current_highlighted = None;
 
-    for (char_index, ch) in text.chars().take(width).enumerate() {
-        let highlighted = highlighted_positions.contains(&char_index);
-        if current_highlighted == Some(highlighted) {
-            current.push(ch);
+    let mut char_index = 0;
+    let mut offset = 0;
+    let mut pending_sgr = String::new();
+    while offset < text.len() && char_index < width {
+        if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
+            pending_sgr.push_str(&text[offset..offset + len]);
+            offset += len;
             continue;
         }
 
-        if let Some(highlighted) = current_highlighted {
-            segments.push(HighlightSegment {
-                text: std::mem::take(&mut current),
-                highlighted,
-            });
+        let ch = text[offset..]
+            .chars()
+            .next()
+            .expect("valid character boundary");
+        let highlighted = highlighted_positions.contains(&char_index);
+        if current_highlighted == Some(highlighted) {
+            current.push_str(&pending_sgr);
+            pending_sgr.clear();
+            current.push(ch);
+        } else {
+            if let Some(highlighted) = current_highlighted {
+                segments.push(HighlightSegment {
+                    text: std::mem::take(&mut current),
+                    highlighted,
+                });
+            }
+            current.push_str(&pending_sgr);
+            pending_sgr.clear();
+            current.push(ch);
+            current_highlighted = Some(highlighted);
         }
-        current.push(ch);
-        current_highlighted = Some(highlighted);
+        char_index += 1;
+        offset += ch.len_utf8();
+    }
+
+    // Retain a trailing reset or style sequence when it falls exactly at the
+    // viewport boundary, preventing input styling from leaking into later UI.
+    while offset < text.len() {
+        let Some(len) = safe_sgr_sequence_len(&text[offset..]) else {
+            break;
+        };
+        current.push_str(&text[offset..offset + len]);
+        offset += len;
     }
 
     if let Some(highlighted) = current_highlighted {

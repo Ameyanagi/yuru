@@ -8,8 +8,8 @@ use crate::api::{ImagePreviewProtocol, PreviewCommand};
 use crate::preview::run_preview_command;
 use crate::preview::{
     encode_image_preview, image_protocol_from_env, preview_file_command_path,
-    preview_image_from_output, ImageEncodeResult, ImageEncodeWorker, PreviewCache, PreviewContent,
-    PreviewPayload, PREVIEW_WORKER_POLL,
+    preview_image_from_output, ImageEncodeResult, ImageEncodeWorker, PreviewCache,
+    PreviewCancellation, PreviewContent, PreviewPayload, PREVIEW_WORKER_POLL,
 };
 use crate::render::render_image_preview;
 
@@ -44,6 +44,25 @@ fn preview_output_detects_inline_svg_bytes() {
 
     assert_eq!(image.width(), 10);
     assert_eq!(image.height(), 8);
+}
+
+#[cfg(unix)]
+#[test]
+fn svg_preview_does_not_read_external_local_resources() {
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+        <image href="/dev/zero" width="10" height="10"/>
+    </svg>"#;
+    let started = std::time::Instant::now();
+    let image = preview_image_from_output(svg).expect("bounded SVG should still render");
+
+    assert_eq!((image.width(), image.height()), (10, 10));
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+}
+
+#[test]
+fn svg_preview_rejects_extreme_dimensions() {
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="9000" height="1"/>"#;
+    assert!(preview_image_from_output(svg).is_none());
 }
 
 #[cfg(all(feature = "image", unix))]
@@ -156,10 +175,19 @@ fn image_encode_worker_keeps_preview_polling() {
         PreviewPayload::Image(image),
     );
     let (_sender, receiver) = mpsc::channel();
+    let cancellation = PreviewCancellation::default();
+    let worker_cancellation = cancellation.clone();
+    let handle = std::thread::spawn(move || {
+        while !worker_cancellation.is_cancelled() {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    });
     if let Some(PreviewContent::Image(image)) = cache.content.as_mut() {
         image.worker = Some(ImageEncodeWorker {
             area: (4, 2),
             receiver,
+            cancellation,
+            handle: Some(handle),
         });
     }
 

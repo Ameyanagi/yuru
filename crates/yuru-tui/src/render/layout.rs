@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crossterm::terminal;
 
 use crate::api::TuiLayout;
@@ -87,12 +89,13 @@ pub(super) fn scroll_offset(selected: usize, len: usize, rows: usize) -> usize {
 }
 
 pub(super) fn truncate_to_width_with_ellipsis(text: &str, width: usize, ellipsis: &str) -> String {
-    let char_count = text.chars().count();
-    if char_count <= width {
-        return text.to_string();
-    }
+    let ellipsis = terminal_safe_text(ellipsis);
     if width == 0 {
         return String::new();
+    }
+    let (text, truncated) = terminal_safe_prefix(text, false, width);
+    if !truncated {
+        return text;
     }
 
     let ellipsis_width = ellipsis.chars().count().min(width);
@@ -102,4 +105,133 @@ pub(super) fn truncate_to_width_with_ellipsis(text: &str, width: usize, ellipsis
         .collect();
     out.extend(ellipsis.chars().take(ellipsis_width));
     out
+}
+
+/// Converts terminal controls in lower-trust text to inert, visible,
+/// one-character representations. The one-to-one mapping preserves the
+/// character indices used by fuzzy highlighting and phonetic source maps.
+pub(super) fn terminal_safe_text(text: &str) -> Cow<'_, str> {
+    sanitize_terminal_text(text, false)
+}
+
+/// Sanitizes only the visible prefix required by the viewport. ANSI SGR bytes
+/// do not consume display width, so their total scanned size is separately
+/// bounded to prevent control-only records from bypassing the viewport limit.
+pub(super) fn terminal_safe_prefix(
+    text: &str,
+    allow_sgr: bool,
+    max_visible: usize,
+) -> (String, bool) {
+    if max_visible == 0 {
+        return (String::new(), !text.is_empty());
+    }
+
+    let max_scanned_bytes = if allow_sgr {
+        max_visible.saturating_mul(64).clamp(64, 64 * 1024)
+    } else {
+        usize::MAX
+    };
+    let mut out = String::with_capacity(text.len().min(max_visible.saturating_mul(4)));
+    let mut offset = 0usize;
+    let mut visible = 0usize;
+    while offset < text.len() && visible < max_visible && offset < max_scanned_bytes {
+        if allow_sgr {
+            if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
+                if offset.saturating_add(len) > max_scanned_bytes {
+                    break;
+                }
+                out.push_str(&text[offset..offset + len]);
+                offset += len;
+                continue;
+            }
+        }
+
+        let ch = text[offset..]
+            .chars()
+            .next()
+            .expect("valid character boundary");
+        out.push(visible_control_char(ch));
+        visible += 1;
+        offset += ch.len_utf8();
+    }
+    (out, offset < text.len())
+}
+
+pub(super) fn safe_sgr_sequence_len(text: &str) -> Option<usize> {
+    const MAX_SGR_SEQUENCE_BYTES: usize = 64;
+    let bytes = text.as_bytes();
+    if !bytes.starts_with(b"\x1b[") {
+        return None;
+    }
+    for (offset, byte) in bytes[2..].iter().copied().enumerate() {
+        if offset + 3 > MAX_SGR_SEQUENCE_BYTES {
+            return None;
+        }
+        if byte == b'm' {
+            return Some(offset + 3);
+        }
+        if !byte.is_ascii_digit() && byte != b';' && byte != b':' {
+            return None;
+        }
+    }
+    None
+}
+
+pub(super) fn terminal_visible_text(text: &str) -> Cow<'_, str> {
+    if !text.contains('\u{1b}') {
+        return Cow::Borrowed(text);
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut offset = 0;
+    while offset < text.len() {
+        if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
+            offset += len;
+            continue;
+        }
+        let ch = text[offset..]
+            .chars()
+            .next()
+            .expect("valid character boundary");
+        out.push(ch);
+        offset += ch.len_utf8();
+    }
+    Cow::Owned(out)
+}
+
+fn sanitize_terminal_text(text: &str, allow_sgr: bool) -> Cow<'_, str> {
+    if !text.chars().any(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut offset = 0;
+    while offset < text.len() {
+        if allow_sgr {
+            if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
+                out.push_str(&text[offset..offset + len]);
+                offset += len;
+                continue;
+            }
+        }
+
+        let ch = text[offset..]
+            .chars()
+            .next()
+            .expect("valid character boundary");
+        out.push(visible_control_char(ch));
+        offset += ch.len_utf8();
+    }
+    Cow::Owned(out)
+}
+
+fn visible_control_char(ch: char) -> char {
+    match ch as u32 {
+        0x00..=0x1f => char::from_u32(0x2400 + ch as u32).unwrap_or('\u{fffd}'),
+        0x7f => '\u{2421}',
+        // UTF-8 C1 characters are not single-byte terminal controls, but
+        // replacing them keeps every control character visible.
+        _ if ch.is_control() => '\u{fffd}',
+        _ => ch,
+    }
 }

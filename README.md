@@ -281,6 +281,10 @@ is enabled. Set `YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` with
 protocol. The config default `none` disables image rendering and shows compact
 image metadata instead.
 
+Preview text and each command output stream are bounded to 1 MiB, commands time
+out after five seconds, and oversized image inputs are rejected. SVG previews
+do not load external or local `href` resources.
+
 See the full [fzf compatibility matrix](docs/fzf-compat.md).
 
 ## Configuration

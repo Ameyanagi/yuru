@@ -5,10 +5,19 @@ use std::{fs::File, io::Read};
 use super::cache::PreviewPayload;
 #[cfg(feature = "image")]
 use super::image::preview_image_metadata_from_path;
+use super::process::{run_bounded_process, MAX_PREVIEW_OUTPUT_BYTES};
+use super::PreviewCancellation;
 
 const ASCII_TEXT_SNIFF_BYTES: usize = 8192;
 
-pub(super) fn run_builtin_preview(item: &str, text_extensions: &[String]) -> PreviewPayload {
+pub(super) fn run_builtin_preview(
+    item: &str,
+    text_extensions: &[String],
+    cancellation: &PreviewCancellation,
+) -> PreviewPayload {
+    if cancellation.is_cancelled() {
+        return PreviewPayload::Text("preview cancelled".to_string());
+    }
     let path = Path::new(item);
     if item.trim().is_empty() {
         return PreviewPayload::Text("no selection".to_string());
@@ -26,7 +35,7 @@ pub(super) fn run_builtin_preview(item: &str, text_extensions: &[String]) -> Pre
         return PreviewPayload::Text(format!("empty file: {item}"));
     }
     if is_text_path(path, text_extensions) || is_ascii_text_file(path) {
-        return PreviewPayload::Text(preview_text_file(path));
+        return PreviewPayload::Text(preview_text_file(path, cancellation));
     }
     #[cfg(feature = "image")]
     if let Some(metadata) = preview_image_metadata_from_path(path) {
@@ -39,6 +48,7 @@ fn preview_directory(path: &Path) -> String {
     let mut entries = match std::fs::read_dir(path) {
         Ok(entries) => entries
             .filter_map(|entry| entry.ok())
+            .take(121)
             .map(|entry| {
                 let suffix = entry
                     .file_type()
@@ -60,24 +70,22 @@ fn preview_directory(path: &Path) -> String {
     output
 }
 
-fn preview_text_file(path: &Path) -> String {
-    if let Some(output) = preview_text_with_bat(path) {
+fn preview_text_file(path: &Path, cancellation: &PreviewCancellation) -> String {
+    if let Some(output) = preview_text_with_bat(path, cancellation) {
         return output;
     }
-    if let Some(output) = preview_text_with_cat(path) {
-        return limit_preview_lines(&output, 200);
+    if cancellation.is_cancelled() {
+        return "preview cancelled".to_string();
     }
-    match std::fs::read(path) {
-        Ok(bytes) => {
-            let text = String::from_utf8_lossy(&bytes);
-            limit_preview_lines(&text, 200)
-        }
+    match read_bounded_file(path) {
+        Ok((bytes, truncated)) => format_bounded_text(&bytes, truncated),
         Err(error) => format!("file: {}\nerror: {error}", path.display()),
     }
 }
 
-fn preview_text_with_bat(path: &Path) -> Option<String> {
-    let output = Command::new("bat")
+fn preview_text_with_bat(path: &Path, cancellation: &PreviewCancellation) -> Option<String> {
+    let mut process = Command::new("bat");
+    process
         .args([
             "--style=numbers",
             "--color=never",
@@ -86,21 +94,35 @@ fn preview_text_with_bat(path: &Path) -> Option<String> {
             ":200",
             "--",
         ])
-        .arg(path)
-        .output()
-        .ok()?;
-    if !output.status.success() || output.stdout.is_empty() {
+        .arg(path);
+    let output = run_bounded_process(&mut process, cancellation).ok()?;
+    if output.cancelled
+        || output.timed_out
+        || !output.status.is_some_and(|status| status.success())
+        || output.stdout.is_empty()
+    {
         return None;
     }
-    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+    Some(format_bounded_text(&output.stdout, output.truncated))
 }
 
-fn preview_text_with_cat(path: &Path) -> Option<String> {
-    let output = Command::new("cat").arg("--").arg(path).output().ok()?;
-    if !output.status.success() {
-        return None;
+fn read_bounded_file(path: &Path) -> std::io::Result<(Vec<u8>, bool)> {
+    let file = File::open(path)?;
+    let mut bytes = Vec::with_capacity(16 * 1024);
+    file.take((MAX_PREVIEW_OUTPUT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    let truncated = bytes.len() > MAX_PREVIEW_OUTPUT_BYTES;
+    bytes.truncate(MAX_PREVIEW_OUTPUT_BYTES);
+    Ok((bytes, truncated))
+}
+
+fn format_bounded_text(bytes: &[u8], byte_truncated: bool) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut output = limit_preview_lines(&text, 200);
+    if byte_truncated {
+        output.push_str("... preview truncated at 1 MiB ...\n");
     }
-    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+    output
 }
 
 fn limit_preview_lines(text: &str, limit: usize) -> String {

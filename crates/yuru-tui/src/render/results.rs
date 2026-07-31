@@ -15,10 +15,10 @@ use crate::api::{TuiLayout, TuiStyle};
 use crate::preview::PreviewRender;
 use crate::state::TuiState;
 
-use super::highlight::highlight_segments_for_result;
+use super::highlight::highlight_segments_for_result_with_ansi;
 use super::layout::{
-    content_start_row, footer_start_row, preview_width, scroll_offset,
-    truncate_to_width_with_ellipsis, visible_line_count, Viewport,
+    content_start_row, footer_start_row, preview_width, scroll_offset, terminal_safe_text,
+    terminal_visible_text, truncate_to_width_with_ellipsis, visible_line_count, Viewport,
 };
 use super::preview_pane::render_preview;
 
@@ -117,7 +117,9 @@ pub(crate) fn render(
             " "
         };
         let selected = offset + row == state.selected();
-        let pointer_width = context.pointer.chars().count() + context.marker.chars().count();
+        let pointer = terminal_safe_text(context.pointer);
+        let marker = terminal_safe_text(context.marker);
+        let pointer_width = pointer.chars().count() + marker.chars().count();
         let result_width = list_width.saturating_sub(pointer_width);
         let selected_row_background = selected && context.highlight_line;
         if selected_row_background {
@@ -133,7 +135,7 @@ pub(crate) fn render(
             if let Some(color) = context.style.pointer_color() {
                 queue!(output, SetForegroundColor(color))?;
             }
-            queue!(output, Print(context.pointer), Print(mark))?;
+            queue!(output, Print(pointer), Print(terminal_safe_text(mark)))?;
             if selected_row_background {
                 if let Some(color) = context.style.selected_fg_color() {
                     queue!(output, SetForegroundColor(color))?;
@@ -144,7 +146,7 @@ pub(crate) fn render(
                 queue!(output, SetForegroundColor(Color::Reset))?;
             }
         } else {
-            queue!(output, Print(" "), Print(mark))?;
+            queue!(output, Print(" "), Print(terminal_safe_text(mark)))?;
         }
         let printed = render_highlighted_result(
             output,
@@ -197,6 +199,7 @@ pub(crate) struct RenderContext<'a> {
     pub(crate) pointer: &'a str,
     pub(crate) marker: &'a str,
     pub(crate) ellipsis: &'a str,
+    pub(crate) ansi: bool,
 }
 
 fn render_highlighted_result(
@@ -208,12 +211,13 @@ fn render_highlighted_result(
     selected: bool,
 ) -> Result<usize> {
     let mut printed = 0;
-    for segment in highlight_segments_for_result(
+    for segment in highlight_segments_for_result_with_ansi(
         query,
         result,
         context.candidates,
         context.case_sensitive,
         width,
+        context.ansi,
     ) {
         if segment.highlighted {
             queue!(
@@ -222,7 +226,7 @@ fn render_highlighted_result(
                 SetAttribute(Attribute::Bold)
             )?;
         }
-        printed += segment.text.chars().count();
+        printed += terminal_visible_text(&segment.text).chars().count();
         queue!(output, Print(segment.text))?;
         if segment.highlighted {
             if selected && context.highlight_line {

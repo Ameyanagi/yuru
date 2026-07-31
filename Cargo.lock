@@ -4568,6 +4568,7 @@ dependencies = [
  "anyhow",
  "crossterm",
  "image",
+ "libc",
  "ratatui",
  "ratatui-image",
  "resvg",

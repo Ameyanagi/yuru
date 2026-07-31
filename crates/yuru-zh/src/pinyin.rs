@@ -39,21 +39,34 @@ pub fn build_pinyin_keys_with_sources_for_mode(
     max: usize,
     polyphone: ChinesePolyphoneMode,
 ) -> Vec<PinyinKey> {
-    if text.is_empty() || max == 0 {
+    build_pinyin_keys_with_sources_for_mode_and_budget(text, max, usize::MAX, polyphone)
+}
+
+/// Builds pinyin keys while enforcing text and source-map budgets during
+/// extraction and construction.
+pub fn build_pinyin_keys_with_sources_for_mode_and_budget(
+    text: &str,
+    max: usize,
+    max_bytes: usize,
+    polyphone: ChinesePolyphoneMode,
+) -> Vec<PinyinKey> {
+    if text.is_empty() || max == 0 || max_bytes == 0 {
         return Vec::new();
     }
 
-    let alternatives = extract_syllable_alternatives(text, polyphone);
+    let Some(alternatives) = extract_syllable_alternatives(text, polyphone, max_bytes) else {
+        return Vec::new();
+    };
     if alternatives.is_empty() {
         return Vec::new();
     }
 
     let mut out = Vec::new();
     let primary = primary_syllables(&alternatives);
-    push_sequence_keys(&mut out, &primary, max);
+    push_sequence_keys(&mut out, &primary, max, max_bytes);
 
     if !matches!(polyphone, ChinesePolyphoneMode::None) {
-        push_common_polyphone_keys(&mut out, &alternatives, max);
+        push_common_polyphone_keys(&mut out, &alternatives, max, max_bytes);
     }
 
     out
@@ -62,13 +75,17 @@ pub fn build_pinyin_keys_with_sources_for_mode(
 fn extract_syllable_alternatives(
     text: &str,
     polyphone: ChinesePolyphoneMode,
-) -> Vec<SyllableAlternatives> {
-    let chars: Vec<char> = text.chars().collect();
+    max_syllables: usize,
+) -> Option<Vec<SyllableAlternatives>> {
     let mut out = Vec::new();
-    let mut index = 0usize;
+    let mut chars = text.chars().enumerate().peekable();
 
-    while index < chars.len() {
-        if chars[index] == '重' && chars.get(index + 1) == Some(&'庆') {
+    while let Some((index, ch)) = chars.next() {
+        if ch == '重' && chars.peek().is_some_and(|(_, next)| *next == '庆') {
+            if out.len().saturating_add(2) > max_syllables {
+                return None;
+            }
+            let _ = chars.next().expect("peeked Chongqing suffix");
             out.push(SyllableAlternatives {
                 readings: vec!["chong".to_string()],
                 source: SourceSpan {
@@ -83,17 +100,17 @@ fn extract_syllable_alternatives(
                     end_char: index + 2,
                 },
             });
-            index += 2;
             continue;
         }
 
         let readings = match polyphone {
-            ChinesePolyphoneMode::None => primary_reading(chars[index]).into_iter().collect(),
-            ChinesePolyphoneMode::Common | ChinesePolyphoneMode::Phrase => {
-                common_readings(chars[index])
-            }
+            ChinesePolyphoneMode::None => primary_reading(ch).into_iter().collect(),
+            ChinesePolyphoneMode::Common | ChinesePolyphoneMode::Phrase => common_readings(ch),
         };
         if !readings.is_empty() {
+            if out.len() >= max_syllables {
+                return None;
+            }
             out.push(SyllableAlternatives {
                 readings,
                 source: SourceSpan {
@@ -102,10 +119,9 @@ fn extract_syllable_alternatives(
                 },
             });
         }
-        index += 1;
     }
 
-    out
+    Some(out)
 }
 
 fn primary_reading(ch: char) -> Option<String> {
@@ -159,6 +175,7 @@ fn push_common_polyphone_keys(
     out: &mut Vec<PinyinKey>,
     alternatives: &[SyllableAlternatives],
     max: usize,
+    max_bytes: usize,
 ) {
     let mut syllables = primary_syllables(alternatives);
     let max_readings = alternatives
@@ -171,7 +188,7 @@ fn push_common_polyphone_keys(
         for (syllable_index, alternative) in alternatives.iter().enumerate() {
             if let Some(reading) = alternative.readings.get(reading_index) {
                 syllables[syllable_index].0 = reading.clone();
-                push_sequence_keys(out, &syllables, max);
+                push_sequence_keys(out, &syllables, max, max_bytes);
                 syllables[syllable_index].0 = alternative.readings[0].clone();
                 if out.len() >= max {
                     return;
@@ -181,57 +198,106 @@ fn push_common_polyphone_keys(
     }
 }
 
-fn push_sequence_keys(out: &mut Vec<PinyinKey>, syllables: &[(String, SourceSpan)], max: usize) {
-    push_unique(out, full_pinyin_key(syllables), max);
-    push_unique(out, joined_pinyin_key(syllables), max);
-    push_unique(out, initials_pinyin_key(syllables), max);
+fn push_sequence_keys(
+    out: &mut Vec<PinyinKey>,
+    syllables: &[(String, SourceSpan)],
+    max: usize,
+    max_bytes: usize,
+) {
+    let mut remaining = remaining_bytes(out, max_bytes);
+    if let Some(key) = full_pinyin_key(syllables, remaining) {
+        push_unique(out, key, max);
+    }
+    remaining = remaining_bytes(out, max_bytes);
+    if let Some(key) = joined_pinyin_key(syllables, remaining) {
+        push_unique(out, key, max);
+    }
+    remaining = remaining_bytes(out, max_bytes);
+    if let Some(key) = initials_pinyin_key(syllables, remaining) {
+        push_unique(out, key, max);
+    }
 }
 
-fn full_pinyin_key(syllables: &[(String, SourceSpan)]) -> PinyinKey {
+fn full_pinyin_key(syllables: &[(String, SourceSpan)], max_bytes: usize) -> Option<PinyinKey> {
     let mut mapped = MappedTextBuilder::new();
+    let mut text_bytes = 0usize;
+    let mut mapped_chars = 0usize;
 
     for (index, (syllable, source)) in syllables.iter().enumerate() {
+        let separator = usize::from(index > 0);
+        let syllable_chars = syllable.chars().count();
+        if text_bytes
+            .saturating_add(separator)
+            .saturating_add(syllable.len())
+            > max_bytes
+            || mapped_chars
+                .saturating_add(separator)
+                .saturating_add(syllable_chars)
+                > max_bytes
+        {
+            return None;
+        }
         if index > 0 {
             mapped.push_unmapped_char(' ');
         }
         mapped.push_str(syllable, Some(*source));
+        text_bytes += separator + syllable.len();
+        mapped_chars += separator + syllable_chars;
     }
 
     let mapped = mapped.finish();
-    PinyinKey {
+    Some(PinyinKey {
         text: mapped.text,
         source_map: mapped.source_map,
-    }
+    })
 }
 
-fn joined_pinyin_key(syllables: &[(String, SourceSpan)]) -> PinyinKey {
+fn joined_pinyin_key(syllables: &[(String, SourceSpan)], max_bytes: usize) -> Option<PinyinKey> {
     let mut mapped = MappedTextBuilder::new();
+    let mut text_bytes = 0usize;
+    let mut mapped_chars = 0usize;
 
     for (syllable, source) in syllables {
+        text_bytes = text_bytes.saturating_add(syllable.len());
+        mapped_chars = mapped_chars.saturating_add(syllable.chars().count());
+        if text_bytes > max_bytes || mapped_chars > max_bytes {
+            return None;
+        }
         mapped.push_str(syllable, Some(*source));
     }
 
     let mapped = mapped.finish();
-    PinyinKey {
+    Some(PinyinKey {
         text: mapped.text,
         source_map: mapped.source_map,
-    }
+    })
 }
 
-fn initials_pinyin_key(syllables: &[(String, SourceSpan)]) -> PinyinKey {
+fn initials_pinyin_key(syllables: &[(String, SourceSpan)], max_bytes: usize) -> Option<PinyinKey> {
     let mut mapped = MappedTextBuilder::new();
+    let mut mapped_chars = 0usize;
 
     for (syllable, source) in syllables {
         if let Some(initial) = syllable.chars().next() {
+            if mapped_chars.saturating_add(1) > max_bytes
+                || mapped_chars.saturating_add(initial.len_utf8()) > max_bytes
+            {
+                return None;
+            }
             mapped.push_char(initial, Some(*source));
+            mapped_chars += 1;
         }
     }
 
     let mapped = mapped.finish();
-    PinyinKey {
+    Some(PinyinKey {
         text: mapped.text,
         source_map: mapped.source_map,
-    }
+    })
+}
+
+fn remaining_bytes(out: &[PinyinKey], max_bytes: usize) -> usize {
+    max_bytes.saturating_sub(out.iter().map(|key| key.text.len()).sum::<usize>())
 }
 
 fn push_unique(out: &mut Vec<PinyinKey>, value: PinyinKey, max: usize) {
@@ -319,6 +385,27 @@ mod tests {
                 end_char: 2
             })
         );
+    }
+
+    #[test]
+    fn pinyin_generation_enforces_budget_during_construction() {
+        let keys = build_pinyin_keys_with_sources_for_mode_and_budget(
+            "北京大学",
+            8,
+            32,
+            ChinesePolyphoneMode::Common,
+        );
+        assert!(keys.iter().map(|key| key.text.len()).sum::<usize>() <= 32);
+        assert!(keys.iter().all(|key| key.source_map.len() <= 32));
+
+        let oversized = "中".repeat(10_000);
+        assert!(build_pinyin_keys_with_sources_for_mode_and_budget(
+            &oversized,
+            8,
+            64,
+            ChinesePolyphoneMode::Common,
+        )
+        .is_empty());
     }
 
     #[test]
