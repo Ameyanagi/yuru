@@ -2,6 +2,10 @@
 
 All notable user-facing changes are tracked here.
 
+## Unreleased
+
+- Added readline-style TUI key bindings and Unicode-aware query cursor positioning ([#3](https://github.com/Ameyanagi/yuru/pull/3), contributed by [@gw31415](https://github.com/gw31415)).
+
 ## 0.1.10
 
 - Fixed PowerShell launches that opened briefly and exited by forcing interactive mode from generated key handlers.

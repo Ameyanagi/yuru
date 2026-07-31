@@ -50,11 +50,16 @@ impl TuiState {
             TuiAction::Insert(ch) => self.insert(ch),
             TuiAction::Backspace => self.backspace(),
             TuiAction::Delete => self.delete(),
+            TuiAction::DeleteOrExit => self.delete(),
+            TuiAction::DeleteToEnd => self.delete_to_end(),
+            TuiAction::DeleteWord => self.delete_word(),
             TuiAction::ClearQuery => self.clear_query(),
             TuiAction::MoveCursorLeft => self.move_cursor_left(),
             TuiAction::MoveCursorRight => self.move_cursor_right(),
             TuiAction::MoveCursorStart => self.cursor = 0,
             TuiAction::MoveCursorEnd => self.cursor = self.query.len(),
+            TuiAction::MoveCursorWordLeft => self.move_cursor_word_left(),
+            TuiAction::MoveCursorWordRight => self.move_cursor_word_right(),
             TuiAction::MoveSelectionUp => self.move_selection_up(result_len, cycle),
             TuiAction::MoveSelectionDown => self.move_selection_down(result_len, cycle),
             TuiAction::MoveSelectionFirst => self.selected = 0,
@@ -167,6 +172,21 @@ impl TuiState {
         self.selected = 0;
     }
 
+    fn delete_to_end(&mut self) {
+        self.query.truncate(self.cursor);
+        self.selected = 0;
+    }
+
+    fn delete_word(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let word_start = previous_word_boundary(&self.query, self.cursor);
+        self.query.drain(word_start..self.cursor);
+        self.cursor = word_start;
+        self.selected = 0;
+    }
+
     fn clear_query(&mut self) {
         self.query.clear();
         self.cursor = 0;
@@ -179,6 +199,14 @@ impl TuiState {
 
     fn move_cursor_right(&mut self) {
         self.cursor = next_boundary(&self.query, self.cursor);
+    }
+
+    fn move_cursor_word_left(&mut self) {
+        self.cursor = previous_word_boundary(&self.query, self.cursor);
+    }
+
+    fn move_cursor_word_right(&mut self) {
+        self.cursor = next_word_boundary(&self.query, self.cursor);
     }
 
     fn move_selection_up(&mut self, result_len: usize, cycle: bool) {
@@ -219,6 +247,10 @@ pub enum TuiAction {
     Backspace,
     /// Delete the character at the cursor.
     Delete,
+    /// Delete from cursor to end of line.
+    DeleteToEnd,
+    /// Delete word before cursor.
+    DeleteWord,
     /// Clear the query text.
     ClearQuery,
     /// Move the query cursor left.
@@ -229,6 +261,10 @@ pub enum TuiAction {
     MoveCursorStart,
     /// Move the query cursor to the end.
     MoveCursorEnd,
+    /// Move the query cursor to the start of the previous word.
+    MoveCursorWordLeft,
+    /// Move the query cursor to the end of the next word.
+    MoveCursorWordRight,
     /// Move the selected row up.
     MoveSelectionUp,
     /// Move the selected row down.
@@ -259,6 +295,8 @@ pub enum TuiAction {
     PreviewTop,
     /// Scroll preview to the bottom.
     PreviewBottom,
+    /// Delete character and exit if query becomes empty (Ctrl+D).
+    DeleteOrExit,
 }
 
 fn previous_boundary(text: &str, cursor: usize) -> usize {
@@ -275,4 +313,57 @@ fn next_boundary(text: &str, cursor: usize) -> usize {
         .nth(1)
         .map(|(index, _)| cursor + index)
         .unwrap_or(text.len())
+}
+
+fn previous_word_boundary(text: &str, cursor: usize) -> usize {
+    let mut iter = text[..cursor].char_indices().rev().peekable();
+
+    // Skip any trailing boundary characters (cursor may sit right after whitespace).
+    while let Some(&(_, ch)) = iter.peek() {
+        if !is_word_boundary(ch) {
+            break;
+        }
+        iter.next();
+    }
+
+    // Skip word characters; the first boundary we peek at marks the word start.
+    while let Some(&(index, ch)) = iter.peek() {
+        if is_word_boundary(ch) {
+            return index + ch.len_utf8();
+        }
+        iter.next();
+    }
+
+    0
+}
+
+fn next_word_boundary(text: &str, cursor: usize) -> usize {
+    let mut iter = text[cursor..].char_indices().peekable();
+
+    let first_is_word = iter
+        .peek()
+        .map(|(_, ch)| !is_word_boundary(*ch))
+        .unwrap_or(false);
+
+    if first_is_word {
+        return iter
+            .find(|(_, ch)| is_word_boundary(*ch))
+            .map(|(index, _)| cursor + index)
+            .unwrap_or(text.len());
+    }
+
+    for (_, ch) in iter.by_ref() {
+        if !is_word_boundary(ch) {
+            return iter
+                .find(|(_, next_ch)| is_word_boundary(*next_ch))
+                .map(|(index, _)| cursor + index)
+                .unwrap_or(text.len());
+        }
+    }
+
+    text.len()
+}
+
+fn is_word_boundary(ch: char) -> bool {
+    ch.is_whitespace() || ch == '/' || ch == '-' || ch == '_' || ch == '.'
 }

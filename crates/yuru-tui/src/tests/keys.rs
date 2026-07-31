@@ -130,3 +130,45 @@ fn bind_key_can_drive_basic_navigation_actions() {
     );
     assert_eq!(decision, KeyDecision::Action(TuiAction::MoveCursorStart));
 }
+
+#[test]
+fn readline_keys_map_to_editing_actions() {
+    let cases = [
+        (
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+            TuiAction::MoveCursorLeft,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+            TuiAction::MoveCursorRight,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            TuiAction::DeleteToEnd,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+            TuiAction::DeleteWord,
+        ),
+        (
+            KeyEvent::new(KeyCode::Left, KeyModifiers::ALT),
+            TuiAction::MoveCursorWordLeft,
+        ),
+        (
+            KeyEvent::new(KeyCode::Right, KeyModifiers::ALT),
+            TuiAction::MoveCursorWordRight,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+            TuiAction::Backspace,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+            TuiAction::DeleteOrExit,
+        ),
+    ];
+
+    for (key, action) in cases {
+        assert_eq!(classify_key(key, 10, &[], &[]), KeyDecision::Action(action));
+    }
+}
