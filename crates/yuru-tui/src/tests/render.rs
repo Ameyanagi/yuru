@@ -75,6 +75,7 @@ fn render_positions_cursor_by_display_width_and_handles_zero_width() {
                 pointer: ">",
                 marker: "*",
                 ellipsis: "..",
+                ansi: false,
             },
         )
         .unwrap();
@@ -82,6 +83,42 @@ fn render_positions_cursor_by_display_width_and_handles_zero_width() {
         let rendered = String::from_utf8(output).unwrap();
         assert!(rendered.contains(expected_cursor), "{rendered:?}");
     }
+}
+
+#[test]
+fn render_positions_cursor_after_visible_control_pictures() {
+    force_test_color_output();
+    let mut output = Vec::new();
+    let state = TuiState::new("\tA");
+
+    render(
+        &mut output,
+        &state,
+        &[],
+        RenderContext {
+            candidates: &[],
+            prompt: "\r",
+            header: None,
+            footer: None,
+            viewport: Viewport { width: 40, rows: 2 },
+            layout: TuiLayout::Default,
+            preview: None,
+            style: &TuiStyle::default(),
+            highlight_line: true,
+            case_sensitive: false,
+            multi: false,
+            no_input: false,
+            pointer: ">",
+            marker: "*",
+            ellipsis: "..",
+            ansi: false,
+        },
+    )
+    .unwrap();
+
+    let rendered = String::from_utf8(output).unwrap();
+    assert!(rendered.contains("␍␉A"), "{rendered:?}");
+    assert!(rendered.contains("\u{1b}[3;4H"), "{rendered:?}");
 }
 
 #[test]

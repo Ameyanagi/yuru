@@ -171,7 +171,9 @@ pub(crate) fn render(
     render_preview(output, &mut context, preview_width, content_top)?;
 
     if let Some(prompt_row) = prompt_row {
-        let cursor_column = context.prompt.width() + state.query()[..state.cursor()].width();
+        let safe_prompt = terminal_safe_text(context.prompt);
+        let safe_query = terminal_safe_text(&state.query()[..state.cursor()]);
+        let cursor_column = safe_prompt.width() + safe_query.width();
         queue!(
             output,
             MoveTo(
