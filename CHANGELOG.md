@@ -4,6 +4,8 @@ All notable user-facing changes are tracked here.
 
 ## Unreleased
 
+## 0.1.11
+
 - Added readline-style TUI key bindings and Unicode-aware query cursor positioning ([#3](https://github.com/Ameyanagi/yuru/pull/3), contributed by [@gw31415](https://github.com/gw31415)).
 - Hardened terminal rendering, preview processes, file and image decoding, SVG loading, worker cleanup, highlighting, and CJK key generation against untrusted or oversized input ([#4](https://github.com/Ameyanagi/yuru/pull/4)).
 

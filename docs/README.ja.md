@@ -16,7 +16,7 @@ Yuru は標準ではユーザー領域にインストールされるため、`su
 macOS / Linux の対話式インストール:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.10/install | sh -s -- --all --version v0.1.10
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh -s -- --all --version v0.1.11
 ```
 
 通常は `~/.local/bin` に `yuru` を配置します。`XDG_BIN_HOME` または
@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.10/install | sh
 日本語を既定の検索言語にして、対話式インストールの値も明示する例:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.10/install | sh -s -- --all --version v0.1.10 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh -s -- --all --version v0.1.11 --default-lang ja --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 あとから設定を変更する場合は `yuru configure` を実行します。
@@ -39,8 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.10/install | sh
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.10/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.10"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.11"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin` に `yuru.exe` を配置し、ユーザー PATH と PowerShell profile を更新します。
@@ -48,14 +48,14 @@ Invoke-Expression "& { $script } -All -Version v0.1.10"
 日本語を既定にして値を明示する場合は、次のように指定します。
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.10/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.10 -DefaultLang ja -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.1.11 -DefaultLang ja -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
 ```
 
 バイナリだけをインストールする場合:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.10/install | sh -s -- --version v0.1.10
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh -s -- --version v0.1.11
 ```
 
 crates.io からインストールする場合:
@@ -163,8 +163,8 @@ version tag を push すると、GitHub Actions が macOS、Linux、Windows 向�
 release workflow は tag push のときだけ動き、tag は crate version と一致している必要があります。
 
 ```sh
-git tag v0.1.10
-git push origin v0.1.10
+git tag v0.1.11
+git push origin v0.1.11
 ```
 
 ## ライセンス
