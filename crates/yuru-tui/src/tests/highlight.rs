@@ -1,6 +1,8 @@
 use yuru_core::{Candidate, KeyKind, SearchKey, SourceSpan};
 
-use crate::render::{highlight_segments_for_result, HighlightSegment};
+use crate::render::{
+    highlight_segments_for_result, highlight_segments_for_result_with_ansi, HighlightSegment,
+};
 
 use super::helpers::{japanese_romaji_source_map, scored};
 
@@ -26,6 +28,40 @@ fn highlight_segments_mark_visible_fuzzy_positions() {
             },
         ]
     );
+}
+
+#[test]
+fn highlight_work_is_bounded_to_the_visible_prefix() {
+    let display = "a_".repeat(100_000);
+    let result = scored(&display, KeyKind::Original);
+    let segments = highlight_segments_for_result(&"a".repeat(32), &result, &[], false, 80);
+
+    assert_eq!(
+        segments
+            .iter()
+            .flat_map(|segment| segment.text.chars())
+            .count(),
+        80
+    );
+}
+
+#[test]
+fn over_limit_patterns_are_not_truncated_into_false_highlights() {
+    let display = "a".repeat(64);
+    let result = scored(&display, KeyKind::Original);
+    let segments = highlight_segments_for_result(&"a".repeat(65), &result, &[], false, 80);
+
+    assert!(segments.iter().all(|segment| !segment.highlighted));
+}
+
+#[test]
+fn ansi_highlighting_retains_a_trailing_sgr_reset() {
+    let result = scored("\u{1b}[31mred\u{1b}[0m", KeyKind::Original);
+    let segments = highlight_segments_for_result_with_ansi("red", &result, &[], false, 80, true);
+
+    assert_eq!(segments.len(), 1);
+    assert_eq!(segments[0].text, "\u{1b}[31mred\u{1b}[0m");
+    assert!(segments[0].highlighted);
 }
 
 #[test]

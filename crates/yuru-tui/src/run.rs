@@ -132,6 +132,7 @@ pub fn run_interactive(
                 pointer: &options.pointer,
                 marker: &options.marker,
                 ellipsis: &options.ellipsis,
+                ansi: options.ansi,
             };
             render(&mut output, &state, &results, render_context)?;
             render_needed = false;
@@ -295,6 +296,7 @@ pub fn run_interactive_streaming(
                 pointer: &options.pointer,
                 marker: &options.marker,
                 ellipsis: &options.ellipsis,
+                ansi: options.ansi,
             };
             render(&mut output, &state, &results, render_context)?;
             render_needed = false;

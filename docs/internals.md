@@ -225,7 +225,7 @@ There are two command modes:
   missing paths and non-text files show metadata, empty files are reported
   explicitly, and text files are rendered with `bat --style=numbers
   --color=never --paging=never --line-range :200` when available. If `bat`
-  fails or is absent, Yuru falls back to `cat`, then direct file reading. Files
+  fails or is absent, Yuru falls back to bounded direct file reading. Files
   are considered text when their extension is configured as text or their first
   8192 bytes look like ASCII text.
 
@@ -235,6 +235,13 @@ Yuru recognizes `png`, `jpg`, `jpeg`, `gif`, `bmp`, `ico`, `tif`, `tiff`,
 `webp`, `svg`, and `svgz` paths. Raster images are decoded with the `image`
 crate; SVGs are rasterized with `resvg`, capped to a 2048-pixel maximum axis.
 The decoded image is cached separately from terminal encoding.
+
+Each preview command output stream and built-in text reads are capped at 1 MiB,
+and preview commands are terminated after five seconds. Raster input is capped
+at 32 MiB, 8192 pixels per axis, 16 megapixels, and 128 MiB of decoder
+allocation. SVG preview disables external and local `href` resource loading.
+Replaced previews cancel and join their workers and terminate the preview
+process group.
 
 Terminal image encoding is also asynchronous. `--preview-image-protocol none`
 disables image rendering and reports compact image metadata. With

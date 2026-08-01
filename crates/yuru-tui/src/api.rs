@@ -50,6 +50,8 @@ pub struct TuiOptions {
     pub marker: String,
     /// Text used when display values are truncated.
     pub ellipsis: String,
+    /// Whether candidate display text may contain allowlisted ANSI SGR styles.
+    pub ansi: bool,
 }
 
 impl Default for TuiOptions {
@@ -75,6 +77,7 @@ impl Default for TuiOptions {
             pointer: ">".to_string(),
             marker: "*".to_string(),
             ellipsis: "..".to_string(),
+            ansi: false,
         }
     }
 }

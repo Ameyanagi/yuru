@@ -11,11 +11,13 @@ use yuru_core::ScoredCandidate;
 use crate::api::{ImagePreviewProtocol, PreviewCommand};
 use crate::state::TuiState;
 
-use super::command::run_preview_command;
+use super::command::run_preview_command_cancellable;
 #[cfg(feature = "image")]
 use super::image::{
-    encode_image_preview, image_picker_from_env, ImageEncodeResult, ImageEncodeWorker, ImagePreview,
+    encode_image_preview_cancellable, image_picker_from_env, ImageEncodeResult, ImageEncodeWorker,
+    ImagePreview,
 };
+use super::PreviewCancellation;
 
 const PREVIEW_DEBOUNCE: Duration = Duration::from_millis(50);
 pub(crate) const PREVIEW_WORKER_POLL: Duration = Duration::from_millis(25);
@@ -85,6 +87,17 @@ struct PreviewRequest {
 struct PreviewWorker {
     key: PreviewKey,
     receiver: Receiver<(PreviewKey, PreviewPayload)>,
+    cancellation: PreviewCancellation,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for PreviewWorker {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 pub(crate) enum PreviewContent {
@@ -184,19 +197,24 @@ impl PreviewCache {
         let (sender, receiver) = mpsc::channel();
         let key = pending.key.clone();
         let worker_key = pending.key.clone();
-        thread::spawn(move || {
-            let payload = run_preview_command(
+        let cancellation = PreviewCancellation::default();
+        let worker_cancellation = cancellation.clone();
+        let handle = thread::spawn(move || {
+            let payload = run_preview_command_cancellable(
                 &pending.command,
                 pending.shell.as_deref(),
                 &pending.item,
                 pending.geometry,
                 pending.image_protocol,
+                &worker_cancellation,
             );
             let _ = sender.send((key, payload));
         });
         self.worker = Some(PreviewWorker {
             key: worker_key,
             receiver,
+            cancellation,
+            handle: Some(handle),
         });
     }
 
@@ -375,11 +393,19 @@ impl PreviewCache {
 
         let source = image.image.clone();
         let (sender, receiver) = mpsc::channel();
-        thread::spawn(move || {
-            let result = encode_image_preview(source, picker, area);
+        let cancellation = PreviewCancellation::default();
+        let worker_cancellation = cancellation.clone();
+        let handle = thread::spawn(move || {
+            let result =
+                encode_image_preview_cancellable(source, picker, area, &worker_cancellation);
             let _ = sender.send(result);
         });
-        image.worker = Some(ImageEncodeWorker { area, receiver });
+        image.worker = Some(ImageEncodeWorker {
+            area,
+            receiver,
+            cancellation,
+            handle: Some(handle),
+        });
         image.state = None;
         image.area = None;
         image.error = None;
@@ -434,6 +460,10 @@ impl PreviewCache {
                 }
                 false
             }
+            Ok(ImageEncodeResult::Cancelled) => {
+                image.worker = None;
+                false
+            }
             Err(TryRecvError::Empty) => false,
             Err(TryRecvError::Disconnected) => {
                 image.worker = None;
@@ -441,6 +471,12 @@ impl PreviewCache {
                 true
             }
         }
+    }
+}
+
+impl Drop for PreviewCache {
+    fn drop(&mut self) {
+        self.clear();
     }
 }
 

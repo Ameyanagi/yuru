@@ -33,6 +33,7 @@ fn render_default_layout_places_prompt_at_bottom() {
             pointer: ">",
             marker: "*",
             ellipsis: "..",
+            ansi: false,
         },
     )
     .unwrap();
@@ -74,6 +75,7 @@ fn render_positions_cursor_by_display_width_and_handles_zero_width() {
                 pointer: ">",
                 marker: "*",
                 ellipsis: "..",
+                ansi: false,
             },
         )
         .unwrap();
@@ -81,6 +83,42 @@ fn render_positions_cursor_by_display_width_and_handles_zero_width() {
         let rendered = String::from_utf8(output).unwrap();
         assert!(rendered.contains(expected_cursor), "{rendered:?}");
     }
+}
+
+#[test]
+fn render_positions_cursor_after_visible_control_pictures() {
+    force_test_color_output();
+    let mut output = Vec::new();
+    let state = TuiState::new("\tA");
+
+    render(
+        &mut output,
+        &state,
+        &[],
+        RenderContext {
+            candidates: &[],
+            prompt: "\r",
+            header: None,
+            footer: None,
+            viewport: Viewport { width: 40, rows: 2 },
+            layout: TuiLayout::Default,
+            preview: None,
+            style: &TuiStyle::default(),
+            highlight_line: true,
+            case_sensitive: false,
+            multi: false,
+            no_input: false,
+            pointer: ">",
+            marker: "*",
+            ellipsis: "..",
+            ansi: false,
+        },
+    )
+    .unwrap();
+
+    let rendered = String::from_utf8(output).unwrap();
+    assert!(rendered.contains("␍␉A"), "{rendered:?}");
+    assert!(rendered.contains("\u{1b}[3;4H"), "{rendered:?}");
 }
 
 #[test]
@@ -113,6 +151,7 @@ fn render_default_layout_paints_results_bottom_up() {
             pointer: ">",
             marker: "*",
             ellipsis: "..",
+            ansi: false,
         },
     )
     .unwrap();
@@ -152,6 +191,7 @@ fn render_reverse_layout_places_prompt_at_top() {
             pointer: ">",
             marker: "*",
             ellipsis: "..",
+            ansi: false,
         },
     )
     .unwrap();
@@ -189,6 +229,7 @@ fn render_reverse_no_input_uses_first_row_for_results_and_preview() {
             pointer: ">",
             marker: "*",
             ellipsis: "..",
+            ansi: false,
         },
     )
     .unwrap();
@@ -246,6 +287,7 @@ fn render_preview_pane_prints_preview_text() {
             pointer: ">",
             marker: "*",
             ellipsis: "..",
+            ansi: false,
         },
     )
     .unwrap();
@@ -287,6 +329,7 @@ fn render_preview_pane_uses_scroll_offset() {
             pointer: ">",
             marker: "*",
             ellipsis: "..",
+            ansi: false,
         },
     )
     .unwrap();
@@ -295,4 +338,93 @@ fn render_preview_pane_uses_scroll_offset() {
     assert!(!rendered.contains("first"), "{rendered:?}");
     assert!(rendered.contains("\u{1b}[1;41Hsecond"), "{rendered:?}");
     assert!(rendered.contains("\u{1b}[2;41Hthird"), "{rendered:?}");
+}
+
+#[test]
+fn render_neutralizes_terminal_controls_from_all_untrusted_text_surfaces() {
+    force_test_color_output();
+    let payload = "evil\0\t\r\u{7}\u{7f}\u{1b}]52;c;Y2xpcGJvYXJk\u{7}\u{1b}[999C";
+    let mut output = Vec::new();
+    let state = TuiState::new("");
+    let results = vec![scored(payload, KeyKind::Original)];
+
+    render(
+        &mut output,
+        &state,
+        &results,
+        RenderContext {
+            candidates: &[],
+            prompt: "> ",
+            header: Some(payload),
+            footer: None,
+            viewport: Viewport {
+                width: 120,
+                rows: 3,
+            },
+            layout: TuiLayout::Reverse,
+            preview: Some(PreviewRender::Text {
+                text: payload,
+                scroll: 0,
+            }),
+            style: &TuiStyle::default(),
+            highlight_line: true,
+            case_sensitive: false,
+            multi: false,
+            no_input: true,
+            pointer: ">",
+            marker: "*",
+            ellipsis: "..",
+            ansi: false,
+        },
+    )
+    .unwrap();
+
+    let rendered = String::from_utf8(output).unwrap();
+    assert!(!rendered.contains("\u{1b}]52;"), "{rendered:?}");
+    assert!(!rendered.contains('\0'), "{rendered:?}");
+    assert!(!rendered.contains('\t'), "{rendered:?}");
+    assert!(!rendered.contains('\r'), "{rendered:?}");
+    assert!(!rendered.contains('\u{7}'), "{rendered:?}");
+    assert!(!rendered.contains('\u{7f}'), "{rendered:?}");
+    assert!(!rendered.contains("\u{1b}[999C"), "{rendered:?}");
+    assert!(rendered.contains("␀␉␍␇␡␛]52;c;Y2xpcGJvYXJk␇␛[999C"));
+}
+
+#[test]
+fn render_ansi_mode_allows_only_sgr_sequences() {
+    force_test_color_output();
+    let display = "\u{1b}[31mred\u{1b}[0m\u{1b}]52;c;YQ==\u{7}";
+    let mut output = Vec::new();
+    let state = TuiState::new("");
+    let results = vec![scored(display, KeyKind::Original)];
+
+    render(
+        &mut output,
+        &state,
+        &results,
+        RenderContext {
+            candidates: &[],
+            prompt: "> ",
+            header: None,
+            footer: None,
+            viewport: Viewport { width: 80, rows: 2 },
+            layout: TuiLayout::Reverse,
+            preview: None,
+            style: &TuiStyle::default(),
+            highlight_line: false,
+            case_sensitive: false,
+            multi: false,
+            no_input: true,
+            pointer: ">",
+            marker: "*",
+            ellipsis: "..",
+            ansi: true,
+        },
+    )
+    .unwrap();
+
+    let rendered = String::from_utf8(output).unwrap();
+    assert!(rendered.contains("\u{1b}[31mred\u{1b}[0m"), "{rendered:?}");
+    assert!(!rendered.contains("\u{1b}]52;"), "{rendered:?}");
+    assert!(rendered.contains("␛]52;c;YQ==␇"), "{rendered:?}");
 }

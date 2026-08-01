@@ -86,28 +86,51 @@ pub fn build_korean_keys(text: &str, max: usize) -> Vec<String> {
 
 /// Builds Korean search keys with source maps, capped at `max`.
 pub fn build_korean_keys_with_sources(text: &str, max: usize) -> Vec<KoreanKey> {
-    if text.is_empty() || max == 0 {
+    build_korean_keys_with_sources_with_budget(text, max, usize::MAX)
+}
+
+/// Builds Korean search keys while enforcing text and source-map budgets
+/// during construction.
+pub fn build_korean_keys_with_sources_with_budget(
+    text: &str,
+    max: usize,
+    max_bytes: usize,
+) -> Vec<KoreanKey> {
+    if text.is_empty() || max == 0 || max_bytes == 0 {
         return Vec::new();
     }
 
-    let syllables = extract_syllables(text);
+    let Some(syllables) = extract_syllables(text, max_bytes) else {
+        return Vec::new();
+    };
     if syllables.is_empty() {
         return Vec::new();
     }
 
     let mut out = Vec::new();
-    push_unique(&mut out, romanized_key(&syllables, true), max);
-    push_unique(&mut out, romanized_key(&syllables, false), max);
-    push_unique(&mut out, initials_key(&syllables), max);
-    push_unique(&mut out, keyboard_key(&syllables), max);
+    if let Some(key) = romanized_key(&syllables, true, remaining_bytes(&out, max_bytes)) {
+        push_unique(&mut out, key, max);
+    }
+    if let Some(key) = romanized_key(&syllables, false, remaining_bytes(&out, max_bytes)) {
+        push_unique(&mut out, key, max);
+    }
+    if let Some(key) = initials_key(&syllables, remaining_bytes(&out, max_bytes)) {
+        push_unique(&mut out, key, max);
+    }
+    if let Some(key) = keyboard_key(&syllables, remaining_bytes(&out, max_bytes)) {
+        push_unique(&mut out, key, max);
+    }
     out
 }
 
-fn extract_syllables(text: &str) -> Vec<HangulSyllable> {
-    text.chars()
-        .enumerate()
-        .filter_map(|(index, ch)| {
-            decompose_hangul(ch).map(|(initial, vowel, final_consonant)| HangulSyllable {
+fn extract_syllables(text: &str, max_syllables: usize) -> Option<Vec<HangulSyllable>> {
+    let mut syllables = Vec::new();
+    for (index, ch) in text.chars().enumerate() {
+        if let Some((initial, vowel, final_consonant)) = decompose_hangul(ch) {
+            if syllables.len() >= max_syllables {
+                return None;
+            }
+            syllables.push(HangulSyllable {
                 initial,
                 vowel,
                 final_consonant,
@@ -115,9 +138,10 @@ fn extract_syllables(text: &str) -> Vec<HangulSyllable> {
                     start_char: index,
                     end_char: index + 1,
                 },
-            })
-        })
-        .collect()
+            });
+        }
+    }
+    Some(syllables)
 }
 
 fn decompose_hangul(ch: char) -> Option<(usize, usize, usize)> {
@@ -141,24 +165,42 @@ fn is_hangul(ch: char) -> bool {
         || ('\u{d7b0}'..='\u{d7ff}').contains(&ch)
 }
 
-fn romanized_key(syllables: &[HangulSyllable], spaced: bool) -> KoreanKey {
+fn romanized_key(
+    syllables: &[HangulSyllable],
+    spaced: bool,
+    max_bytes: usize,
+) -> Option<KoreanKey> {
     let mut mapped = MappedTextBuilder::new();
+    let mut text_bytes = 0usize;
+    let mut mapped_chars = 0usize;
 
     for (index, syllable) in syllables.iter().enumerate() {
+        let separator = usize::from(spaced && index > 0);
+        let romanized = romanized_syllable(*syllable);
+        if !can_append(
+            text_bytes,
+            mapped_chars,
+            separator + romanized.len(),
+            separator + romanized.chars().count(),
+            max_bytes,
+        ) {
+            return None;
+        }
         if spaced && index > 0 {
             mapped.push_unmapped_char(' ');
         }
 
-        let romanized = romanized_syllable(*syllable);
         mapped.push_str(&romanized, Some(syllable.source));
+        text_bytes += separator + romanized.len();
+        mapped_chars += separator + romanized.chars().count();
     }
 
     let mapped = mapped.finish();
-    KoreanKey {
+    Some(KoreanKey {
         text: mapped.text,
         kind: KoreanKeyKind::Romanized,
         source_map: mapped.source_map,
-    }
+    })
 }
 
 fn romanized_syllable(syllable: HangulSyllable) -> String {
@@ -169,23 +211,31 @@ fn romanized_syllable(syllable: HangulSyllable) -> String {
     out
 }
 
-fn initials_key(syllables: &[HangulSyllable]) -> KoreanKey {
+fn initials_key(syllables: &[HangulSyllable], max_bytes: usize) -> Option<KoreanKey> {
     let mut mapped = MappedTextBuilder::new();
+    let mut text_bytes = 0usize;
 
-    for syllable in syllables {
-        mapped.push_char(CHOSEONG[syllable.initial], Some(syllable.source));
+    for (mapped_chars, syllable) in syllables.iter().enumerate() {
+        let initial = CHOSEONG[syllable.initial];
+        if !can_append(text_bytes, mapped_chars, initial.len_utf8(), 1, max_bytes) {
+            return None;
+        }
+        mapped.push_char(initial, Some(syllable.source));
+        text_bytes += initial.len_utf8();
     }
 
     let mapped = mapped.finish();
-    KoreanKey {
+    Some(KoreanKey {
         text: mapped.text,
         kind: KoreanKeyKind::Initials,
         source_map: mapped.source_map,
-    }
+    })
 }
 
-fn keyboard_key(syllables: &[HangulSyllable]) -> KoreanKey {
+fn keyboard_key(syllables: &[HangulSyllable], max_bytes: usize) -> Option<KoreanKey> {
     let mut mapped = MappedTextBuilder::new();
+    let mut text_bytes = 0usize;
+    let mut mapped_chars = 0usize;
 
     for syllable in syllables {
         for token in [
@@ -193,16 +243,42 @@ fn keyboard_key(syllables: &[HangulSyllable]) -> KoreanKey {
             VOWEL_KEYS[syllable.vowel],
             FINAL_KEYS[syllable.final_consonant],
         ] {
+            if !can_append(
+                text_bytes,
+                mapped_chars,
+                token.len(),
+                token.chars().count(),
+                max_bytes,
+            ) {
+                return None;
+            }
             mapped.push_str(token, Some(syllable.source));
+            text_bytes += token.len();
+            mapped_chars += token.chars().count();
         }
     }
 
     let mapped = mapped.finish();
-    KoreanKey {
+    Some(KoreanKey {
         text: mapped.text,
         kind: KoreanKeyKind::Keyboard,
         source_map: mapped.source_map,
-    }
+    })
+}
+
+fn can_append(
+    text_bytes: usize,
+    mapped_chars: usize,
+    added_bytes: usize,
+    added_chars: usize,
+    max_bytes: usize,
+) -> bool {
+    text_bytes.saturating_add(added_bytes) <= max_bytes
+        && mapped_chars.saturating_add(added_chars) <= max_bytes
+}
+
+fn remaining_bytes(out: &[KoreanKey], max_bytes: usize) -> usize {
+    max_bytes.saturating_sub(out.iter().map(|key| key.text.len()).sum::<usize>())
 }
 
 fn push_unique(out: &mut Vec<KoreanKey>, value: KoreanKey, max: usize) {
@@ -246,6 +322,15 @@ mod tests {
     fn keys_are_capped() {
         let keys = build_korean_keys("한글서울한국", 2);
         assert!(keys.len() <= 2);
+    }
+
+    #[test]
+    fn key_construction_enforces_the_output_budget() {
+        let input = "한".repeat(10);
+        let keys = build_korean_keys_with_sources_with_budget(&input, 8, input.len());
+
+        assert!(keys.iter().map(|key| key.text.len()).sum::<usize>() <= input.len());
+        assert!(keys.iter().all(|key| key.source_map.len() <= input.len()));
     }
 
     #[test]

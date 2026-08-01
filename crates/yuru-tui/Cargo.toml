@@ -24,5 +24,8 @@ resvg = { workspace = true, optional = true }
 unicode-width.workspace = true
 yuru-core.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile.workspace = true

@@ -54,6 +54,9 @@ impl LanguageBackend for JapaneseBackend {
     }
 
     fn build_candidate_keys(&self, text: &str, budget: KeyBudget) -> Vec<SearchKey> {
+        if budget.max_keys == 0 || text.len() > budget.max_total_bytes {
+            return Vec::new();
+        }
         let mut keys = Vec::new();
 
         if contains_kana(text) {
@@ -61,7 +64,11 @@ impl LanguageBackend for JapaneseBackend {
             push_reading_keys_with_map(&mut keys, &hira, &source_map);
         }
         if self.reading != JapaneseReadingMode::None {
-            for reading in reading::kanji_reading_candidates_with_sources(text, budget.max_keys) {
+            for reading in reading::kanji_reading_candidates_with_sources_with_budget(
+                text,
+                budget.max_keys,
+                budget.max_total_bytes,
+            ) {
                 let (hira, source_map) =
                     katakana_to_hiragana_with_source_map(&reading.text, &reading.source_map);
                 push_reading_keys_with_map(&mut keys, &hira, &source_map);

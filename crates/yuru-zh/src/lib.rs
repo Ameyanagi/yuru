@@ -81,22 +81,27 @@ impl LanguageBackend for ChineseBackend {
 
         let _script = self.script;
 
-        pinyin::build_pinyin_keys_with_sources_for_mode(text, budget.max_keys, self.polyphone)
-            .into_iter()
-            .filter_map(|key| {
-                let search_key = if key.text.contains(' ') {
-                    SearchKey::pinyin_full(key.text)
-                } else if key.text.chars().count() <= text.chars().count() {
-                    if !self.initials {
-                        return None;
-                    }
-                    SearchKey::pinyin_initials(key.text)
-                } else {
-                    SearchKey::pinyin_joined(key.text)
-                };
-                Some(search_key.with_source_map(key.source_map))
-            })
-            .collect()
+        pinyin::build_pinyin_keys_with_sources_for_mode_and_budget(
+            text,
+            budget.max_keys,
+            budget.max_total_bytes,
+            self.polyphone,
+        )
+        .into_iter()
+        .filter_map(|key| {
+            let search_key = if key.text.contains(' ') {
+                SearchKey::pinyin_full(key.text)
+            } else if key.text.chars().count() <= text.chars().count() {
+                if !self.initials {
+                    return None;
+                }
+                SearchKey::pinyin_initials(key.text)
+            } else {
+                SearchKey::pinyin_joined(key.text)
+            };
+            Some(search_key.with_source_map(key.source_map))
+        })
+        .collect()
     }
 
     fn expand_query(&self, query: &str, _budget: QueryBudget) -> Vec<QueryVariant> {

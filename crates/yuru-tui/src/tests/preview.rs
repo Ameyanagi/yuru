@@ -2,7 +2,13 @@ use crate::api::PreviewCommand;
 #[cfg(unix)]
 use crate::preview::PreviewGeometry;
 use crate::preview::{run_preview_command, PreviewCache, PreviewPayload};
+#[cfg(unix)]
+use crate::state::TuiState;
+#[cfg(unix)]
+use yuru_core::KeyKind;
 
+#[cfg(unix)]
+use super::helpers::scored;
 #[cfg(feature = "image")]
 use super::helpers::tiny_png_bytes;
 use super::helpers::{preview_key, test_geometry};
@@ -107,6 +113,71 @@ fn builtin_preview_reads_ascii_text_without_configured_extension() {
     );
 
     assert!(matches!(preview, PreviewPayload::Text(text) if text.contains("ascii alpha")));
+}
+
+#[test]
+fn builtin_preview_truncates_a_huge_first_line_before_full_file_capture() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("huge.txt");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(2 * 1024 * 1024).unwrap();
+
+    let preview = run_preview_command(
+        &PreviewCommand::Builtin {
+            text_extensions: vec!["txt".to_string()],
+        },
+        None,
+        path.to_str().unwrap(),
+        test_geometry(),
+        None,
+    );
+
+    assert!(matches!(
+        preview,
+        PreviewPayload::Text(text)
+            if text.len() <= 1024 * 1024 + 128 && text.contains("truncated")
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn shell_preview_truncates_unbounded_output() {
+    let preview = run_preview_command(
+        &PreviewCommand::Shell("yes preview".to_string()),
+        None,
+        "alpha",
+        test_geometry(),
+        None,
+    );
+
+    assert!(matches!(
+        preview,
+        PreviewPayload::Text(text)
+            if text.len() <= 1024 * 1024 + 128 && text.contains("truncated")
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn clearing_preview_cancels_and_joins_the_active_child() {
+    let mut cache = PreviewCache::default();
+    let results = vec![scored("alpha", KeyKind::Original)];
+    let state = TuiState::new("");
+    cache.request_for_selection(
+        Some(&PreviewCommand::Shell("sleep 30".to_string())),
+        None,
+        &results,
+        &state,
+        Some(test_geometry()),
+        None,
+    );
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    cache.poll();
+
+    let started = std::time::Instant::now();
+    cache.request_for_selection(None, None, &results, &state, Some(test_geometry()), None);
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(cache.next_poll_timeout().is_none());
 }
 
 #[test]
