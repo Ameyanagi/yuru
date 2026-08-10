@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+# Build a baseline yuru binary from a git ref, for differential and A/B testing.
+#
+#   scripts/qa/build-baseline            # baseline = HEAD
+#   scripts/qa/build-baseline v0.1.11    # baseline = a tag
+#
+# The worktree is exported with `git archive`, so the baseline is built from
+# committed content only and is never disturbed by uncommitted changes.
+set -eu
+
+ref="${1:-HEAD}"
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+work="${YURU_QA_DIR:-$repo/target/qa}"
+src="$work/baseline-src"
+out="$work/baseline"
+
+mkdir -p "$work" "$out"
+rm -rf "$src"
+mkdir -p "$src"
+
+echo "exporting $ref"
+git -C "$repo" archive "$ref" | tar -x -C "$src"
+
+echo "building baseline (this uses its own target dir, so it will not"
+echo "invalidate your main build)"
+( cd "$src" && cargo build --release -p yuru )
+
+cp "$src/target/release/yuru" "$out/yuru"
+echo
+echo "baseline binary: $out/yuru"
+"$out/yuru" --version
+echo "ref: $(git -C "$repo" rev-parse --short "$ref")"
