@@ -8,7 +8,7 @@ use crate::{
         AlgoArg, Args, PreviewImageProtocolArg, SchemeArg, DEFAULT_INTERACTIVE_LIMIT,
         DEFAULT_PREVIEW_TEXT_EXTENSIONS,
     },
-    fields::FieldConfig,
+    fields::{Delimiter, FieldConfig},
 };
 
 #[derive(Clone, Debug)]
@@ -27,7 +27,7 @@ impl RunOptions {
             .limit
             .unwrap_or_else(|| default_limit(args, interactive));
         let field_config = FieldConfig {
-            delimiter: args.delimiter.clone(),
+            delimiter: args.delimiter.as_deref().map(Delimiter::new).transpose()?,
             nth: args.nth.clone(),
             with_nth: args.with_nth.clone(),
             accept_nth: args.accept_nth.clone(),
@@ -73,6 +73,16 @@ pub(crate) fn case_sensitive(query: &str, args: &Args) -> bool {
         return true;
     }
     args.smart_case && query.chars().any(char::is_uppercase)
+}
+
+/// Returns whether case sensitivity follows the live query instead of being fixed at startup.
+///
+/// Opt-in through `--live-smart-case`. Without it the interactive interface keeps the
+/// startup behavior: `case_sensitive` is derived once from the initial query and stays
+/// fixed while the user types. `--ignore-case` and `--no-ignore-case` are hard overrides,
+/// so smart case only applies when neither is set.
+pub(crate) fn smart_case_active(args: &Args) -> bool {
+    args.live_smart_case && args.smart_case && !args.ignore_case && !args.no_ignore_case
 }
 
 pub(crate) fn matcher_algo(value: AlgoArg) -> MatcherAlgo {
@@ -471,6 +481,30 @@ mod tests {
             &Args::parse_from(["yuru"]),
             false
         ));
+    }
+
+    #[test]
+    fn live_smart_case_is_opt_in() {
+        // Default: case sensitivity is fixed at startup, as in 0.1.x.
+        assert!(!smart_case_active(&Args::parse_from(["yuru"])));
+        assert!(smart_case_active(&Args::parse_from([
+            "yuru",
+            "--live-smart-case"
+        ])));
+    }
+
+    #[test]
+    fn explicit_case_flags_disable_smart_case() {
+        assert!(!smart_case_active(&Args::parse_from([
+            "yuru",
+            "--live-smart-case",
+            "-i"
+        ])));
+        assert!(!smart_case_active(&Args::parse_from([
+            "yuru",
+            "--live-smart-case",
+            "--no-ignore-case"
+        ])));
     }
 
     #[test]

@@ -3,7 +3,10 @@ use std::collections::HashSet;
 
 use yuru_core::{match_positions, Candidate, KeyKind, ScoredCandidate, SearchKey};
 
-use super::layout::{safe_sgr_sequence_len, terminal_safe_prefix, terminal_visible_text};
+use super::layout::{
+    cluster_display_width, leading_cluster, safe_sgr_sequence_len, terminal_safe_prefix,
+    terminal_visible_text,
+};
 
 const MAX_HIGHLIGHT_TEXT_CHARS: usize = 512;
 const MAX_HIGHLIGHT_PATTERN_CHARS: usize = 64;
@@ -36,8 +39,11 @@ pub(crate) fn highlight_segments_for_result_with_ansi(
 ) -> Vec<HighlightSegment> {
     let (display, _) = terminal_safe_prefix(&result.display, allow_ansi, width);
     let visible_display = terminal_visible_text(&display);
-    let match_width = width.min(MAX_HIGHLIGHT_TEXT_CHARS);
-    let match_display = bounded_chars(&visible_display, match_width);
+    // `display` is already clipped to `width` display columns. Highlight
+    // positions are character indices into it, never column offsets, so they
+    // are bounded by its character count instead of the column budget.
+    let visible_chars = visible_display.chars().count();
+    let match_display = bounded_chars(&visible_display, MAX_HIGHLIGHT_TEXT_CHARS);
     let patterns = highlight_patterns(query);
     let positions = highlight_positions(&patterns, &match_display, case_sensitive);
     if positions.is_empty()
@@ -55,23 +61,32 @@ pub(crate) fn highlight_segments_for_result_with_ansi(
                 | KeyKind::LearnedAlias
         )
     {
-        if let Some(key) = matched_key(candidates, result) {
-            let positions = source_map_highlight_positions(&patterns, key, case_sensitive, width);
+        // A phonetic key matched something the surface text does not spell, so the
+        // fallbacks below highlight the surface without being able to point at the
+        // matched characters. That is only honest while the key still matches what is
+        // typed: the rows on screen may answer an earlier query while its replacement is
+        // still running, and painting one of those as a match claims something false.
+        // Where the key is unavailable there is nothing to check against, so the row is
+        // highlighted as before.
+        let key = matched_key(candidates, result);
+        if key.is_some_and(|key| !key_matches(&patterns, key, case_sensitive)) {
+            return highlight_segments(&display, &positions, width);
+        }
+
+        if let Some(key) = key {
+            let positions =
+                source_map_highlight_positions(&patterns, key, case_sensitive, visible_chars);
             if !positions.is_empty() {
                 return highlight_segments(&display, &positions, width);
             }
         }
 
-        let positions = phonetic_fallback_positions(&visible_display, width);
+        let positions = phonetic_fallback_positions(&visible_display, visible_chars);
         if !positions.is_empty() {
             return highlight_segments(&display, &positions, width);
         }
 
-        return highlight_segments(
-            &display,
-            &(0..visible_display.chars().take(width).count()).collect(),
-            width,
-        );
+        return highlight_segments(&display, &(0..visible_chars).collect(), width);
     }
 
     highlight_segments(&display, &positions, width)
@@ -87,6 +102,14 @@ fn matched_key<'a>(candidates: &'a [Candidate], result: &ScoredCandidate) -> Opt
                 .find(|candidate| candidate.id == result.id)
         })
         .and_then(|candidate| candidate.keys.get(result.key_index as usize))
+}
+
+/// Returns whether the key a result was scored on still matches any typed pattern.
+fn key_matches(patterns: &[&str], key: &SearchKey, case_sensitive: bool) -> bool {
+    let bounded_key = bounded_chars(&key.text, MAX_HIGHLIGHT_TEXT_CHARS);
+    patterns
+        .iter()
+        .any(|pattern| match_positions(pattern, &bounded_key, case_sensitive).is_some())
 }
 
 fn highlight_patterns(query: &str) -> Vec<&str> {
@@ -135,11 +158,15 @@ fn highlight_positions(patterns: &[&str], text: &str, case_sensitive: bool) -> H
     positions
 }
 
+/// Maps phonetic-key match positions back onto the surface text through the
+/// key's source map. Every index here is a character position, both in the key
+/// and in the display text; `max_chars` is the visible character count of the
+/// already-truncated display, not a column budget.
 fn source_map_highlight_positions(
     patterns: &[&str],
     key: &SearchKey,
     case_sensitive: bool,
-    width: usize,
+    max_chars: usize,
 ) -> HashSet<usize> {
     let Some(source_map) = &key.source_map else {
         return HashSet::new();
@@ -156,7 +183,8 @@ fn source_map_highlight_positions(
             let Some(Some(span)) = source_map.get(key_char_index) else {
                 continue;
             };
-            positions.extend((span.start_char..span.end_char).filter(|position| *position < width));
+            positions
+                .extend((span.start_char..span.end_char).filter(|position| *position < max_chars));
         }
     }
 
@@ -170,6 +198,13 @@ fn bounded_chars(text: &str, max_chars: usize) -> Cow<'_, str> {
     Cow::Owned(text[..byte_index].to_string())
 }
 
+/// Splits `text` into highlighted and plain runs. `highlighted_positions` holds
+/// character indices, while `width` is a display-column budget. The two are not
+/// interchangeable and neither is a cluster index: positions are looked up per
+/// character, but the budget advances per grapheme cluster, and a cluster that
+/// would straddle the boundary is dropped whole rather than split. A cluster
+/// whose base is highlighted keeps its continuation scalars in the same run, so
+/// no styling escape is ever emitted in the middle of one.
 fn highlight_segments(
     text: &str,
     highlighted_positions: &HashSet<usize>,
@@ -180,38 +215,41 @@ fn highlight_segments(
     let mut current_highlighted = None;
 
     let mut char_index = 0;
+    let mut columns = 0usize;
     let mut offset = 0;
     let mut pending_sgr = String::new();
-    while offset < text.len() && char_index < width {
+    while offset < text.len() {
         if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
             pending_sgr.push_str(&text[offset..offset + len]);
             offset += len;
             continue;
         }
 
-        let ch = text[offset..]
-            .chars()
-            .next()
-            .expect("valid character boundary");
-        let highlighted = highlighted_positions.contains(&char_index);
-        if current_highlighted == Some(highlighted) {
-            current.push_str(&pending_sgr);
-            pending_sgr.clear();
-            current.push(ch);
-        } else {
+        let Some(cluster) = leading_cluster(&text[offset..]) else {
+            break;
+        };
+        let cluster_width = cluster_display_width(cluster);
+        if columns.saturating_add(cluster_width) > width {
+            break;
+        }
+        let cluster_chars = cluster.chars().count();
+        let highlighted = (char_index..char_index + cluster_chars)
+            .any(|position| highlighted_positions.contains(&position));
+        if current_highlighted != Some(highlighted) {
             if let Some(highlighted) = current_highlighted {
                 segments.push(HighlightSegment {
                     text: std::mem::take(&mut current),
                     highlighted,
                 });
             }
-            current.push_str(&pending_sgr);
-            pending_sgr.clear();
-            current.push(ch);
             current_highlighted = Some(highlighted);
         }
-        char_index += 1;
-        offset += ch.len_utf8();
+        current.push_str(&pending_sgr);
+        pending_sgr.clear();
+        current.push_str(cluster);
+        char_index += cluster_chars;
+        columns += cluster_width;
+        offset += cluster.len();
     }
 
     // Retain a trailing reset or style sequence when it falls exactly at the
@@ -236,9 +274,9 @@ fn highlight_segments(
     segments
 }
 
-fn phonetic_fallback_positions(text: &str, width: usize) -> HashSet<usize> {
+fn phonetic_fallback_positions(text: &str, max_chars: usize) -> HashSet<usize> {
     text.chars()
-        .take(width)
+        .take(max_chars)
         .enumerate()
         .filter_map(|(index, ch)| is_visible_phonetic_surface(ch).then_some(index))
         .collect()

@@ -348,3 +348,148 @@ fn highlight_segments_use_source_map_for_korean_romanized_keys() {
         ]
     );
 }
+
+#[test]
+fn cjk_highlight_positions_stay_character_based_under_a_column_budget() {
+    let display = "日本語検索";
+    let result = scored(display, KeyKind::Original);
+
+    // Eleven columns hold five wide characters with one column to spare, so the
+    // whole string survives truncation.
+    let segments = highlight_segments_for_result("検索", &result, &[], false, 11);
+    assert_eq!(
+        segments,
+        vec![
+            HighlightSegment {
+                text: "日本語".to_string(),
+                highlighted: false,
+            },
+            HighlightSegment {
+                text: "検索".to_string(),
+                highlighted: true,
+            },
+        ]
+    );
+
+    // Nine columns drop the fifth character. The fourth is still highlighted at
+    // character index 3 — a column-indexed lookup would land on "語" instead.
+    let segments = highlight_segments_for_result("検", &result, &[], false, 9);
+    assert_eq!(
+        segments,
+        vec![
+            HighlightSegment {
+                text: "日本語".to_string(),
+                highlighted: false,
+            },
+            HighlightSegment {
+                text: "検".to_string(),
+                highlighted: true,
+            },
+        ]
+    );
+}
+
+#[test]
+fn source_map_highlight_positions_survive_column_truncation() {
+    let display = "tests/日本人の.txt";
+    let key = SearchKey::romaji_reading("tests/nihonjinno.txt")
+        .with_source_map(japanese_romaji_source_map());
+    let candidates = vec![Candidate {
+        id: 0,
+        display: display.to_string(),
+        keys: vec![key],
+    }];
+    let result = scored(display, KeyKind::RomajiReading);
+
+    // Six ASCII columns plus three wide characters is twelve; the thirteenth
+    // column cannot hold "の", so the display stops at "tests/日本人". The romaji
+    // match still maps back to character indices 6..9.
+    let segments = highlight_segments_for_result("ni", &result, &candidates, false, 13);
+    assert_eq!(
+        segments,
+        vec![
+            HighlightSegment {
+                text: "tests/".to_string(),
+                highlighted: false,
+            },
+            HighlightSegment {
+                text: "日本人".to_string(),
+                highlighted: true,
+            },
+        ]
+    );
+}
+
+#[test]
+fn highlighting_follows_the_live_query_case_policy() {
+    // A row left on screen from the previous keystroke is highlighted with the case
+    // policy the live query text resolves to. Under smart case `abC` is case-sensitive,
+    // so `ABC-match` — a case-insensitive hit for the earlier `ab` — paints with no
+    // highlight at all rather than claiming a match the live query does not have.
+    let result = scored("ABC-match", KeyKind::Original);
+
+    let sensitive = highlight_segments_for_result("abC", &result, &[], true, 80);
+    assert!(
+        sensitive.iter().all(|segment| !segment.highlighted),
+        "{sensitive:?}"
+    );
+
+    let insensitive = highlight_segments_for_result("abC", &result, &[], false, 80);
+    assert!(
+        insensitive.iter().any(|segment| segment.highlighted),
+        "{insensitive:?}"
+    );
+}
+
+#[test]
+fn a_phonetic_row_is_not_painted_as_a_match_once_its_key_stops_matching() {
+    // Same situation one layer down: the row is a Korean-romanized hit for the earlier
+    // query and is still on screen while its replacement runs. Nothing on the surface
+    // spells the query, so the phonetic fallbacks would otherwise paint the whole row —
+    // a stale row claiming to be a live match. The key is what decides.
+    let display = "한글";
+    let candidates = vec![Candidate {
+        id: 0,
+        display: display.to_string(),
+        keys: vec![SearchKey::korean_romanized("hangeul")],
+    }];
+    let result = scored(display, KeyKind::KoreanRomanized);
+
+    let live = highlight_segments_for_result("h", &result, &candidates, false, 80);
+    assert_eq!(
+        live,
+        vec![HighlightSegment {
+            text: "한글".to_string(),
+            highlighted: true,
+        }]
+    );
+
+    // `hG` is case-sensitive under smart case and the key `hangeul` does not contain it.
+    let stale = highlight_segments_for_result("hG", &result, &candidates, true, 80);
+    assert_eq!(
+        stale,
+        vec![HighlightSegment {
+            text: "한글".to_string(),
+            highlighted: false,
+        }]
+    );
+}
+
+#[test]
+fn a_phonetic_row_whose_key_still_matches_keeps_its_source_map_highlight() {
+    // The gate must not cost a genuine match its highlighting: the key matches, only the
+    // surface cannot be pointed at character by character.
+    let display = "한글.txt";
+    let candidates = vec![Candidate {
+        id: 0,
+        display: display.to_string(),
+        keys: vec![SearchKey::korean_romanized("hangeul.txt")],
+    }];
+    let result = scored(display, KeyKind::KoreanRomanized);
+
+    let segments = highlight_segments_for_result("hng", &result, &candidates, false, 80);
+    assert!(
+        segments.iter().any(|segment| segment.highlighted),
+        "{segments:?}"
+    );
+}

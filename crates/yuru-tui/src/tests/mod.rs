@@ -6,5 +6,6 @@ mod image;
 mod keys;
 mod preview;
 mod render;
+mod run;
 mod search_worker;
 mod state;

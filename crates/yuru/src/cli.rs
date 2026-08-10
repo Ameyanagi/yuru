@@ -200,6 +200,16 @@ pub(crate) struct Args {
     #[arg(long, default_value_t = true)]
     pub(crate) smart_case: bool,
 
+    /// [PREVIEW] Re-evaluate smart case as the query is typed instead of fixing it at startup.
+    ///
+    /// Off by default, and may be changed or removed in a later release - do not depend on
+    /// it in scripts. When set, typing an uppercase character in the interactive interface
+    /// switches to case-sensitive matching and deleting it switches back, like fzf.
+    /// `--ignore-case` and `--no-ignore-case` remain hard overrides. See the Preview
+    /// features section of docs/fzf-compat.md for known issues.
+    #[arg(long = "live-smart-case")]
+    pub(crate) live_smart_case: bool,
+
     #[arg(long)]
     pub(crate) no_sort: bool,
 

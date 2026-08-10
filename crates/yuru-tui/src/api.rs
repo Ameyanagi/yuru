@@ -52,6 +52,13 @@ pub struct TuiOptions {
     pub ellipsis: String,
     /// Whether candidate display text may contain allowlisted ANSI SGR styles.
     pub ansi: bool,
+    /// Whether case sensitivity follows the live query (fzf smart case).
+    ///
+    /// When true an uppercase character anywhere in the query makes the search
+    /// case-sensitive and removing it makes it case-insensitive again. When false the
+    /// `case_sensitive` flag of the search config is an explicit override that stays
+    /// fixed while the user types.
+    pub smart_case: bool,
 }
 
 impl Default for TuiOptions {
@@ -78,6 +85,7 @@ impl Default for TuiOptions {
             marker: "*".to_string(),
             ellipsis: "..".to_string(),
             ansi: false,
+            smart_case: false,
         }
     }
 }

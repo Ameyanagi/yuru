@@ -243,6 +243,7 @@ fn run_interactive_mode(
         marker: first_line(args.marker.as_deref().unwrap_or("*")),
         ellipsis: first_line(args.ellipsis.as_deref().unwrap_or("..")),
         ansi: ansi_enabled(args),
+        smart_case: smart_case_active(args),
     };
 
     match yuru_tui::run_interactive(index, backend, config, options)? {
@@ -302,6 +303,7 @@ fn run_interactive_streaming_mode(
         marker: first_line(args.marker.as_deref().unwrap_or("*")),
         ellipsis: first_line(args.ellipsis.as_deref().unwrap_or("..")),
         ansi: ansi_enabled(args),
+        smart_case: smart_case_active(args),
     };
 
     match yuru_tui::run_interactive_streaming(receiver, backend, config, options)? {

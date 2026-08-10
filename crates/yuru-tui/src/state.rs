@@ -1,14 +1,34 @@
-use std::collections::HashSet;
-
 use yuru_core::ScoredCandidate;
+
+/// What the selection points at, independently of where that lands in a result list.
+///
+/// A result list is replaced wholesale every time a search finishes, so a bare row index
+/// stops meaning the same row the moment that happens. Recording *what* is selected
+/// rather than *where* keeps the meaning across the replacement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SelectionTarget {
+    /// No row has been chosen since the query last changed, so the selection follows the
+    /// top of whatever the live search returns. This is the state right after typing.
+    Top,
+    /// A specific candidate the user moved to, identified by id and never by position.
+    Row(usize),
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Mutable query, cursor, selection, and marking state.
 pub struct TuiState {
     query: String,
     cursor: usize,
+    /// Row the cursor is drawn on. This is a cache of where [`Self::target`] currently
+    /// sits, maintained by [`Self::reselect`] and by the selection-moving actions; it is
+    /// never the authority on what is selected.
     selected: usize,
-    marked: HashSet<usize>,
+    target: SelectionTarget,
+    /// Marked candidate ids, in the order they were marked. Marks are identities too, so
+    /// they survive a query change; the order is the one fzf prints them in. A list
+    /// rather than a set because it is only as long as the user has pressed the mark
+    /// key, and the order is part of the contract.
+    marked: Vec<usize>,
 }
 
 impl TuiState {
@@ -20,7 +40,8 @@ impl TuiState {
             query,
             cursor,
             selected: 0,
-            marked: HashSet::new(),
+            target: SelectionTarget::Top,
+            marked: Vec::new(),
         }
     }
 
@@ -34,18 +55,46 @@ impl TuiState {
         self.cursor
     }
 
-    /// Returns the selected result index.
+    /// Returns the selected result index, for drawing the cursor.
     pub fn selected(&self) -> usize {
         self.selected
     }
 
-    /// Returns the marked candidate ids.
-    pub fn marked(&self) -> &HashSet<usize> {
+    /// Returns what the selection points at.
+    ///
+    /// This is what an accept has to be resolved against: it stays meaningful while a
+    /// search is outstanding, whereas [`Self::selected`] does not.
+    pub fn target(&self) -> SelectionTarget {
+        self.target
+    }
+
+    /// Returns the marked candidate ids, in the order they were marked.
+    pub fn marked(&self) -> &[usize] {
         &self.marked
     }
 
-    /// Applies a state action for a result list of `result_len`.
-    pub fn apply(&mut self, action: TuiAction, result_len: usize, cycle: bool) {
+    /// Returns whether `id` is marked.
+    pub fn is_marked(&self, id: usize) -> bool {
+        self.marked.contains(&id)
+    }
+
+    /// Applies a state action against the result list the user is looking at.
+    ///
+    /// `results` is needed rather than just its length because every selection move
+    /// re-anchors [`Self::target`] to the row it lands on.
+    pub fn apply(&mut self, action: TuiAction, results: &[ScoredCandidate], cycle: bool) {
+        self.apply_with_results(action, results, cycle, false, None);
+    }
+
+    pub(crate) fn apply_with_results(
+        &mut self,
+        action: TuiAction,
+        results: &[ScoredCandidate],
+        cycle: bool,
+        multi: bool,
+        multi_limit: Option<usize>,
+    ) {
+        let result_len = results.len();
         match action {
             TuiAction::Insert(ch) => self.insert(ch),
             TuiAction::Backspace => self.backspace(),
@@ -60,72 +109,120 @@ impl TuiState {
             TuiAction::MoveCursorEnd => self.cursor = self.query.len(),
             TuiAction::MoveCursorWordLeft => self.move_cursor_word_left(),
             TuiAction::MoveCursorWordRight => self.move_cursor_word_right(),
-            TuiAction::MoveSelectionUp => self.move_selection_up(result_len, cycle),
-            TuiAction::MoveSelectionDown => self.move_selection_down(result_len, cycle),
-            TuiAction::MoveSelectionFirst => self.selected = 0,
+            TuiAction::MoveSelectionUp => {
+                self.move_selection_up(result_len, cycle);
+                self.anchor_to_selected(results);
+            }
+            TuiAction::MoveSelectionDown => {
+                self.move_selection_down(result_len, cycle);
+                self.anchor_to_selected(results);
+            }
+            TuiAction::MoveSelectionFirst => {
+                self.selected = 0;
+                self.anchor_to_selected(results);
+            }
             TuiAction::MoveSelectionLast => {
                 self.selected = result_len.saturating_sub(1);
+                self.anchor_to_selected(results);
             }
             TuiAction::PageUp(rows) => {
                 self.selected = self.selected.saturating_sub(rows.max(1));
+                self.anchor_to_selected(results);
             }
             TuiAction::PageDown(rows) => {
                 if result_len > 0 {
                     self.selected = (self.selected + rows.max(1)).min(result_len - 1);
                 }
+                self.anchor_to_selected(results);
             }
-            TuiAction::ToggleMark
-            | TuiAction::ToggleMarkAndDown
-            | TuiAction::ToggleMarkAndUp
-            | TuiAction::PreviewUp
+            TuiAction::ToggleMark => {
+                self.toggle_selected_mark(results, multi, multi_limit);
+            }
+            TuiAction::ToggleMarkAndDown => {
+                self.toggle_selected_mark(results, multi, multi_limit);
+                self.move_selection_down(result_len, cycle);
+                self.anchor_to_selected(results);
+            }
+            TuiAction::ToggleMarkAndUp => {
+                self.toggle_selected_mark(results, multi, multi_limit);
+                self.move_selection_up(result_len, cycle);
+                self.anchor_to_selected(results);
+            }
+            TuiAction::PreviewUp
             | TuiAction::PreviewDown
             | TuiAction::PreviewPageUp(_)
             | TuiAction::PreviewPageDown(_)
             | TuiAction::PreviewTop
             | TuiAction::PreviewBottom => {}
         }
-        self.clamp_selection(result_len);
     }
 
-    pub(crate) fn apply_with_results(
-        &mut self,
-        action: TuiAction,
+    /// Re-resolves the selection against a freshly landed result list.
+    ///
+    /// This is the only place a result list replacement is allowed to move the cursor.
+    /// A [`SelectionTarget::Row`] that is still present keeps the selection on that same
+    /// candidate wherever it now sits. A row that is gone resets to the top and to
+    /// following the top, which is what fzf does and the least surprising of the
+    /// alternatives; an accept that was already committed against the lost row is
+    /// resolved from its own captured target and so is never redirected here.
+    pub(crate) fn reselect(&mut self, results: &[ScoredCandidate]) {
+        match self.target {
+            SelectionTarget::Top => self.selected = 0,
+            SelectionTarget::Row(id) => match results.iter().position(|row| row.id == id) {
+                Some(index) => self.selected = index,
+                None => self.reset_selection(),
+            },
+        }
+    }
+
+    /// Resolves `target` and the marks against `results` into accepted candidate ids.
+    ///
+    /// `target` is passed in rather than read from `self` because an accept made while a
+    /// search was outstanding has to resolve the selection as it was when the key was
+    /// pressed, not as it is once the replacement rows arrive.
+    pub(crate) fn accepted_ids(
+        &self,
+        target: SelectionTarget,
         results: &[ScoredCandidate],
-        cycle: bool,
         multi: bool,
-        multi_limit: Option<usize>,
-    ) {
-        match action {
-            TuiAction::ToggleMark => {
-                self.toggle_selected_mark(results, multi, multi_limit);
-                self.clamp_selection(results.len());
+    ) -> Vec<usize> {
+        if multi && !self.marked.is_empty() {
+            return self.marked.clone();
+        }
+
+        match target {
+            // The row the user chose has to still be in the live results; if it is not,
+            // there is nothing to accept, and picking whatever took its place would
+            // return a row the user never selected.
+            SelectionTarget::Row(id) => {
+                if results.iter().any(|result| result.id == id) {
+                    vec![id]
+                } else {
+                    Vec::new()
+                }
             }
-            TuiAction::ToggleMarkAndDown => {
-                self.toggle_selected_mark(results, multi, multi_limit);
-                self.move_selection_down(results.len(), cycle);
-                self.clamp_selection(results.len());
-            }
-            TuiAction::ToggleMarkAndUp => {
-                self.toggle_selected_mark(results, multi, multi_limit);
-                self.move_selection_up(results.len(), cycle);
-                self.clamp_selection(results.len());
-            }
-            other => self.apply(other, results.len(), cycle),
+            SelectionTarget::Top => results
+                .first()
+                .map(|result| vec![result.id])
+                .unwrap_or_default(),
         }
     }
 
-    pub(crate) fn accepted_ids(&self, results: &[ScoredCandidate], multi: bool) -> Vec<usize> {
-        if multi && !self.marked.is_empty() {
-            return results
-                .iter()
-                .filter_map(|result| self.marked.contains(&result.id).then_some(result.id))
-                .collect();
-        }
+    /// Points the selection back at the top of the list and at following the top.
+    fn reset_selection(&mut self) {
+        self.selected = 0;
+        self.target = SelectionTarget::Top;
+    }
 
-        results
-            .get(self.selected)
-            .map(|result| vec![result.id])
-            .unwrap_or_default()
+    /// Binds the target to the row the cursor now sits on.
+    fn anchor_to_selected(&mut self, results: &[ScoredCandidate]) {
+        if self.selected >= results.len() {
+            self.selected = results.len().saturating_sub(1);
+        }
+        self.target = match results.get(self.selected) {
+            Some(result) => SelectionTarget::Row(result.id),
+            None => SelectionTarget::Top,
+        };
     }
 
     fn toggle_selected_mark(
@@ -141,16 +238,16 @@ impl TuiState {
             return;
         };
         if self.marked.contains(&result.id) {
-            self.marked.remove(&result.id);
+            self.marked.retain(|marked| *marked != result.id);
         } else if multi_limit.is_none_or(|limit| self.marked.len() < limit) {
-            self.marked.insert(result.id);
+            self.marked.push(result.id);
         }
     }
 
     fn insert(&mut self, ch: char) {
         self.query.insert(self.cursor, ch);
         self.cursor += ch.len_utf8();
-        self.selected = 0;
+        self.reset_selection();
     }
 
     fn backspace(&mut self) {
@@ -160,7 +257,7 @@ impl TuiState {
         let previous = previous_boundary(&self.query, self.cursor);
         self.query.drain(previous..self.cursor);
         self.cursor = previous;
-        self.selected = 0;
+        self.reset_selection();
     }
 
     fn delete(&mut self) {
@@ -169,12 +266,12 @@ impl TuiState {
         }
         let next = next_boundary(&self.query, self.cursor);
         self.query.drain(self.cursor..next);
-        self.selected = 0;
+        self.reset_selection();
     }
 
     fn delete_to_end(&mut self) {
         self.query.truncate(self.cursor);
-        self.selected = 0;
+        self.reset_selection();
     }
 
     fn delete_word(&mut self) {
@@ -184,13 +281,13 @@ impl TuiState {
         let word_start = previous_word_boundary(&self.query, self.cursor);
         self.query.drain(word_start..self.cursor);
         self.cursor = word_start;
-        self.selected = 0;
+        self.reset_selection();
     }
 
     fn clear_query(&mut self) {
         self.query.clear();
         self.cursor = 0;
-        self.selected = 0;
+        self.reset_selection();
     }
 
     fn move_cursor_left(&mut self) {
@@ -226,14 +323,6 @@ impl TuiState {
             self.selected = if cycle { 0 } else { result_len - 1 };
         } else {
             self.selected += 1;
-        }
-    }
-
-    pub(crate) fn clamp_selection(&mut self, result_len: usize) {
-        if result_len == 0 {
-            self.selected = 0;
-        } else if self.selected >= result_len {
-            self.selected = result_len - 1;
         }
     }
 }

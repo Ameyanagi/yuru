@@ -1,9 +1,28 @@
 use anyhow::{bail, Context, Result};
 use regex::Regex;
 
+/// A `--delimiter` pattern compiled once, so field splitting never recompiles per line.
+#[derive(Clone, Debug)]
+pub struct Delimiter {
+    pattern: String,
+    regex: Regex,
+}
+
+impl Delimiter {
+    /// Compiles `pattern` as a field-splitting regex.
+    pub fn new(pattern: &str) -> Result<Self> {
+        let regex =
+            Regex::new(pattern).with_context(|| format!("invalid --delimiter regex: {pattern}"))?;
+        Ok(Self {
+            pattern: pattern.to_string(),
+            regex,
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct FieldConfig {
-    pub delimiter: Option<String>,
+    pub delimiter: Option<Delimiter>,
     pub nth: Option<String>,
     pub with_nth: Option<String>,
     pub accept_nth: Option<String>,
@@ -70,13 +89,8 @@ pub fn prepare_item(
         original.clone()
     };
     let display = if let Some(spec) = &config.with_nth {
-        transform_line(
-            &searchable_original,
-            spec,
-            config.delimiter.as_deref(),
-            index,
-        )
-        .with_context(|| format!("invalid --with-nth expression: {spec}"))?
+        transform_line(&searchable_original, spec, config.delimiter.as_ref(), index)
+            .with_context(|| format!("invalid --with-nth expression: {spec}"))?
     } else {
         original.clone()
     };
@@ -90,7 +104,7 @@ pub fn prepare_item(
         searchable_original
     };
     let search_text = if let Some(spec) = &config.nth {
-        transform_line(&search_base, spec, config.delimiter.as_deref(), index)
+        transform_line(&search_base, spec, config.delimiter.as_ref(), index)
             .with_context(|| format!("invalid --nth expression: {spec}"))?
     } else {
         search_base
@@ -110,7 +124,7 @@ pub fn accept_output(
     ordinal: usize,
 ) -> Result<OutputRecord> {
     if let Some(spec) = &config.accept_nth {
-        transform_line(&item.original, spec, config.delimiter.as_deref(), ordinal)
+        transform_line(&item.original, spec, config.delimiter.as_ref(), ordinal)
             .map(OutputRecord::Text)
             .with_context(|| format!("invalid --accept-nth expression: {spec}"))
     } else {
@@ -121,10 +135,10 @@ pub fn accept_output(
 fn transform_line(
     line: &str,
     spec: &str,
-    delimiter: Option<&str>,
+    delimiter: Option<&Delimiter>,
     ordinal: usize,
 ) -> Result<String> {
-    let split = split_fields(line, delimiter)?;
+    let split = split_fields(line, delimiter);
     if spec.contains('{') {
         render_template(spec, &split, ordinal)
     } else {
@@ -138,18 +152,17 @@ struct SplitFields {
     joiner: String,
 }
 
-fn split_fields(line: &str, delimiter: Option<&str>) -> Result<SplitFields> {
+fn split_fields(line: &str, delimiter: Option<&Delimiter>) -> SplitFields {
     if let Some(delimiter) = delimiter {
-        let regex = Regex::new(delimiter).context("invalid delimiter regex")?;
-        Ok(SplitFields {
-            fields: regex.split(line).map(str::to_string).collect(),
-            joiner: delimiter.to_string(),
-        })
+        SplitFields {
+            fields: delimiter.regex.split(line).map(str::to_string).collect(),
+            joiner: delimiter.pattern.clone(),
+        }
     } else {
-        Ok(SplitFields {
+        SplitFields {
             fields: line.split_whitespace().map(str::to_string).collect(),
             joiner: " ".to_string(),
-        })
+        }
     }
 }
 
@@ -263,7 +276,7 @@ mod tests {
 
     #[test]
     fn nth_selects_positive_and_negative_fields() {
-        let split = split_fields("foo bar baz", None).unwrap();
+        let split = split_fields("foo bar baz", None);
         assert_eq!(select_fields("2,-1", &split), "bar baz");
         assert_eq!(select_fields("2..", &split), "bar baz");
         assert_eq!(select_fields("..-2", &split), "foo bar");
@@ -271,9 +284,19 @@ mod tests {
 
     #[test]
     fn template_renders_fields_and_index() {
+        let comma = Delimiter::new(",").unwrap();
         assert_eq!(
-            transform_line("foo,bar,baz", "{n}:{3}:{1}", Some(","), 7).unwrap(),
+            transform_line("foo,bar,baz", "{n}:{3}:{1}", Some(&comma), 7).unwrap(),
             "7:baz:foo"
+        );
+    }
+
+    #[test]
+    fn invalid_delimiter_regex_is_rejected_at_construction() {
+        let error = Delimiter::new("[").unwrap_err();
+        assert!(
+            error.to_string().contains("invalid --delimiter regex"),
+            "unexpected error: {error}"
         );
     }
 

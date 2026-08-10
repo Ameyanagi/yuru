@@ -18,7 +18,7 @@ pub use api::{
     TuiLayout, TuiOptions, TuiOutcome, TuiRgb, TuiStyle,
 };
 pub use run::{run_interactive, run_interactive_streaming};
-pub use state::{TuiAction, TuiState};
+pub use state::{SelectionTarget, TuiAction, TuiState};
 
 #[cfg(test)]
 mod tests;
