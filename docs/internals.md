@@ -42,6 +42,102 @@ Indexing is candidate-side. For each candidate Yuru builds:
 - language-backend keys for Japanese, Korean, or Chinese mode
 - optional learned alias keys
 
+Case folding is a matcher concern rather than a normalization side effect, so the
+matcher compares case-insensitively unless the search is case-sensitive. A
+normalized key that only case-folds its candidate (the usual outcome for plain
+ASCII text) is therefore flagged `case_fold_only` at index time and skipped while
+scoring case-insensitively: the original key already carries the same match with a
+higher weight. Normalized keys that also fold width, kana, or dashes stay active.
+
+That skip is only sound for a matcher that folds case with the *same* mapping the
+flag was computed with, so it is conditional on `MatcherBackend::folds_case`, whose
+default is `false`. Yuru's own greedy and exact matchers fold with exactly that
+mapping and say so. Two kinds of matcher must not: a matcher supplied by a library
+embedder through `search_with_stats`, which is never told the search's case policy
+and may be case-sensitive by construction, and `NucleoMatcher`, because
+`nucleo-matcher` folds with its own simple-case-folding table that disagrees with
+`char::to_lowercase` for 55 characters its table does not know (`Ɤ` U+A7CB, `Ᲊ`
+U+1C89, the Garay block). Both are offered the folded key as well, which costs one
+extra scored key per candidate on those paths and is what makes `--filter ɤ` still
+find `Ɤx` under `--algo v2`.
+
+`NucleoMatcher::folds_case` stays `false` in *both* case modes, and deliberately is
+not `!case_sensitive`. The question it answers is which folding *mapping* the
+matcher uses, not whether it folds at all, and nucleo's mapping is the wrong one
+either way; a case-sensitive nucleo matcher folds nothing, so `false` is right there
+too. The value is therefore constant while the case policy is not: `NucleoMatcher`
+carries its policy in the wrapped `nucleo_matcher::Config`, built by
+`NucleoMatcher::new(case_sensitive)` from `SearchConfig::case_sensitive`, so
+`--algo v2 --no-ignore-case` is case-sensitive like every other algorithm.
+
+Only the haystack is left as written for nucleo to fold; the *needle* is yuru's
+responsibility. `nucleo_matcher::Matcher` documents that the needle must arrive
+already case-folded, because an `ignore_case` matcher folds only the haystack and
+then expects the needle to already be lower case. This is not a soft requirement: on
+an all-ASCII needle and haystack, nucleo's prefilter and its scoring matrix disagree
+and it panics with "should have been caught by prefilter". So an `ignore_case`
+`NucleoMatcher` folds the pattern with nucleo's own `chars::to_lower_case` - its
+table, not `fold_case_char`, so both sides of the comparison agree - into a buffer
+reused across calls. A character nucleo's table does not know is left as written,
+which is why an uppercase `Ɤ` query still reaches `Ɤx`.
+
+Folding inside the matcher removed a preference that used to fall out of those key
+weights. A candidate spelled the way the query was typed matched through the
+original key (weight 3000), while a differently cased one could only match through
+the normalized key (weight 2800), so the literal spelling won by 200 points. Now
+that both reach the original key, a case-insensitive match that folded nothing
+collects an explicit 75-point exact-case bonus instead. It is awarded once per
+match rather than per matched character, so it cannot grow with query length, and
+it sits between the camel-case bonus (70) and the word-boundary bonus (80): it
+breaks a tie in favour of the literal spelling without overriding a genuinely
+better match position. Case-sensitive searches never collect it, because every
+match they make is already exact. Fuzzy matching, single-term `--exact`, and
+extended exact terms (`'term`, `^term`, `term$`, `^term$`, `'term'`) all award it on
+the same terms; the extended path has to work harder to know it applies, which the
+search-path section below describes.
+
+The matcher's folding is one character in, one character out, because every
+comparison is pairwise and every reported position indexes the unfolded text. A
+character whose full lowercase mapping is longer than one character - `İ`
+(U+0130) lowercases to `i` plus U+0307 COMBINING DOT ABOVE - is therefore
+compared as written rather than folded, since folding to just the `i` would make
+`İ` match a pattern containing a bare `i`, which it does not: the combining dot
+sits between them, so `--exact ia` must not match `İa`.
+
+Comparing it as written is not the same as not folding it. When a case-insensitive
+comparison finds nothing, `score_text` and `score_exact_text` retry it once with
+that mapping written out on *copies* of both sides. The copies expand alike, every
+remaining fold is 1:1 again, and the retry can only add matches: it is reached only
+where the as-written comparison already answered `None`, so nothing that matched
+before is re-scored. Doing it as a retry rather than as a pre-pass is also what
+keeps it off the hot path - the gate is a `memchr` for the character's UTF-8 lead
+byte, `0xC4`, chosen over its trailing `0xB0` because that byte is an ordinary
+continuation byte and searching for it cost CJK searches 3-7%.
+
+Only entry points that return nothing but a score may use the retry, because the
+indices the expanded comparison computes are indices into the expanded copies.
+`match_positions`, which does report indices into its argument, handles the
+expansion itself, carrying each character's unexpanded index alongside it. The
+extended path never needed the retry: `comparable` folds with `str::to_lowercase`,
+which writes the mapping out already, and the flags that guard its position claims
+(`literal_folds_to_needle`, `ExactHaystack::folds_key_case`) go false when it does.
+U+0130 is the only character this concerns - an exhaustive walk of
+`char::to_lowercase` finds no second one, and a unit test pins that so a Unicode
+table update cannot quietly add one.
+
+Before the retry existed, these characters were reachable case-insensitively only
+through the normalized key, whose text carries the written-out expansion - so
+`--literal`, which builds no normalized key, turned `--ignore-case` back off for
+them. `--algo v2` / `--algo nucleo` still has that gap under `--literal`, since
+nucleo folds with its own 1:1 table and yuru does not pre-fold the haystack for it.
+
+Case-folded substring search cannot reuse `str::find`, which compares as written.
+A naive folded scan is `O(text * pattern)`, so it runs only while its comparison
+count stays inside a fixed budget; past that the matcher folds both sides into a
+per-thread scratch buffer once and defers to `str::find`, whose two-way search is
+linear. Short candidates keep the allocation-free path, and a repetitive query
+against long records can no longer stall the search worker.
+
 Generated and other non-base search keys are deduplicated and capped by both key
 count and total key bytes. Required base keys such as original and normalized are
 kept even when those caps are reached, so base-key and display storage still
@@ -97,7 +193,11 @@ The hot path has a few guardrails:
 - Larger result sets use partial selection before final sorting.
 - `--no-sort` restores matches to input order before truncation.
 - The TUI runs search work on a background worker and ignores stale responses
-  using request sequence numbers.
+  using request sequence numbers. Each response is also tagged with the search it
+  answers - the query text plus the case policy that text resolved to, since smart
+  case makes the policy follow the query - and only a result set whose tag equals the
+  live one may become an outcome. Stale rows are still painted while a search runs,
+  but an acceptance that arrives against them is held until the live search lands.
 
 ### Standard Search Path
 
@@ -109,17 +209,48 @@ switched from fuzzy subsequence scoring to exact substring scoring.
 
 `standard` here means that Yuru does not call a boxed matcher backend for every
 candidate/key pair. Instead, it expands the query once, scans the already-built
-candidate keys directly, calls `score_text` or `score_exact_text`, and keeps
-only the best compatible key for each candidate. This path is the one that can
+candidate keys directly, calls `score_text` or `score_exact_text` with the
+configured case policy, and keeps only the best compatible key for each candidate. This path is the one that can
 parallelize large candidate sets with Rayon chunks and use the bounded
 `TopResults` buffer for small sorted limits.
 
 Yuru leaves this standard path when the query needs extended fzf syntax, when
 filtering is disabled, or when `--algo fzf-v2` / `--algo nucleo` selects the
 nucleo-backed quality matcher. Normal nucleo-backed searches use a concrete
-Nucleo path with one matcher per Rayon chunk on large inputs. Extended syntax
-and caller-owned matcher paths still go through `search_with_stats` and a
-mutable matcher backend.
+Nucleo path with one matcher per Rayon chunk on large inputs.
+
+Extended syntax prepares the query once per search rather than once per
+candidate. Parsing, each term's query-variant expansion, and each term's
+case-folded comparison needle are all hoisted out of the candidate loop, and
+exact terms reuse the candidate's existing normalized key instead of re-folding
+its text per candidate. Like the standard path, extended search parallelizes
+large candidate sets with Rayon chunks. Caller-owned matcher paths still go
+through `search_with_stats` and a mutable matcher backend.
+
+That reuse is why an extended exact term earns its exact-case bonus differently
+from the standard path. `score_exact_text` folds while it searches, so it can read
+case-exactness straight off the match it found (`text[start..]` still starts with
+the pattern's own bytes). An extended term instead compares two texts that were
+folded before it ran, which is what makes the reuse cheap - re-normalizing every
+key per candidate costs about 0.5s on 500k lines - and which throws that
+information away. The bonus is therefore recovered by re-checking the *located*
+occurrence in the key text as written: the match's offset is translated into the
+original text and the term as the user typed it must start there. Checking for a
+literal occurrence anywhere instead would credit a spelling the score was not
+computed from, which is not what the standard path rewards.
+
+Translating that offset needs the folded haystack and the key text to hold the same
+characters in the same positions, which is true of case folding and not of
+normalization in general: NFKC can split one character into several. Both sides
+must therefore prove it before a bonus is possible. The candidate side reuses the
+`case_fold_only` flag the index already computed; the query side compares the
+term's needle against the term as typed once per search. When either fails - a
+full-width or kana term, or a candidate whose normalized key really is normalized -
+the term matches exactly as before and takes no bonus, which is also the honest
+answer: text that had to be normalized to match was not spelled the way the query
+was typed. Positions are compared in characters rather than bytes, because folding
+can resize a character (`U+212A` KELVIN SIGN folds to a one-byte `k`); pure-ASCII
+pairs skip that count, since ASCII folding leaves every offset alone.
 
 ### Search Complexity
 
@@ -139,6 +270,13 @@ pass, so each score is `O(Lk + Q)` and the scan is approximately
 because `V` and `K` are capped small values, the practical shape is close to
 linear in candidate count and key length.
 
+Extended queries add a factor for the term count `T`: a group's terms are checked
+against the candidate's keys until one fails, so the worst case is
+`O(N * T * V * K * (Lk + Q))`, with early exit on the first unmatched non-negated
+term. Because preparation is hoisted out of the candidate loop it costs
+`O(T * (Q + variant fanout))` per search instead of per candidate, which is what
+makes a multi-term query cost about the same per candidate as a single-term one.
+
 Exact mode uses contiguous matching and is also linear in key length per checked
 pair. Algorithm names are backend selectors rather than exact fzf
 reimplementations: `--algo fzf-v1` uses the same Yuru greedy scorer as
@@ -152,8 +290,11 @@ Ranking cost depends on result handling:
 
 - `--no-sort` restores input order before truncation, so result finalization is
   `O(M log M)` today because it sorts matched IDs.
-- Sorted searches with `1 <= R <= 1024` use a bounded top-results buffer.
-  Current replacement scans that buffer, so finalization is `O(M * R + R log R)`.
+- Sorted searches with `1 <= R <= 1024` use a bounded top-results buffer backed by
+  a binary heap ordered on the full rank key (score, then the configured tiebreaks
+  in order, then display). The current worst kept entry is the heap root, so a
+  candidate that cannot displace it costs one comparison and a replacement costs
+  `O(log R)`, making finalization `O(M log R + R log R)`.
 - Larger sorted result sets use partial selection followed by sorting the
   returned window, approximately `O(M + R log R)`.
 
@@ -203,6 +344,38 @@ stay responsive instead of waiting for a full source command to finish.
 
 This is not a global persistent index. It is a session-local, lazy/streaming
 index tuned for command-line workflows.
+
+## Selection Across Result Replacements
+
+Because the search worker replaces the result list wholesale, nothing about a
+row's position is stable: the same index means a different candidate after every
+landing. `TuiState` therefore keeps a `SelectionTarget`, not a row number. It is
+either `Top` — nothing has been chosen since the query last changed, so the
+selection follows whatever comes first — or `Row(id)`, a specific candidate. The
+row index the renderer draws the cursor on is a cache of where that target
+currently sits, recomputed by `TuiState::reselect` at the one place a result list
+is installed. A `Row` that is missing from the replacement resets to `Top`, which
+is what fzf does and the least surprising of the options.
+
+Three separate questions have to be answered to accept the right line, and each
+has exactly one mechanism:
+
+- *Do these rows answer what is typed?* `ResultSet` carries the `SearchIdentity`
+  (query text plus resolved case policy) its rows were computed for, and compares
+  it against the live one. Superseded rows keep being drawn — blanking the list
+  for the duration of a 500,000-candidate search would trade one defect for a
+  worse one — but they are never turned into an outcome.
+- *When rows are superseded, what happens to `Enter`?* It is held in a
+  `PendingAccept` until the live search lands, then resolved. Only `Ctrl-C` /
+  `Esc` are honoured in the meantime; anything else would retarget a decision the
+  user has already made.
+- *Which row was it aimed at?* `PendingAccept` captures the `SelectionTarget` as
+  it was when the key was pressed. Resolving against the live selection instead
+  would hand back whatever moved into that place, which is the same class of bug
+  one level up. A captured `Row` that is not in the live results accepts nothing.
+
+Marks are stored the same way, as candidate ids in the order they were marked, so
+refining the query does not discard them.
 
 ## Preview
 

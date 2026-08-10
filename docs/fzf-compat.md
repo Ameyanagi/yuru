@@ -30,6 +30,7 @@ yuru --fzf-compat ignore
 | `--multi[=MAX]`, `--multi MAX`, `-mMAX`, `--pointer`, `--marker`, `--ellipsis`, `--footer`, `--no-input` | Supported | Implemented in the current crossterm TUI. |
 | `--color` | Partial | Supports `pointer`, `hl`, `hl+`, `fg+`, and `bg+` hex colors. Other entries are accepted and ignored. |
 | Layout/style-only options such as `--preview-window`, `--border`, `--style`, labels, gutters, gaps, scrollbars, margins, padding | Accepted | Parsed for fzf config compatibility. Full visual parity with fzf is still evolving. |
+| `--ambidouble`, `--no-ambidouble` | Accepted, no-op | Yuru measures display width with `unicode-width`, which treats East Asian Ambiguous characters as one column. That matches `--no-ambidouble`, the fzf default, so `--no-ambidouble` is already the behavior and `--ambidouble` changes nothing. Unambiguously wide characters (CJK, Hangul, emoji) are always measured as two columns. |
 
 Known gaps that matter for script migration:
 
@@ -38,6 +39,7 @@ Known gaps that matter for script migration:
 | Matcher algorithms | `--algo fzf-v1` uses Yuru's greedy scorer; `--algo fzf-v2` uses the nucleo-backed quality scorer. They are compatibility-inspired modes, not byte-for-byte fzf algorithm ports. |
 | `--bind` shell actions | Navigation, editing, accept/abort, mark toggles, and preview scroll actions are implemented. Shell-execution actions such as `execute(...)`, `reload(...)`, and transform actions are still unsupported. |
 | Field expressions | `--nth`, `--with-nth`, and `--accept-nth` cover common field selection and transforms, but not fzf's full expression language. |
+| `--delimiter` | Yuru always treats the delimiter as a regular expression; fzf treats it as a plain string unless it looks like a regex. So `-d .` splits on every character in Yuru, while fzf splits on literal dots. Escape regex metacharacters (`-d '\.'`) for literal matching. An invalid pattern is reported at startup. |
 | Layout/style parity | Many style options are accepted so existing option strings parse, but exact fzf visual parity is not guaranteed. |
 | Non-interactive huge streams | `--filter` currently builds the candidate set before searching. Interactive mode streams candidates, but a line-by-line streaming top-k filter path is future work. |
 
@@ -98,3 +100,48 @@ Precedence:
 3. `~/.config/yuru/config.toml`
 4. `YURU_DEFAULT_OPTS_FILE` / `YURU_DEFAULT_OPTS`
 5. CLI arguments
+
+## Preview features
+
+Preview features are shipped off by default, are not covered by the usual
+compatibility promises, and **may be changed or removed in any later release**.
+Do not depend on them in scripts.
+
+### `--live-smart-case`
+
+Re-evaluates smart case on every keystroke instead of deciding once at startup:
+typing an uppercase character switches to case-sensitive matching and
+highlighting, and deleting it switches back. This is what fzf does. Without the
+flag, Yuru derives case sensitivity once from the initial query and keeps it for
+the session. `--ignore-case` and `--no-ignore-case` are hard overrides in both
+modes.
+
+It is preview quality because changing the case policy mid-session changes what
+the *current* query means while a search for the *previous* query may still be
+running. A result set computed under the old policy can therefore be on screen
+after the policy has already changed. On a small list the window is too short to
+notice; on a few hundred thousand candidates it is wide enough to hit by typing
+quickly.
+
+Those superseded rows are no longer *acceptable*, which is the part that used to
+produce wrong answers. Every result set carries the search it answers, an
+`Enter` that arrives while the rows are superseded waits for the live search and
+is then resolved against it, and the selection is bound to the identity of the
+candidate it is on rather than to a row number, so a replacement result set
+cannot move it onto a different row. If the row the selection was on is not in
+the live results, the accept returns nothing rather than a substitute. The same
+machinery runs with the flag off, where it fixes the equivalent race across a
+plain query change.
+
+What is left is cosmetic and is why the flag is still preview quality:
+
+- Superseded rows stay on screen until the replacement lands, so the list can
+  briefly show rows the live query does not match. Blanking it on every
+  keystroke would be worse; the rows are drawn without match highlighting once
+  the live query stops matching them.
+- The case policy shown in the prompt's highlighting and the policy the visible
+  rows were computed under can differ for the duration of one search.
+
+If you enable it and see an accepted line that does not match what you typed,
+that is a bug, and reporting it with the candidate count and the keystroke
+sequence is genuinely useful.
