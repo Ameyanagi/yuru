@@ -1,6 +1,51 @@
-use crate::{KeyKind, QueryVariantKind};
+use crate::{KeyKind, QueryVariantKind, SearchConfig, SearchKey};
 
 use super::*;
+
+#[test]
+fn case_fold_only_normalized_key_is_blocked_only_for_case_insensitive_search() {
+    let key = SearchKey::normalized("readme.md").with_case_fold_only(true);
+    let insensitive = SearchConfig::default();
+    let sensitive = SearchConfig {
+        case_sensitive: true,
+        ..SearchConfig::default()
+    };
+
+    // The scorer folds case itself, so the key repeats what the original key matches.
+    assert!(key_blocked_by_config(&key, &insensitive, true));
+    // Case-sensitive search blocks it too, for the opposite reason: it is lowercased.
+    assert!(key_blocked_by_config(&key, &sensitive, true));
+}
+
+#[test]
+fn case_fold_only_normalized_key_is_kept_when_the_scorer_does_not_fold_case() {
+    let key = SearchKey::normalized("readme.md").with_case_fold_only(true);
+    let config = SearchConfig::default();
+
+    // A matcher that does not fold case reaches "README.md" only through this key.
+    assert!(!key_blocked_by_config(&key, &config, false));
+}
+
+#[test]
+fn normalized_key_that_does_more_than_fold_case_is_kept() {
+    let key = SearchKey::normalized("abc.txt");
+    let config = SearchConfig::default();
+
+    assert!(!key_blocked_by_config(&key, &config, true));
+    assert!(!key_blocked_by_config(&key, &config, false));
+}
+
+#[test]
+fn normalized_key_is_blocked_when_normalization_is_disabled() {
+    let key = SearchKey::normalized("abc.txt");
+    let config = SearchConfig {
+        normalize: false,
+        ..SearchConfig::default()
+    };
+
+    assert!(key_blocked_by_config(&key, &config, true));
+    assert!(key_blocked_by_config(&key, &config, false));
+}
 
 #[test]
 fn plain_query_expansion_is_small() {

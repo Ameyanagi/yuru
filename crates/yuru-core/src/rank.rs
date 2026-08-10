@@ -5,7 +5,7 @@ use crate::{
     MatcherBackend, NucleoMatcher, QueryVariant, SearchConfig, SearchStats, Tiebreak,
 };
 use rayon::prelude::*;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::BinaryHeap};
 
 const STREAMING_TOP_RESULTS_LIMIT: usize = 1024;
 #[cfg(not(test))]
@@ -24,10 +24,10 @@ enum ScoreMode {
 }
 
 impl ScoreMode {
-    fn score(self, pattern: &str, text: &str) -> Option<i64> {
+    fn score(self, pattern: &str, text: &str, case_sensitive: bool) -> Option<i64> {
         match self {
-            Self::Greedy => score_text(pattern, text),
-            Self::Exact => score_exact_text(pattern, text),
+            Self::Greedy => score_text(pattern, text, case_sensitive),
+            Self::Exact => score_exact_text(pattern, text, case_sensitive),
         }
     }
 }
@@ -54,9 +54,12 @@ pub fn search(
     backend: &dyn LanguageBackend,
     config: &SearchConfig,
 ) -> Vec<ScoredCandidate> {
-    if config.disabled || config.extended && fzf_query::requires_extended_search(query) {
-        let mut matcher = matcher_for_config(config);
-        return search_with_stats(query, candidates, backend, matcher.as_mut(), config).0;
+    if config.disabled {
+        return search_disabled(query, candidates, config).0;
+    }
+
+    if config.extended && fzf_query::requires_extended_search(query) {
+        return search_extended_auto(query, candidates, backend, config).0;
     }
 
     if !config.exact
@@ -78,12 +81,16 @@ pub fn search(
 
 fn matcher_for_config(config: &SearchConfig) -> Box<dyn MatcherBackend> {
     if config.exact {
-        return Box::new(ExactMatcher);
+        return Box::new(ExactMatcher::new(config.case_sensitive));
     }
 
     match config.matcher_algo {
-        MatcherAlgo::Greedy | MatcherAlgo::FzfV1 => Box::new(GreedyMatcher),
-        MatcherAlgo::FzfV2 | MatcherAlgo::Nucleo => Box::new(NucleoMatcher::default()),
+        MatcherAlgo::Greedy | MatcherAlgo::FzfV1 => {
+            Box::new(GreedyMatcher::new(config.case_sensitive))
+        }
+        MatcherAlgo::FzfV2 | MatcherAlgo::Nucleo => {
+            Box::new(NucleoMatcher::new(config.case_sensitive))
+        }
     }
 }
 
@@ -170,15 +177,23 @@ fn score_standard_candidate(
     config: &SearchConfig,
     stats: &mut SearchStats,
 ) -> Option<ScoredCandidate> {
-    score_candidate_with(candidate, variants, config, stats, |pattern, text| {
-        score_mode.score(pattern, text)
-    })
+    // `ScoreMode` scores through `score_text`/`score_exact_text`, which fold case with
+    // `fold_case_char` exactly when the config asks for case-insensitive matching.
+    score_candidate_with(
+        candidate,
+        variants,
+        config,
+        !config.case_sensitive,
+        stats,
+        |pattern, text| score_mode.score(pattern, text, config.case_sensitive),
+    )
 }
 
 fn score_candidate_with(
     candidate: &crate::Candidate,
     variants: &[QueryVariant],
     config: &SearchConfig,
+    scorer_folds_case: bool,
     stats: &mut SearchStats,
     mut score_text: impl FnMut(&str, &str) -> Option<i64>,
 ) -> Option<ScoredCandidate> {
@@ -190,7 +205,7 @@ fn score_candidate_with(
         }
 
         for (key_index, key) in candidate.keys.iter().enumerate() {
-            if key_blocked_by_config(key.kind, config) {
+            if key_blocked_by_config(key, config, scorer_folds_case) {
                 continue;
             }
 
@@ -235,7 +250,7 @@ fn search_nucleo_with_stats(
         return search_nucleo_parallel(query, candidates, &variants, config);
     }
 
-    let mut matcher = NucleoMatcher::default();
+    let mut matcher = NucleoMatcher::new(config.case_sensitive);
     search_with_matcher_variants(query, candidates, &variants, &mut matcher, config)
 }
 
@@ -248,7 +263,7 @@ fn search_nucleo_parallel(
     let (mut results, stats) = candidates
         .par_chunks(PARALLEL_SEARCH_CHUNK_SIZE)
         .map(|chunk| {
-            let mut matcher = NucleoMatcher::default();
+            let mut matcher = NucleoMatcher::new(config.case_sensitive);
             search_with_matcher_variants(query, chunk, variants, &mut matcher, config)
         })
         .reduce(
@@ -282,31 +297,40 @@ pub fn search_with_stats(
     config: &SearchConfig,
 ) -> (Vec<ScoredCandidate>, SearchStats) {
     if config.disabled {
-        let mut results: Vec<_> = candidates
-            .iter()
-            .map(|candidate| ScoredCandidate {
-                id: candidate.id,
-                display: candidate.display.clone(),
-                score: 0,
-                key_kind: crate::KeyKind::Original,
-                key_index: 0,
-            })
-            .collect();
-        finalize_results(&mut results, query, config);
-        return (
-            results,
-            SearchStats {
-                candidates_seen: candidates.len(),
-                ..SearchStats::default()
-            },
-        );
+        return search_disabled(query, candidates, config);
     }
 
     if config.extended && fzf_query::requires_extended_search(query) {
-        return search_extended(query, candidates, backend, matcher, config);
+        let prepared = fzf_query::PreparedQuery::new(query, backend, config);
+        return search_extended(query, candidates, &prepared, matcher, config);
     }
 
     search_standard_with_matcher(query, candidates, backend, matcher, config)
+}
+
+fn search_disabled(
+    query: &str,
+    candidates: &[crate::Candidate],
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
+    let mut results: Vec<_> = candidates
+        .iter()
+        .map(|candidate| ScoredCandidate {
+            id: candidate.id,
+            display: candidate.display.clone(),
+            score: 0,
+            key_kind: crate::KeyKind::Original,
+            key_index: 0,
+        })
+        .collect();
+    finalize_results(&mut results, query, config);
+    (
+        results,
+        SearchStats {
+            candidates_seen: candidates.len(),
+            ..SearchStats::default()
+        },
+    )
 }
 
 fn search_standard_with_matcher(
@@ -353,26 +377,80 @@ fn score_matcher_candidate<M: MatcherBackend + ?Sized>(
     config: &SearchConfig,
     stats: &mut SearchStats,
 ) -> Option<ScoredCandidate> {
-    score_candidate_with(candidate, variants, config, stats, |pattern, text| {
-        matcher.score(pattern, text)
-    })
+    // The matcher may be caller-owned, so only it can say whether it folds case.
+    let scorer_folds_case = matcher.folds_case();
+    score_candidate_with(
+        candidate,
+        variants,
+        config,
+        scorer_folds_case,
+        stats,
+        |pattern, text| matcher.score(pattern, text),
+    )
 }
 
-fn search_extended(
+/// Runs an extended-query search, going parallel for large candidate sets.
+///
+/// Used by [`search`], which owns matcher selection; [`search_with_stats`] stays
+/// sequential so that the caller-supplied matcher is always the one used.
+fn search_extended_auto(
     query: &str,
     candidates: &[crate::Candidate],
     backend: &dyn LanguageBackend,
-    matcher: &mut dyn MatcherBackend,
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
+    let prepared = fzf_query::PreparedQuery::new(query, backend, config);
+    if should_search_parallel(candidates.len()) {
+        return search_extended_parallel(query, candidates, &prepared, config);
+    }
+
+    let mut matcher = matcher_for_config(config);
+    search_extended(query, candidates, &prepared, matcher.as_mut(), config)
+}
+
+fn search_extended_parallel(
+    query: &str,
+    candidates: &[crate::Candidate],
+    prepared: &fzf_query::PreparedQuery,
+    config: &SearchConfig,
+) -> (Vec<ScoredCandidate>, SearchStats) {
+    let (mut results, stats) = candidates
+        .par_chunks(PARALLEL_SEARCH_CHUNK_SIZE)
+        .map(|chunk| {
+            let mut matcher = matcher_for_config(config);
+            search_extended(query, chunk, prepared, matcher.as_mut(), config)
+        })
+        .reduce(
+            || (Vec::new(), SearchStats::default()),
+            |(mut left_results, mut left_stats), (mut right_results, right_stats)| {
+                left_results.append(&mut right_results);
+                merge_stats(&mut left_stats, right_stats);
+                (left_results, left_stats)
+            },
+        );
+
+    finalize_results(&mut results, query, config);
+    (results, stats)
+}
+
+fn search_extended<M: MatcherBackend + ?Sized>(
+    query: &str,
+    candidates: &[crate::Candidate],
+    prepared: &fzf_query::PreparedQuery,
+    matcher: &mut M,
     config: &SearchConfig,
 ) -> (Vec<ScoredCandidate>, SearchStats) {
     let mut results = Vec::new();
     let mut top_results = TopResults::enabled(query, config);
-    let mut stats = SearchStats::default();
+    let mut stats = SearchStats {
+        variants_seen: prepared.variants_seen(),
+        ..SearchStats::default()
+    };
 
     for candidate in candidates {
         stats.candidates_seen += 1;
         if let Some(scored) =
-            fzf_query::score_candidate(query, candidate, backend, matcher, config, &mut stats)
+            fzf_query::score_candidate(prepared, candidate, matcher, config, &mut stats)
         {
             push_scored(scored, &mut results, top_results.as_mut());
         }
@@ -407,11 +485,15 @@ fn finish_results(
     results
 }
 
+/// Streaming top-k accumulator backed by a max-heap of [`RankedResult`].
+///
+/// [`RankedResult`]'s `Ord` is best-first, so the heap's root is the *worst* entry kept so
+/// far: exactly the eviction candidate. That is why there is no `Reverse` wrapper here.
 #[derive(Clone, Debug)]
 struct TopResults {
     limit: usize,
     context: RankContext,
-    results: Vec<RankedResult>,
+    results: BinaryHeap<RankedResult>,
 }
 
 impl TopResults {
@@ -420,55 +502,39 @@ impl TopResults {
             Self {
                 limit: config.limit,
                 context: RankContext::new(query, config),
-                results: Vec::with_capacity(config.limit),
+                results: BinaryHeap::with_capacity(config.limit),
             }
         })
     }
 
     fn push(&mut self, scored: ScoredCandidate) {
         if self.results.len() < self.limit {
-            let ranked = RankedResult::new(scored, &self.context);
-            self.results.push(ranked);
+            self.results.push(RankedResult::new(scored, &self.context));
             return;
         }
 
+        // Cheap early-out before paying for the tiebreak keys: the root has the lowest
+        // score of everything kept, because score is the leading rank component.
         let worst_score = self
             .results
-            .iter()
-            .map(|result| result.scored.score)
-            .min()
-            .expect("top results are full");
+            .peek()
+            .expect("top results are full")
+            .rank
+            .score;
         if scored.score < worst_score {
             return;
         }
 
-        let worst_index = self.worst_index_for_score(worst_score);
-        if scored.score > worst_score {
-            self.results[worst_index] = RankedResult::new(scored, &self.context);
-            return;
-        }
-
         let ranked = RankedResult::new(scored, &self.context);
-        let worst = &self.results[worst_index];
-        if compare_ranked_results(&ranked, worst, &self.context).is_lt() {
-            self.results[worst_index] = ranked;
+        let mut worst = self.results.peek_mut().expect("top results are full");
+        if ranked < *worst {
+            *worst = ranked;
         }
     }
 
-    fn worst_index_for_score(&self, score: i64) -> usize {
+    fn finish(self) -> Vec<ScoredCandidate> {
         self.results
-            .iter()
-            .enumerate()
-            .filter(|(_, result)| result.scored.score == score)
-            .max_by(|(_, left), (_, right)| compare_ranked_results(left, right, &self.context))
-            .map(|(index, _)| index)
-            .expect("score came from existing top results")
-    }
-
-    fn finish(mut self) -> Vec<ScoredCandidate> {
-        self.results
-            .sort_by(|left, right| compare_ranked_results(left, right, &self.context));
-        self.results
+            .into_sorted_vec()
             .into_iter()
             .map(|ranked| ranked.scored)
             .collect()
@@ -490,65 +556,84 @@ impl RankedResult {
     }
 }
 
+impl Ord for RankedResult {
+    /// Orders best-first, matching [`compare_results`]: score descending, then every
+    /// tiebreak criterion ascending, then display ascending.
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .rank
+            .score
+            .cmp(&self.rank.score)
+            .then_with(|| self.rank.keys.cmp(&other.rank.keys))
+            .then_with(|| self.scored.display.cmp(&other.scored.display))
+    }
+}
+
+impl PartialOrd for RankedResult {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for RankedResult {}
+
+impl PartialEq for RankedResult {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+/// Number of comparison keys a [`ResultRank`] can hold: one per [`Tiebreak`], except
+/// [`Tiebreak::Pathname`], which contributes two. [`normalized_tiebreaks`] deduplicates,
+/// so no criterion can claim its slots twice.
+const RANK_KEY_COUNT: usize = 7;
+
+/// Context-free ranking key for a scored candidate.
+///
+/// `keys` holds the tiebreak values already laid out in the search's criteria order, so
+/// comparing two ranks is one lexicographic array comparison and needs no [`RankContext`].
+/// Storing the criteria order this way keeps [`RankedResult`] usable as a heap element
+/// without carrying a copy of the criteria list in every entry.
+///
+/// Every rank in one search comes from the same context, hence fills the same slots, so the
+/// unused trailing slots are zero on both sides and never affect a comparison.
 #[derive(Clone, Debug)]
 struct ResultRank {
     score: i64,
-    length: usize,
-    chunk: usize,
-    pathname: (usize, usize),
-    begin: usize,
-    end: usize,
-    index: usize,
+    keys: [usize; RANK_KEY_COUNT],
 }
 
 impl ResultRank {
     fn new(scored: &ScoredCandidate, context: &RankContext) -> Self {
-        let mut rank = Self {
-            score: scored.score,
-            length: 0,
-            chunk: 0,
-            pathname: (0, 0),
-            begin: 0,
-            end: 0,
-            index: scored.id,
-        };
+        let mut keys = [0; RANK_KEY_COUNT];
+        let mut used = 0;
 
         for &criterion in &context.criteria {
-            match criterion {
-                Tiebreak::Length => rank.length = scored.display.chars().count(),
-                Tiebreak::Chunk => rank.chunk = chunk_len(&scored.display, context),
-                Tiebreak::Pathname => rank.pathname = pathname_rank(&scored.display, context),
-                Tiebreak::Begin => rank.begin = match_begin(&scored.display, context),
-                Tiebreak::End => rank.end = match_end_distance(&scored.display, context),
-                Tiebreak::Index => rank.index = scored.id,
-            }
-        }
-
-        rank
-    }
-}
-
-fn compare_ranked_results(
-    left: &RankedResult,
-    right: &RankedResult,
-    context: &RankContext,
-) -> Ordering {
-    right.rank.score.cmp(&left.rank.score).then_with(|| {
-        for &criterion in &context.criteria {
-            let ordering = match criterion {
-                Tiebreak::Length => left.rank.length.cmp(&right.rank.length),
-                Tiebreak::Chunk => left.rank.chunk.cmp(&right.rank.chunk),
-                Tiebreak::Pathname => left.rank.pathname.cmp(&right.rank.pathname),
-                Tiebreak::Begin => left.rank.begin.cmp(&right.rank.begin),
-                Tiebreak::End => left.rank.end.cmp(&right.rank.end),
-                Tiebreak::Index => left.rank.index.cmp(&right.rank.index),
+            let (key, extra) = match criterion {
+                Tiebreak::Length => (scored.display.chars().count(), None),
+                Tiebreak::Chunk => (chunk_len(&scored.display, context), None),
+                Tiebreak::Pathname => {
+                    let (bucket, begin) = pathname_rank(&scored.display, context);
+                    (bucket, Some(begin))
+                }
+                Tiebreak::Begin => (match_begin(&scored.display, context), None),
+                Tiebreak::End => (match_end_distance(&scored.display, context), None),
+                Tiebreak::Index => (scored.id, None),
             };
-            if ordering != Ordering::Equal {
-                return ordering;
+
+            keys[used] = key;
+            used += 1;
+            if let Some(extra) = extra {
+                keys[used] = extra;
+                used += 1;
             }
         }
-        left.scored.display.cmp(&right.scored.display)
-    })
+
+        Self {
+            score: scored.score,
+            keys,
+        }
+    }
 }
 
 fn finalize_results(results: &mut Vec<ScoredCandidate>, query: &str, config: &SearchConfig) {

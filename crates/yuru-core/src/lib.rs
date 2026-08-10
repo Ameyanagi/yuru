@@ -132,6 +132,11 @@ pub trait LanguageBackend: Send + Sync {
     fn mode(&self) -> LangMode;
 
     /// Normalizes candidate display text before the base normalized key is added.
+    ///
+    /// Extended-query exact matching reuses this key instead of re-folding the
+    /// original text per candidate, and skips it entirely when it is only a case-folded
+    /// copy of the display text, so an override must stay equivalent to
+    /// [`normalize::normalize`] for case- and width-insensitive comparison.
     fn normalize_candidate(&self, text: &str) -> String {
         normalize::normalize(text)
     }

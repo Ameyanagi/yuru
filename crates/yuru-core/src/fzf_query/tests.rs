@@ -1,9 +1,27 @@
 use crate::{
-    build_index, query::PlainBackend, rank::search, Candidate, GreedyMatcher, SearchConfig,
-    SearchKey,
+    build_index, query::PlainBackend, rank::search, score_exact_text, Candidate, GreedyMatcher,
+    SearchConfig, SearchKey,
 };
 
 use super::*;
+
+/// Scores one extended query against one display text, as `search` would.
+fn extended_score(query: &str, display: &str, config: &SearchConfig) -> Option<i64> {
+    let index = build_index([display], &PlainBackend, config);
+    let mut matcher = GreedyMatcher::new(config.case_sensitive);
+    let mut stats = SearchStats::default();
+    let prepared = PreparedQuery::new(query, &PlainBackend, config);
+    score_candidate(&prepared, &index[0], &mut matcher, config, &mut stats).map(|hit| hit.score)
+}
+
+/// Returns the displays `query` selects, in ranked order.
+fn ranked(query: &str, displays: &[&str], config: &SearchConfig) -> Vec<String> {
+    let index = build_index(displays.iter().copied(), &PlainBackend, config);
+    search(query, &index, &PlainBackend, config)
+        .into_iter()
+        .map(|hit| hit.display)
+        .collect()
+}
 
 #[test]
 fn split_escaped_space() {
@@ -52,10 +70,130 @@ fn exact_mode_disables_fuzzy_matching() {
 fn scoring_empty_query_matches_candidate() {
     let cfg = SearchConfig::default();
     let index = build_index(["abc"], &PlainBackend, &cfg);
-    let mut matcher = GreedyMatcher;
+    let mut matcher = GreedyMatcher::default();
     let mut stats = SearchStats::default();
-    assert!(
-        score_candidate("", &index[0], &PlainBackend, &mut matcher, &cfg, &mut stats).is_some()
+    let prepared = PreparedQuery::new("", &PlainBackend, &cfg);
+    assert!(score_candidate(&prepared, &index[0], &mut matcher, &cfg, &mut stats).is_some());
+}
+
+/// An exact term used to score `FOO` and `foo` identically, so `'foo` returned whichever the
+/// input happened to list first. The exact-case bonus reached the fuzzy path only, because
+/// this path compares folded text on both sides.
+#[test]
+fn exact_term_prefers_the_spelling_the_query_was_typed_with() {
+    let cfg = SearchConfig::default();
+    assert_eq!(
+        extended_score("'foo", "foo", &cfg).unwrap() - extended_score("'foo", "FOO", &cfg).unwrap(),
+        BONUS_CASE_EXACT
+    );
+    assert_eq!(ranked("'foo", &["FOO", "foo"], &cfg), ["foo", "FOO"]);
+    assert_eq!(ranked("'foo", &["foo", "FOO"], &cfg), ["foo", "FOO"]);
+}
+
+/// The bonus follows the query's own spelling, not lowercase: an uppercase term prefers the
+/// uppercase candidate. Smart case is a CLI decision, so `--ignore-case` with an uppercase
+/// query reaches this path.
+#[test]
+fn exact_term_prefers_an_uppercase_spelling_for_an_uppercase_term() {
+    let cfg = SearchConfig::default();
+    assert_eq!(ranked("'FOO", &["foo", "FOO"], &cfg), ["FOO", "foo"]);
+    assert_eq!(ranked("'FOO", &["FOO", "foo"], &cfg), ["FOO", "foo"]);
+}
+
+/// `'readme` scored `README.md` and `readme.md` at 9991 apiece, while single-term
+/// `--exact readme` ranked the literal spelling first. Both paths must agree.
+#[test]
+fn extended_exact_term_orders_case_variants_like_the_global_exact_path() {
+    let cfg = SearchConfig::default();
+    let displays = ["README.md", "readme.md"];
+    let reversed = ["readme.md", "README.md"];
+
+    for order in [displays, reversed] {
+        assert_eq!(
+            ranked("'readme", &order, &cfg),
+            ["readme.md", "README.md"],
+            "extended path, input order {order:?}"
+        );
+    }
+
+    let literal = score_exact_text("readme", "readme.md", false).unwrap();
+    let folded = score_exact_text("readme", "README.md", false).unwrap();
+    assert_eq!(
+        literal - folded,
+        BONUS_CASE_EXACT,
+        "the global path's spread is the one the extended path must reproduce"
+    );
+    assert_eq!(
+        extended_score("'readme", "readme.md", &cfg).unwrap()
+            - extended_score("'readme", "README.md", &cfg).unwrap(),
+        literal - folded
+    );
+}
+
+/// Anchors and the boundary form take the bonus too - all of them locate a folded occurrence
+/// and so all of them lost the same information.
+#[test]
+fn every_exact_term_mode_awards_the_case_bonus() {
+    let cfg = SearchConfig::default();
+    for query in [
+        "'readme",
+        "^readme",
+        "readme.md$",
+        "^readme.md$",
+        "'readme'",
+    ] {
+        assert_eq!(
+            extended_score(query, "readme.md", &cfg).unwrap()
+                - extended_score(query, "README.md", &cfg).unwrap(),
+            BONUS_CASE_EXACT,
+            "{query}"
+        );
+    }
+}
+
+/// The bonus describes the occurrence the score was computed from, exactly as
+/// [`score_exact_text`] does: a folded hit at the start does not become exact because the text
+/// happens to spell the term literally somewhere later.
+#[test]
+fn case_bonus_reads_the_matched_occurrence_and_not_a_later_one() {
+    let cfg = SearchConfig::default();
+    assert_eq!(
+        score_exact_text("foo", "FOO-foo", false),
+        score_exact_text("foo", "FOO-bar", false),
+        "the global path scores the first folded occurrence and awards no bonus for a later one"
+    );
+    assert_eq!(
+        extended_score("'foo", "FOO-foo", &cfg),
+        extended_score("'foo", "FOO-bar", &cfg)
+    );
+}
+
+#[test]
+fn case_sensitive_exact_term_scores_are_unchanged_by_the_case_bonus() {
+    let cfg = SearchConfig {
+        case_sensitive: true,
+        ..SearchConfig::default()
+    };
+    // Both hits are exact by construction, so neither may collect anything.
+    assert_eq!(extended_score("'foo", "foo", &cfg), Some(7000 - 3 + 3000));
+    assert_eq!(extended_score("'foo", "FOO", &cfg), None);
+}
+
+/// A term normalization changed beyond case was not typed the way any candidate spells it, and
+/// its folded positions need not line up with the text as written, so it forfeits the bonus
+/// instead of guessing at one.
+#[test]
+fn a_term_needing_more_than_case_folding_forfeits_the_case_bonus() {
+    let cfg = SearchConfig::default();
+    assert_eq!(
+        extended_score("'ｆｏｏ", "foo.txt", &cfg),
+        extended_score("'ｆｏｏ", "FOO.txt", &cfg)
+    );
+    // Same for a candidate normalization changed beyond case: the full-width text is scored
+    // through its normalized key, whose characters need not sit where the original's do.
+    assert_eq!(
+        extended_score("'foo", "ＦＯＯ.txt", &cfg),
+        extended_score("'foo", "ｆｏｏ.txt", &cfg)
     );
 }
 
@@ -71,17 +209,11 @@ fn exact_term_checks_later_phonetic_keys() {
             SearchKey::pinyin_initials("bjdx"),
         ],
     };
-    let mut matcher = GreedyMatcher;
+    let mut matcher = GreedyMatcher::default();
     let mut stats = SearchStats::default();
 
-    let scored = score_candidate(
-        "'bjdx",
-        &candidate,
-        &PlainBackend,
-        &mut matcher,
-        &cfg,
-        &mut stats,
-    );
+    let prepared = PreparedQuery::new("'bjdx", &PlainBackend, &cfg);
+    let scored = score_candidate(&prepared, &candidate, &mut matcher, &cfg, &mut stats);
 
     assert!(scored.is_some());
     assert_eq!(scored.unwrap().key_index, 2);
