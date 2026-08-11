@@ -1,7 +1,7 @@
 # Yuru
 
 <p align="center">
-  <img src="docs/assets/yuru-icon.svg" alt="Yuru icon" width="128">
+  <img src="https://raw.githubusercontent.com/Ameyanagi/yuru/main/docs/assets/yuru-icon.svg" alt="Yuru icon" width="128">
 </p>
 
 [![CI](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml/badge.svg)](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml)
@@ -28,7 +28,18 @@ output.
 
 ## Demo Video
 
+<!--
+  The bare attachment URL below renders as an inline player on GitHub only.
+  crates.io strips <video> and does not expand attachment links, so the linked
+  YouTube thumbnail underneath is the fallback that works in both places.
+
+  Keep every repo asset link in this file absolute. crates.io rewrites relative
+  paths to .../raw/HEAD/crates/yuru/<path>, which 404s for this workspace layout.
+-->
+
 https://github.com/user-attachments/assets/37f9643f-0ed1-4cca-8a15-c4a8bd78cf34
+
+[![Watch the Yuru demo on YouTube](https://img.youtube.com/vi/_RyVr3VLULo/maxresdefault.jpg)](https://youtu.be/_RyVr3VLULo)
 
 ## Why Yuru instead of fzf?
 
