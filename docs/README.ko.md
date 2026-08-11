@@ -16,7 +16,7 @@ Yuru는 기본적으로 사용자 영역에 설치되므로 `sudo`가 필요하�
 macOS / Linux 대화형 설치:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh -s -- --all --version v0.1.11
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --all --version v0.2.0
 ```
 
 기본 설치 위치는 `~/.local/bin`입니다. `XDG_BIN_HOME` 또는 `YURU_INSTALL_BIN_DIR`로 변경할 수 있습니다.
@@ -30,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh
 한국어를 기본 검색 언어로 설정하고 대화형 설치의 값을 명시하려면:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh -s -- --all --version v0.1.11 --default-lang ko --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --all --version v0.2.0 --default-lang ko --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 나중에 설정을 바꾸려면 `yuru configure`를 실행합니다.
@@ -38,8 +38,8 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.11"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.2.0"
 ```
 
 `%LOCALAPPDATA%\Yuru\bin`에 `yuru.exe`를 설치하고, 사용자 PATH와 PowerShell profile을 업데이트합니다.
@@ -47,14 +47,14 @@ Invoke-Expression "& { $script } -All -Version v0.1.11"
 한국어를 기본 언어로 설정하려면 다음처럼 명시합니다.
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.1.11 -DefaultLang ko -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.2.0 -DefaultLang ko -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
 ```
 
 바이너리만 설치:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.1.11/install | sh -s -- --version v0.1.11
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --version v0.2.0
 ```
 
 crates.io에서 설치:
@@ -162,8 +162,8 @@ version tag를 푸시하면 GitHub Actions가 macOS, Linux, Windows용 릴리스
 release workflow는 tag push에서만 실행되며, tag는 crate version과 일치해야 합니다.
 
 ```sh
-git tag v0.1.11
-git push origin v0.1.11
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ## 라이선스
