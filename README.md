@@ -28,11 +28,7 @@ output.
 
 ## Demo Video
 
-![Yuru command demo](docs/assets/yuru-demo.gif)
-
-[Watch the full-quality MP4 demo](demo.mp4)
-
-<video src="demo.mp4" controls muted playsinline width="100%"></video>
+https://github.com/user-attachments/assets/37f9643f-0ed1-4cca-8a15-c4a8bd78cf34
 
 ## Why Yuru instead of fzf?
 
