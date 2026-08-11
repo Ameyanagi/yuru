@@ -165,6 +165,57 @@ fn bench_plain_search_100k_nucleo(c: &mut Criterion) {
     });
 }
 
+fn bench_plain_search_100k_extended(c: &mut Criterion) {
+    let cfg = SearchConfig::default();
+    let candidates = (0..100_000).map(|idx| format!("src/module_{idx}/README.md"));
+    let index = build_index(candidates, &PlainBackend, &cfg);
+
+    c.bench_function("plain_search_100k_extended_two_fuzzy_terms", |b| {
+        b.iter(|| {
+            search(
+                black_box("read module"),
+                black_box(&index),
+                &PlainBackend,
+                black_box(&cfg),
+            )
+        });
+    });
+    c.bench_function("plain_search_100k_extended_anchored_terms", |b| {
+        b.iter(|| {
+            search(
+                black_box("^src md$ !test"),
+                black_box(&index),
+                &PlainBackend,
+                black_box(&cfg),
+            )
+        });
+    });
+}
+
+fn bench_ja_search_extended(c: &mut Criterion) {
+    let cfg = SearchConfig::default();
+    let candidates = (0..10_000).map(|idx| {
+        if idx % 100 == 0 {
+            format!("カメラ_{idx}.txt")
+        } else {
+            format!("notes/{idx}.txt")
+        }
+    });
+    let backend = JapaneseBackend::default();
+    let index = build_index(candidates, &backend, &cfg);
+
+    c.bench_function("ja_search_10k_extended_kamera_txt", |b| {
+        b.iter(|| {
+            search(
+                black_box("kamera txt"),
+                black_box(&index),
+                &backend,
+                black_box(&cfg),
+            )
+        });
+    });
+}
+
 fn bench_ja_search(c: &mut Criterion) {
     let cfg = SearchConfig::default();
     let candidates = (0..10_000).map(|idx| {
@@ -335,6 +386,8 @@ criterion_group!(
     bench_plain_search,
     bench_plain_search_100k,
     bench_plain_search_100k_nucleo,
+    bench_plain_search_100k_extended,
+    bench_ja_search_extended,
     bench_ja_search,
     bench_ja_search_100k,
     bench_zh_search,

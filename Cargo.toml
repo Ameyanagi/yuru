@@ -56,6 +56,7 @@ shlex = "1"
 tempfile = "3"
 toml = "0.8"
 unicode-normalization = "0.1"
+unicode-segmentation = "1.13"
 unicode-width = "0.2"
 yuru-core = { path = "crates/yuru-core", version = "0.1.11" }
 yuru-ja = { path = "crates/yuru-ja", version = "0.1.11" }

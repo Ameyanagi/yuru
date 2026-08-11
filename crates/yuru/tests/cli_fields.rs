@@ -11,7 +11,9 @@ fn cli_explain_reports_plain_match_key() {
         .assert()
         .success()
         .stdout(predicate::str::contains("README.md\n  score:"))
-        .stdout(predicate::str::contains("matched key: Normalized"))
+        // The matcher folds case itself, so `read` matches the original key directly
+        // instead of only reaching the lowercased normalized key.
+        .stdout(predicate::str::contains("matched key: Original"))
         .stdout(predicate::str::contains("matched text: read"))
         .stdout(predicate::str::contains("source span: 0..4"));
 }

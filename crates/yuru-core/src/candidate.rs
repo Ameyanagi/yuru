@@ -37,6 +37,11 @@ pub struct SearchKey {
     pub kind: KeyKind,
     /// Score adjustment for this key type.
     pub weight: i32,
+    /// True when case folding alone reproduces this key from the candidate's display text,
+    /// which makes the key redundant for a case-insensitive search whose matcher folds case
+    /// the same way (see [`crate::MatcherBackend::folds_case`]). A matcher that does not
+    /// claim to fold case is still offered the key.
+    pub case_fold_only: bool,
     /// Optional map from key character positions back to original source spans.
     pub source_map: Option<Box<[Option<SourceSpan>]>>,
 }
@@ -93,6 +98,7 @@ impl SearchKey {
             text: text.into(),
             kind,
             weight: Self::default_weight(kind),
+            case_fold_only: false,
             source_map: None,
         }
     }
@@ -112,6 +118,12 @@ impl SearchKey {
             KeyKind::KoreanKeyboard => 1750,
             KeyKind::LearnedAlias => 2500,
         }
+    }
+
+    /// Marks whether case folding alone reproduces this key from the display text.
+    pub fn with_case_fold_only(mut self, case_fold_only: bool) -> Self {
+        self.case_fold_only = case_fold_only;
+        self
     }
 
     /// Attaches a source map to this key.
@@ -186,12 +198,34 @@ pub fn build_candidate(
     let display = display.into();
     let mut keys = vec![SearchKey::original(display.clone())];
     if config.normalize {
-        keys.push(SearchKey::normalized(backend.normalize_candidate(&display)));
+        keys.push(normalized_base_key(&display, backend));
     }
     keys.extend(backend.build_candidate_keys(&display, config.key_budget()));
     let keys = dedup_and_limit_keys(keys, config);
 
     Candidate { id, display, keys }
+}
+
+/// Builds the base normalized key for `display`.
+///
+/// The key is flagged as case-fold-only when normalization changed nothing that
+/// [`crate::matcher::fold_case_char`] does not already do, which is the common case for
+/// plain ASCII text. A case-insensitive search whose matcher folds with that same mapping
+/// then scores only the original key instead of scoring both keys with the same result; a
+/// matcher that does not claim that folding keeps being offered both keys.
+fn normalized_base_key(display: &str, backend: &dyn LanguageBackend) -> SearchKey {
+    let normalized = backend.normalize_candidate(display);
+    // The byte comparison already covers unchanged text and ASCII case folding, which is
+    // the common case; the character comparison only runs for text whose non-ASCII
+    // characters changed, such as folded case, width, or kana.
+    let case_fold_only = normalized
+        .as_bytes()
+        .eq_ignore_ascii_case(display.as_bytes())
+        || normalized
+            .chars()
+            .eq(display.chars().map(crate::matcher::fold_case_char));
+
+    SearchKey::normalized(normalized).with_case_fold_only(case_fold_only)
 }
 
 /// Builds an index from input strings, using Rayon for large inputs.

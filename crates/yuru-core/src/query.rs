@@ -136,9 +136,27 @@ pub(crate) fn prepare_query_variants(
     )
 }
 
-/// Returns whether a key kind is disabled by case/normalization settings.
-pub(crate) fn key_blocked_by_config(kind: KeyKind, config: &SearchConfig) -> bool {
-    kind == KeyKind::Normalized && (config.case_sensitive || !config.normalize)
+/// Returns whether a search key is disabled by case/normalization settings.
+///
+/// The normalized key is wrong for case-sensitive search and absent when normalization is
+/// off. Beyond that, a normalized key that only case-folds the display text
+/// ([`crate::SearchKey::case_fold_only`]) is redundant *when whatever will score it folds
+/// case the same way*: the original key then carries the same match with a higher weight,
+/// so scoring both keys can only repeat work.
+///
+/// `scorer_folds_case` carries that condition, and must be true only when the scorer folds
+/// with [`crate::matcher::fold_case_char`], the mapping the flag was computed with. Yuru's
+/// own scoring paths pass `!config.case_sensitive`; paths that score through a
+/// caller-supplied [`crate::MatcherBackend`] pass
+/// [`crate::MatcherBackend::folds_case`], whose default `false` keeps the folded key on
+/// offer for a matcher that never claimed to fold case.
+pub(crate) fn key_blocked_by_config(
+    key: &crate::SearchKey,
+    config: &SearchConfig,
+    scorer_folds_case: bool,
+) -> bool {
+    key.kind == KeyKind::Normalized
+        && (config.case_sensitive || !config.normalize || (key.case_fold_only && scorer_folds_case))
 }
 
 /// Returns whether a query variant is disabled by case/normalization settings.

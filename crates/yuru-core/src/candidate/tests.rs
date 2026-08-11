@@ -23,6 +23,36 @@ fn original_key_is_always_present() {
 }
 
 #[test]
+fn normalized_key_is_case_fold_only_when_normalization_only_folded_case() {
+    let cfg = SearchConfig::default();
+    for display in ["README.md", "東京駅", "plain.txt", "ÉA.txt"] {
+        let cand = build_candidate(0, display, &PlainBackend, &cfg);
+        let normalized = cand
+            .keys
+            .iter()
+            .find(|key| key.kind == KeyKind::Normalized)
+            .expect("normalized key");
+        assert!(normalized.case_fold_only, "{display}");
+    }
+}
+
+#[test]
+fn normalized_key_is_kept_when_normalization_did_more_than_fold_case() {
+    let cfg = SearchConfig::default();
+    // Fullwidth ASCII, halfwidth katakana, and the prolonged sound mark all need the
+    // normalized key, because case folding alone cannot produce it.
+    for display in ["ＡＢＣ.txt", "ｶﾒﾗ.txt", "ハッピー.pdf", "İstanbul"] {
+        let cand = build_candidate(0, display, &PlainBackend, &cfg);
+        let normalized = cand
+            .keys
+            .iter()
+            .find(|key| key.kind == KeyKind::Normalized)
+            .expect("normalized key");
+        assert!(!normalized.case_fold_only, "{display}");
+    }
+}
+
+#[test]
 fn named_constructors_use_default_weights() {
     let key = SearchKey::learned_alias("nihonbashi");
 

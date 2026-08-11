@@ -9,16 +9,39 @@ use yuru_core::{search, Candidate, LanguageBackend, ScoredCandidate, SearchConfi
 
 pub(crate) const SEARCH_WORKER_POLL: Duration = Duration::from_millis(16);
 
+/// The search a result set answers.
+///
+/// Query text alone no longer identifies a search: with live smart case the same text is
+/// searched under two different case policies depending on what has been typed, so
+/// results for `ab` (case-insensitive) are not results for `abC` (case-sensitive). Any
+/// further part of [`SearchConfig`] that starts following the live query belongs here
+/// too, so that a result set can always be compared against the live search.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchIdentity {
+    pub(crate) query: String,
+    pub(crate) case_sensitive: bool,
+}
+
+impl SearchIdentity {
+    /// Returns the identity of searching `query` under `config`.
+    pub(crate) fn new(query: &str, config: &SearchConfig) -> Self {
+        Self {
+            query: query.to_string(),
+            case_sensitive: config.case_sensitive,
+        }
+    }
+}
+
 struct SearchRequest {
     seq: u64,
-    query: String,
+    identity: SearchIdentity,
     candidates: Option<Arc<Vec<Candidate>>>,
     config: SearchConfig,
 }
 
 pub(crate) struct SearchResponse {
     pub(crate) seq: u64,
-    pub(crate) query: String,
+    pub(crate) identity: SearchIdentity,
     pub(crate) results: Vec<ScoredCandidate>,
 }
 
@@ -50,26 +73,22 @@ impl SearchWorker {
                     continue;
                 };
 
+                let query = request.identity.query.as_str();
                 let results = if let Some(candidates) = &request.candidates {
                     search(
-                        &request.query,
+                        query,
                         candidates.as_ref(),
                         backend.as_ref(),
                         &request.config,
                     )
                 } else {
-                    search(
-                        &request.query,
-                        &owned_candidates,
-                        backend.as_ref(),
-                        &request.config,
-                    )
+                    search(query, &owned_candidates, backend.as_ref(), &request.config)
                 };
 
                 if response_sender
                     .send(SearchResponse {
                         seq: request.seq,
-                        query: request.query,
+                        identity: request.identity,
                         results,
                     })
                     .is_err()
@@ -88,22 +107,27 @@ impl SearchWorker {
     pub(crate) fn request(
         &mut self,
         seq: u64,
-        query: String,
+        identity: SearchIdentity,
         candidates: Arc<Vec<Candidate>>,
         config: SearchConfig,
     ) {
         let _ = self.sender.send(SearchCommand::Search(SearchRequest {
             seq,
-            query,
+            identity,
             candidates: Some(candidates),
             config,
         }));
     }
 
-    pub(crate) fn request_owned(&mut self, seq: u64, query: String, config: SearchConfig) {
+    pub(crate) fn request_owned(
+        &mut self,
+        seq: u64,
+        identity: SearchIdentity,
+        config: SearchConfig,
+    ) {
         let _ = self.sender.send(SearchCommand::Search(SearchRequest {
             seq,
-            query,
+            identity,
             candidates: None,
             config,
         }));
@@ -141,7 +165,8 @@ pub(crate) fn request_snapshot_search(
 ) {
     *search_seq = search_seq.saturating_add(1);
     *latest_requested_seq = *search_seq;
-    worker.request(*search_seq, query.to_string(), candidates, config);
+    let identity = SearchIdentity::new(query, &config);
+    worker.request(*search_seq, identity, candidates, config);
 }
 
 pub(crate) fn request_owned_search(
@@ -153,5 +178,6 @@ pub(crate) fn request_owned_search(
 ) {
     *search_seq = search_seq.saturating_add(1);
     *latest_requested_seq = *search_seq;
-    worker.request_owned(*search_seq, query.to_string(), config);
+    let identity = SearchIdentity::new(query, &config);
+    worker.request_owned(*search_seq, identity, config);
 }

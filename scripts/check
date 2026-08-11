@@ -13,6 +13,7 @@ bash -n scripts/check
 bash -n scripts/bench
 bash -n scripts/cargo-env
 bash -n scripts/install-hooks
+bash -n scripts/qa/build-baseline
 bash -n .githooks/pre-commit
 bash -n .githooks/pre-push
 

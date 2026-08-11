@@ -12,7 +12,7 @@ use crossterm::{
     execute,
     terminal::{enable_raw_mode, EnterAlternateScreen},
 };
-use yuru_core::{Candidate, LanguageBackend, SearchConfig};
+use yuru_core::{Candidate, LanguageBackend, ScoredCandidate, SearchConfig};
 
 use crate::actions::apply_interactive_action;
 use crate::api::{CandidateStreamMessage, TuiOptions, TuiOutcome};
@@ -20,9 +20,9 @@ use crate::keys::{classify_key, KeyDecision};
 use crate::preview::PreviewCache;
 use crate::render::{preview_geometry, render, RenderContext, Viewport};
 use crate::search_worker::{
-    request_owned_search, request_snapshot_search, SearchWorker, SEARCH_WORKER_POLL,
+    request_owned_search, request_snapshot_search, SearchIdentity, SearchWorker, SEARCH_WORKER_POLL,
 };
-use crate::state::TuiState;
+use crate::state::{SelectionTarget, TuiState};
 use crate::terminal::TerminalGuard;
 use crate::TuiAction;
 
@@ -43,10 +43,141 @@ pub(crate) fn is_actionable_key_event(key: &KeyEvent) -> bool {
     matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
 
-fn read_actionable_key_event() -> Result<Option<KeyEvent>> {
-    match event::read()? {
-        Event::Key(key) if is_actionable_key_event(&key) => Ok(Some(key)),
-        _ => Ok(None),
+/// Meaning a terminal event has for the interaction loop.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TerminalEvent {
+    /// An actionable key press or repeat.
+    Key(KeyEvent),
+    /// An event that invalidates the painted frame, such as a terminal resize.
+    Redraw,
+    /// An event the interface does not react to.
+    Ignore,
+}
+
+/// Maps a terminal event to its interaction-loop meaning.
+///
+/// A resize invalidates the painted frame, so it has to repaint even though it carries no
+/// action; the viewport is recomputed on every loop iteration.
+pub(crate) fn classify_terminal_event(event: &Event) -> TerminalEvent {
+    match event {
+        Event::Key(key) if is_actionable_key_event(key) => TerminalEvent::Key(*key),
+        Event::Resize(..) => TerminalEvent::Redraw,
+        _ => TerminalEvent::Ignore,
+    }
+}
+
+fn read_terminal_event() -> Result<TerminalEvent> {
+    Ok(classify_terminal_event(&event::read()?))
+}
+
+/// Blocks until an event the interaction loop reacts to arrives.
+fn read_reactive_terminal_event() -> Result<TerminalEvent> {
+    loop {
+        match read_terminal_event()? {
+            TerminalEvent::Ignore => {}
+            event => return Ok(event),
+        }
+    }
+}
+
+/// Resolves the case sensitivity to use for `query`.
+///
+/// With smart case active the mode follows the live query, matching fzf. The explicit
+/// `--ignore-case` / `--no-ignore-case` overrides are baked into `config` instead and
+/// never change while the user types.
+pub(crate) fn resolve_case_sensitive(config: &SearchConfig, smart_case: bool, query: &str) -> bool {
+    if smart_case {
+        query.chars().any(char::is_uppercase)
+    } else {
+        config.case_sensitive
+    }
+}
+
+/// Returns the search config for `query` with live smart case applied.
+pub(crate) fn search_config_for_query(
+    config: &SearchConfig,
+    smart_case: bool,
+    query: &str,
+) -> SearchConfig {
+    SearchConfig {
+        case_sensitive: resolve_case_sensitive(config, smart_case, query),
+        ..config.clone()
+    }
+}
+
+/// Returns the identity of the search the live query asks for.
+///
+/// This is what an applied result set is compared against: it has to agree on both the
+/// query text and the case policy that text resolves to, because smart case makes the
+/// policy follow the query.
+pub(crate) fn live_search_identity(
+    config: &SearchConfig,
+    smart_case: bool,
+    query: &str,
+) -> SearchIdentity {
+    SearchIdentity {
+        query: query.to_string(),
+        case_sensitive: resolve_case_sensitive(config, smart_case, query),
+    }
+}
+
+/// A result set together with the search it answers.
+///
+/// Rows whose identity is not the live one are stale: they are still painted, because
+/// blanking the list on every keystroke of a slow search would be worse, but they are
+/// never turned into an outcome.
+#[derive(Default)]
+pub(crate) struct ResultSet {
+    pub(crate) identity: Option<SearchIdentity>,
+    pub(crate) rows: Vec<ScoredCandidate>,
+}
+
+impl ResultSet {
+    pub(crate) fn rows(&self) -> &[ScoredCandidate] {
+        &self.rows
+    }
+
+    /// Returns whether these rows answer `live`.
+    pub(crate) fn is_current(&self, live: &SearchIdentity) -> bool {
+        self.identity.as_ref() == Some(live)
+    }
+}
+
+/// An accept that has been committed but whose result set has not landed yet.
+///
+/// It carries the selection as it was when the key was pressed. Resolving it against the
+/// live state instead would hand the user whatever row moved into that place.
+pub(crate) struct PendingAccept {
+    pub(crate) target: SelectionTarget,
+    pub(crate) expect: Option<String>,
+}
+
+impl PendingAccept {
+    /// Captures the accept the user just made.
+    pub(crate) fn capture(state: &TuiState, expect: Option<String>) -> Self {
+        Self {
+            target: state.target(),
+            expect,
+        }
+    }
+}
+
+/// Turns a selection into an outcome by resolving it against `rows`.
+pub(crate) fn accept_outcome(
+    state: &TuiState,
+    target: SelectionTarget,
+    rows: &[ScoredCandidate],
+    multi: bool,
+    expect: Option<String>,
+) -> TuiOutcome {
+    let ids = state.accepted_ids(target, rows, multi);
+    if ids.is_empty() {
+        return TuiOutcome::NoSelection;
+    }
+    TuiOutcome::Accepted {
+        ids,
+        query: state.query().to_string(),
+        expect,
     }
 }
 
@@ -69,7 +200,8 @@ pub fn run_interactive(
     let mut search_seq = 0;
     let mut latest_requested_seq = 0;
     let mut latest_applied_seq = 0;
-    let mut results = Vec::new();
+    let mut results = ResultSet::default();
+    let mut pending_accept: Option<PendingAccept> = None;
     let mut render_needed = true;
     request_snapshot_search(
         &mut search_worker,
@@ -77,16 +209,37 @@ pub fn run_interactive(
         &mut latest_requested_seq,
         state.query(),
         candidates.clone(),
-        config.clone(),
+        search_config_for_query(&config, options.smart_case, state.query()),
     );
 
     loop {
+        let live = live_search_identity(&config, options.smart_case, state.query());
         while let Some(response) = search_worker.try_recv() {
-            if response.seq >= latest_applied_seq && response.query == state.query() {
+            if response.seq >= latest_applied_seq && response.identity == live {
                 latest_applied_seq = response.seq;
-                results = response.results;
-                state.clamp_selection(results.len());
+                results = ResultSet {
+                    identity: Some(response.identity),
+                    rows: response.results,
+                };
+                // Rows were replaced wholesale, so the cursor is re-resolved from what
+                // it is pointing at rather than left on a position that now means a
+                // different candidate.
+                state.reselect(results.rows());
                 render_needed = true;
+            }
+        }
+
+        // An accept pressed while the rows belonged to an earlier search finishes here,
+        // once the search it was meant for has landed.
+        if results.is_current(&live) {
+            if let Some(accept) = pending_accept.take() {
+                return Ok(accept_outcome(
+                    &state,
+                    accept.target,
+                    results.rows(),
+                    options.multi,
+                    accept.expect,
+                ));
             }
         }
 
@@ -96,12 +249,12 @@ pub fn run_interactive(
             viewport,
             options.layout,
             has_prompt,
-            options.preview.is_some() && !results.is_empty(),
+            options.preview.is_some() && !results.rows().is_empty(),
         );
         preview_cache.request_for_selection(
             options.preview.as_ref(),
             options.preview_shell.as_deref(),
-            &results,
+            results.rows(),
             &state,
             preview_geometry,
             options.preview_image_protocol,
@@ -126,7 +279,10 @@ pub fn run_interactive(
                 preview: preview_cache.render(),
                 style: &options.style,
                 highlight_line: options.highlight_line,
-                case_sensitive: config.case_sensitive,
+                // Highlighting marks the live query text, so it uses that text's own case
+                // policy: a stale row that the live query no longer matches then paints
+                // without highlights instead of claiming a match it does not have.
+                case_sensitive: live.case_sensitive,
                 multi: options.multi,
                 no_input: options.no_input,
                 pointer: &options.pointer,
@@ -134,42 +290,57 @@ pub fn run_interactive(
                 ellipsis: &options.ellipsis,
                 ansi: options.ansi,
             };
-            render(&mut output, &state, &results, render_context)?;
+            render(&mut output, &state, results.rows(), render_context)?;
             render_needed = false;
         }
 
         let poll_timeout = interaction_poll_timeout(
             preview_cache.next_poll_timeout(),
-            (latest_applied_seq < latest_requested_seq).then_some(SEARCH_WORKER_POLL),
+            (pending_accept.is_some() || latest_applied_seq < latest_requested_seq)
+                .then_some(SEARCH_WORKER_POLL),
             None,
         );
-        let key = if let Some(timeout) = poll_timeout {
+        let terminal_event = if let Some(timeout) = poll_timeout {
             if !event::poll(timeout)? {
                 continue;
             }
-            let Some(key) = read_actionable_key_event()? else {
-                continue;
-            };
-            key
+            read_terminal_event()?
         } else {
-            loop {
-                if let Some(key) = read_actionable_key_event()? {
-                    break key;
-                }
+            read_reactive_terminal_event()?
+        };
+        let key = match terminal_event {
+            TerminalEvent::Key(key) => key,
+            TerminalEvent::Redraw => {
+                render_needed = true;
+                continue;
             }
+            TerminalEvent::Ignore => continue,
         };
 
-        match classify_key(key, viewport.rows, &options.expect_keys, &options.bindings) {
+        let decision = classify_key(key, viewport.rows, &options.expect_keys, &options.bindings);
+        if pending_accept.is_some() {
+            // The accept is already committed and only waits for its result set. Abort
+            // still applies; anything else would retarget a decision the user has made.
+            if matches!(decision, KeyDecision::Abort) {
+                return Ok(TuiOutcome::Aborted);
+            }
+            continue;
+        }
+        match decision {
             KeyDecision::Accept(expect) => {
-                let ids = state.accepted_ids(&results, options.multi);
-                if ids.is_empty() {
-                    return Ok(TuiOutcome::NoSelection);
+                if results.is_current(&live) {
+                    return Ok(accept_outcome(
+                        &state,
+                        state.target(),
+                        results.rows(),
+                        options.multi,
+                        expect,
+                    ));
                 }
-                return Ok(TuiOutcome::Accepted {
-                    ids,
-                    query: state.query().to_string(),
-                    expect,
-                });
+                // The rows on screen answer an earlier query or case policy, so they may
+                // not match what is typed. Hold the accept until the live search lands,
+                // aimed at the candidate that was selected now.
+                pending_accept = Some(PendingAccept::capture(&state, expect));
             }
             KeyDecision::Abort => return Ok(TuiOutcome::Aborted),
             KeyDecision::Action(action) => {
@@ -178,7 +349,7 @@ pub fn run_interactive(
                     action,
                     &mut state,
                     &mut preview_cache,
-                    &results,
+                    results.rows(),
                     &options,
                     viewport.rows,
                 );
@@ -192,7 +363,7 @@ pub fn run_interactive(
                         &mut latest_requested_seq,
                         state.query(),
                         candidates.clone(),
-                        config.clone(),
+                        search_config_for_query(&config, options.smart_case, state.query()),
                     );
                 }
                 render_needed = true;
@@ -216,7 +387,8 @@ pub fn run_interactive_streaming(
 
     let mut state = TuiState::new(options.initial_query.clone());
     let mut candidates = Vec::new();
-    let mut results = Vec::new();
+    let mut results = ResultSet::default();
+    let mut pending_accept: Option<PendingAccept> = None;
     let mut reading = true;
     let mut dirty = true;
     let mut preview_cache = PreviewCache::default();
@@ -239,17 +411,38 @@ pub fn run_interactive_streaming(
                 &mut search_seq,
                 &mut latest_requested_seq,
                 state.query(),
-                config.clone(),
+                search_config_for_query(&config, options.smart_case, state.query()),
             );
             dirty = false;
         }
 
+        let live = live_search_identity(&config, options.smart_case, state.query());
         while let Some(response) = search_worker.try_recv() {
-            if response.seq >= latest_applied_seq && response.query == state.query() {
+            if response.seq >= latest_applied_seq && response.identity == live {
                 latest_applied_seq = response.seq;
-                results = response.results;
-                state.clamp_selection(results.len());
+                results = ResultSet {
+                    identity: Some(response.identity),
+                    rows: response.results,
+                };
+                // Rows were replaced wholesale, so the cursor is re-resolved from what
+                // it is pointing at rather than left on a position that now means a
+                // different candidate.
+                state.reselect(results.rows());
                 render_needed = true;
+            }
+        }
+
+        // An accept pressed while the rows belonged to an earlier search finishes here,
+        // once the search it was meant for has landed.
+        if results.is_current(&live) {
+            if let Some(accept) = pending_accept.take() {
+                return Ok(accept_outcome(
+                    &state,
+                    accept.target,
+                    results.rows(),
+                    options.multi,
+                    accept.expect,
+                ));
             }
         }
 
@@ -259,12 +452,12 @@ pub fn run_interactive_streaming(
             viewport,
             options.layout,
             has_prompt,
-            options.preview.is_some() && !results.is_empty(),
+            options.preview.is_some() && !results.rows().is_empty(),
         );
         preview_cache.request_for_selection(
             options.preview.as_ref(),
             options.preview_shell.as_deref(),
-            &results,
+            results.rows(),
             &state,
             preview_geometry,
             options.preview_image_protocol,
@@ -290,7 +483,9 @@ pub fn run_interactive_streaming(
                 preview: preview_cache.render(),
                 style: &options.style,
                 highlight_line: options.highlight_line,
-                case_sensitive: config.case_sensitive,
+                // See the note in `run_interactive`: highlighting marks the live query
+                // text, so it uses that text's own case policy.
+                case_sensitive: live.case_sensitive,
                 multi: options.multi,
                 no_input: options.no_input,
                 pointer: &options.pointer,
@@ -298,7 +493,7 @@ pub fn run_interactive_streaming(
                 ellipsis: &options.ellipsis,
                 ansi: options.ansi,
             };
-            render(&mut output, &state, &results, render_context)?;
+            render(&mut output, &state, results.rows(), render_context)?;
             render_needed = false;
         }
 
@@ -309,7 +504,8 @@ pub fn run_interactive_streaming(
         };
         let poll_interval = interaction_poll_timeout(
             preview_cache.next_poll_timeout(),
-            (latest_applied_seq < latest_requested_seq).then_some(SEARCH_WORKER_POLL),
+            (pending_accept.is_some() || latest_applied_seq < latest_requested_seq)
+                .then_some(SEARCH_WORKER_POLL),
             Some(source_poll_interval),
         )
         .unwrap_or(source_poll_interval);
@@ -317,21 +513,39 @@ pub fn run_interactive_streaming(
             continue;
         }
 
-        let Some(key) = read_actionable_key_event()? else {
-            continue;
+        let key = match read_terminal_event()? {
+            TerminalEvent::Key(key) => key,
+            TerminalEvent::Redraw => {
+                render_needed = true;
+                continue;
+            }
+            TerminalEvent::Ignore => continue,
         };
         let viewport = Viewport::from_terminal(options.height, !options.no_input);
-        match classify_key(key, viewport.rows, &options.expect_keys, &options.bindings) {
+        let decision = classify_key(key, viewport.rows, &options.expect_keys, &options.bindings);
+        if pending_accept.is_some() {
+            // The accept is already committed and only waits for its result set. Abort
+            // still applies; anything else would retarget a decision the user has made.
+            if matches!(decision, KeyDecision::Abort) {
+                return Ok(TuiOutcome::Aborted);
+            }
+            continue;
+        }
+        match decision {
             KeyDecision::Accept(expect) => {
-                let ids = state.accepted_ids(&results, options.multi);
-                if ids.is_empty() {
-                    return Ok(TuiOutcome::NoSelection);
+                if results.is_current(&live) {
+                    return Ok(accept_outcome(
+                        &state,
+                        state.target(),
+                        results.rows(),
+                        options.multi,
+                        expect,
+                    ));
                 }
-                return Ok(TuiOutcome::Accepted {
-                    ids,
-                    query: state.query().to_string(),
-                    expect,
-                });
+                // The rows on screen answer an earlier query or case policy, so they may
+                // not match what is typed. Hold the accept until the live search lands,
+                // aimed at the candidate that was selected now.
+                pending_accept = Some(PendingAccept::capture(&state, expect));
             }
             KeyDecision::Abort => return Ok(TuiOutcome::Aborted),
             KeyDecision::Action(action) => {
@@ -340,7 +554,7 @@ pub fn run_interactive_streaming(
                     action,
                     &mut state,
                     &mut preview_cache,
-                    &results,
+                    results.rows(),
                     &options,
                     viewport.rows,
                 );

@@ -4,6 +4,227 @@ All notable user-facing changes are tracked here.
 
 ## Unreleased
 
+### Breaking
+
+These affect code that depends on the `yuru-core` or `yuru-tui` libraries. The
+`yuru` command-line interface is unchanged.
+
+- `yuru-core`: `matcher::score_text`, `score_exact_text`, and `score_key` take an
+  additional `case_sensitive: bool` argument, because case folding moved into the
+  matcher.
+- `yuru-core`: `GreedyMatcher` and `ExactMatcher` are no longer unit structs; each
+  carries `pub case_sensitive: bool`. Replace the value expression `GreedyMatcher`
+  with `GreedyMatcher::default()` (case-insensitive) or `GreedyMatcher::new(flag)`.
+- `yuru-core`: `SearchKey` gains the public field `case_fold_only: bool`, which
+  breaks exhaustive struct literals. The `SearchKey::original` / `normalized` /
+  other named constructors are unaffected and default it to `false`.
+- `yuru-core`: `MatcherBackend` gains the method `folds_case`, which reports whether
+  the matcher case-folds the text it scores using the same one-character-to-one-character
+  lowercase mapping the index uses. It defaults to `false`, so existing
+  implementations keep compiling and keep being offered every search key. Override
+  it (`!case_sensitive`) only if the matcher really folds with that mapping; search
+  then skips the redundant case-folded key.
+- `yuru-core`: a `LanguageBackend` that overrides `normalize_candidate` must now
+  keep it equivalent to `normalize::normalize` for case- and width-insensitive
+  comparison, because extended-query exact matching reuses the resulting
+  normalized key instead of re-folding candidate text. Source-compatible, but a
+  new obligation on downstream backends.
+- `yuru-tui`: `TuiOptions` gains the public field `smart_case: bool`, which breaks
+  exhaustive struct literals. `..TuiOptions::default()` construction is
+  unaffected and preserves the previous fixed-case behavior.
+- `yuru-tui`: `TuiState::apply` takes the result list (`&[ScoredCandidate]`) where it
+  took a `result_len: usize`. The selection is now bound to the id of the candidate it
+  is on, so every move has to see the rows, not just how many there are. Callers that
+  passed a length pass the slice they took it from.
+- `yuru-tui`: `TuiState::marked` returns `&[usize]` (the marked ids in the order they
+  were marked) instead of `&HashSet<usize>`. Use the new `TuiState::is_marked(id)` for
+  membership.
+- `yuru-tui`: new public `SelectionTarget`, returned by `TuiState::target`. It is either
+  `Top` (nothing chosen since the query last changed; follow the top of the results) or
+  `Row(id)` (a specific candidate).
+
+### Changed
+
+- **Case-insensitive matching now prefers the candidate spelled the way you typed
+  the query.** Because the matcher folds case itself (see Fixed, below) instead of
+  matching through a lowercased key, a case-insensitive query is scored against the
+  candidate's original text, which still carries its word-boundary and camel-case
+  bonuses. That alone would have reordered every mixed-case result, since the old
+  preference for the literal spelling was an accident of key weights. A match that
+  folded nothing now collects an explicit exact-case bonus instead: 75 points,
+  between the camel-case bonus (70) and the word-boundary bonus (80), awarded once
+  per match and never per character, and inert for case-sensitive searches. It
+  applies to fuzzy and exact (`--exact`, `'term`) matching alike.
+
+  Net effect for query `readme` over `readme.md`, `README.md`, `ReadMe.md`, and
+  `readme_old.md`: the literal `readme.md` ranks first as it did before, and the one
+  change from the previous release is that `ReadMe.md` now outranks `README.md`,
+  because matching against the original text lets it keep its camel-case bonus.
+
+  Verified scope, comparing 257 command invocations against the previous release:
+  229 are byte-identical and 28 differ. All 28 are on a deliberately mixed-case
+  corpus, all are pure reorderings with an identical matching set and exit code,
+  and two of the 28 differ only in the score printed by `--explain`. 20 of them are
+  extended exact terms (`'readme`, `^src 'main`, `--exact` with several terms),
+  which reached the bonus later than the rest - see the Fixed entry below; those 20
+  are permutations once `--limit` is removed. Case-sensitive
+  matching (`--no-ignore-case`, or an uppercase query under default smart case),
+  case-insensitive `--algo fzf-v2` / `--algo nucleo`, and all Japanese, Korean, and
+  Chinese phonetic matching produce byte-identical output. Where `--limit`
+  truncates, a reordering can change which candidates fall inside the limit.
+  Case-*sensitive* `--algo fzf-v2` / `--algo nucleo` does change, for the separate
+  reason recorded under Fixed: it never applied the case policy at all before.
+- Improved multi-term query performance substantially. Extended fzf-style queries
+  parsed the query, re-expanded every term's query variants, and re-normalized
+  every candidate key once *per candidate*; all of that is now done once per
+  search, and exact terms reuse the candidate's existing normalized key. Extended
+  search also parallelizes large candidate sets with Rayon like the standard path
+  does. On 500k lines, `--filter 'ab cd'` went from 0.79s to 0.25s, which is now
+  the same cost as the equivalent `--no-extended` search - adding a space to a
+  query is no longer a 3x penalty. Per-term scaling improved as well:
+  `--filter 'ab cd ef gh'` went from 0.86s to 0.26s, so four terms now cost about
+  what two did.
+- Improved sorted-result selection for limits of 1024 or fewer. The bounded
+  top-results buffer replaced two linear scans per scored candidate with a binary
+  heap keyed on the full rank, so selection is now `O(log limit)` per candidate
+  instead of `O(limit)`. On 500k lines an unfiltered `--limit 1000` went from
+  0.78s to 0.32s; previously that path was 2.4x *slower* than not bounding results
+  at all, which defeated its purpose. Ranking output is unchanged, including
+  tiebreak-aware eviction when scores tie.
+- Improved indexed search throughput generally, as a consequence of the two changes
+  above: on the project's own benchmarks, plain search over 100k candidates is
+  0.64x its previous time (0.90x with `--algo nucleo`, which keeps scoring the
+  case-folded key because nucleo does not fold case the way the index does),
+  Japanese search over 100k is 0.76x, and Chinese search over 100k is 0.71x. Index
+  build time is unchanged, so none of this is paid for at indexing time.
+- Improved `--delimiter` performance: the delimiter regex is now compiled once at startup instead of once per input line per field expression (500k lines with `--nth 2 -d /`: 0.95s to 0.34s). An invalid `--delimiter` pattern is now reported at startup even when no field expression is used.
+
+### Fixed
+
+- Fixed East Asian and emoji rows corrupting the interactive layout: result rows, the prompt, headers, footers, the preview pane, and the selected-row background are now budgeted by terminal display columns instead of character counts, so a wide row no longer wraps. A wide character that does not fit in the remaining columns is dropped whole rather than split, and the `--ellipsis` string is charged in columns too (`..` costs two, `…` costs one).
+- Fixed accented and modified characters losing their trailing parts when a row was clipped. The column budget above was spent one Unicode scalar at a time, so a character that did fit still lost anything the terminal draws in the same cell: `日` followed by a combining acute accent rendered as a bare `日`, and `👩` followed by a skin-tone modifier rendered as a bare `👩`. The budget now advances one grapheme cluster at a time and a cluster is drawn whole or not at all, which also fixes the reverse error of under-charging: a keycap such as `#️⃣` is three scalars that print in two columns, and counting it as one column let those rows overflow.
+- Fixed a wide `--marker` shifting the interactive layout out of alignment: the gutter in front of each result was always charged as two columns, but a row prints the pointer only when it is selected and the marker only when it is marked. `--multi --marker 界` with nothing marked charged three columns for a two-column gutter, so the selected row's background stopped one cell short of the right edge. Each row is now charged for the pointer, blank, and marker it actually prints.
+- Fixed a `--marker` or `--pointer` wider than the terminal wrapping every row it appears on. Charging the gutter for the columns it prints (above) shrank the space left for the result text, but nothing bounded the gutter itself, and shrinking the result width saturates at zero and then stops constraining anything. In a 10-column terminal, `--multi --marker 界界界界界` with a row marked painted the one-column pointer plus the ten-column marker into eleven columns and wrapped the row. The gutter is now clipped to the viewport, the pointer first and the marker into whatever remains.
+- Fixed a row ending in zero-width characters being reported as too long and given an ellipsis it had not earned. The column budget stopped the moment it was full, leaving a trailing zero-width character unconsumed and therefore looking like dropped content: a two-column prompt of `ab` followed by U+200B rendered in a two-column terminal as `..` rather than `ab`. Zero-width text at the end of a row no longer counts as truncation.
+- Fixed a combining mark still being clipped off its base character when an ANSI colour sequence sat between them. Budgeting by grapheme cluster fixed this for plain text, but a control byte ends a cluster, so under `--ansi` a coloured `日` followed by a reset and then a combining acute was two clusters and the accent was dropped at the viewport edge. The scan now runs past a full budget through everything that costs no columns — colour sequences and zero-width scalars alike — and stops at the first character that would actually overflow, so the accent travels with its base and a trailing reset sequence is kept rather than left to leak into later output.
+- Fixed `--ignore-case` being defeated by `--literal` and by disabled normalization: the matcher now folds case itself instead of relying on the normalized search key, in fuzzy and in `--exact` mode.
+- Fixed case-insensitive matching treating `İ` (U+0130) as a plain `i`, which made `--exact --filter ia` report `İa` as a match even though it contains no `i`: the character's lowercase form is `i` followed by a combining dot above, and only the `i` was kept. Pairwise folding is now applied only where one character maps to exactly one character, since a comparison that expanded one side would report positions into text that no longer lines up with the text as written.
+- Fixed the above turning into the opposite error under `--literal`, where `--ignore-case` stopped folding `İ` at all. Refusing to fold it pairwise had left it reachable only through the normalized key, which `--literal` does not build, so `--filter $'i\u0307' --ignore-case --literal` found nothing in `İstanbul.txt` and `--exact` likewise. A case-insensitive comparison that finds nothing is now retried once with the character's full lowercase form written out on both sides, in fuzzy and in `--exact` mode. `--exact --filter ia` still does not match `İa`: writing the mapping out keeps the combining dot that sits between the `i` and the `a`. `İ` is the only character in Unicode with a lowercase form longer than one character, so nothing else is affected; a query that is a prefix of the written-out form (`--exact --filter i` against `İ`) matches, as it already did in every other mode and in v0.1.11. `--algo v2` / `--algo nucleo` under `--literal` is unchanged and still does not fold this character, because it folds with nucleo's own table.
+- Fixed a repetitive query making case-insensitive substring search quadratic in the length of each candidate, which let a few long lines stall the search. A query of 20,000 `a`s against a 40,000-character candidate went from 0.19s to 0.006s for ASCII and from 3.5s to 0.009s for non-ASCII text; matching results are unchanged.
+- Fixed `--algo fzf-v2` / `--algo nucleo` losing case-insensitive matches for
+  characters `nucleo-matcher`'s own case-folding table does not know: `--filter ɤ`
+  found nothing in `Ɤx`. 55 characters are affected (`Ɤ` U+A7CB, `Ᲊ` U+1C89, the
+  Garay block). Skipping the case-folded search key is now conditional on the matcher
+  folding case the same way the index does, which nucleo does not, so those keys stay
+  active on that path. Scoring that key back costs the nucleo path 1.8x its search
+  time on the 100k plain benchmark (5.6ms to 10.3ms), which is still 0.90x the 0.1.11
+  release; end to end over 500k lines, where reading input and building the index
+  dominate, `--algo v2` measures 1.00x-1.01x. The default `--algo greedy` is
+  unaffected, because yuru's own matchers do fold case the way the index does.
+- Fixed `--algo fzf-v2` / `--algo nucleo` ignoring the case policy entirely. Those
+  algorithms built their matcher with case-insensitivity hard-coded, so
+  `--no-ignore-case` and an uppercase query under default smart case both still
+  matched case-insensitively: `printf 'ABC\nabc\n' | yuru --filter abc
+  --no-ignore-case --algo nucleo` returned both lines instead of only `abc`. The
+  matcher is now configured from the requested policy, on the plain, extended, and
+  parallel paths alike, so those searches now behave like the default `--algo
+  greedy`. Case-insensitive searches on these algorithms are unchanged and remain
+  byte-identical to 0.1.11.
+- Fixed `--algo fzf-v2` / `--algo nucleo` **crashing** on a query containing an
+  uppercase letter. `nucleo-matcher` requires the caller to case-fold the query
+  before handing it over when the matcher is case-insensitive; yuru never did, so
+  nucleo's prefilter and its scoring matrix could disagree and abort the process
+  with `should have been caught by prefilter`. `yuru --filter ReadMe --algo nucleo`
+  over a list containing `lib/ReadMe1.md` exited 101 with no output. The query is
+  now folded with nucleo's own table before matching, for every case mode. Deciding
+  whether a query needs folding costs a table lookup per character, so it is
+  memoized on the query rather than repeated for every candidate; the remaining cost
+  is 1.03x-1.05x of the nucleo search path, or 1.08x of the 0.1.11 release for
+  `--filter abc --algo nucleo` over 500k lines (0.197s to 0.212s).
+- Fixed the exact-case bonus never reaching extended-query exact terms, which left
+  `'term`, `^term`, `term$`, `^term$`, and `'term'` ordering case variants by input
+  order. Those terms are compared against case-folded text on both sides, so the
+  information the bonus needs was gone before scoring: `printf 'FOO\nfoo\n' | yuru
+  --filter "'foo" --ignore-case` returned `FOO` first, and reversing the two input
+  lines reversed the answer. `'readme` scored `README.md` and `readme.md` at 9991
+  apiece, while the single-term `--exact readme` path correctly put the literal
+  `readme.md` first. All exact term forms now award the same 75 points on the same
+  terms as `--exact`, so the two paths agree and the winner no longer depends on
+  input order. Case-sensitive searches still collect nothing and keep their scores
+  exactly. A term that normalization changed beyond case (a full-width or kana
+  variant) matches as before and takes no bonus, since it was not typed the way any
+  candidate spells it.
+- Fixed a library embedder's own `MatcherBackend` silently losing matches. A matcher
+  passed to `search_with_stats` is never told the search's case policy, so a matcher
+  that is case-sensitive by construction reached differently cased candidates only
+  through the case-folded search key - which the new `case_fold_only` skip had
+  removed, turning `build_index(["ABC"])` plus query `abc` into no match at all. The
+  skip now applies only to matchers that report `MatcherBackend::folds_case`, so an
+  unmodified embedder behaves as it did in 0.1.11. The `yuru` command line was never
+  affected.
+- Added `--live-smart-case` as a **preview feature**, off by default. It re-evaluates smart
+  case as you type: an uppercase character switches to case-sensitive matching and
+  highlighting, and deleting it switches back, like fzf. Without it, case sensitivity is
+  derived once from the initial query and stays fixed for the session, exactly as in 0.1.x.
+  `--ignore-case` and `--no-ignore-case` remain hard overrides either way.
+
+  **This flag is preview quality and may be changed or removed in a later release. Do not
+  depend on it in scripts.** Letting the case policy change mid-session means a result set
+  can be on screen that was computed under the previous policy while the replacement search
+  is still running, and that has produced real defects during development. See
+  [Preview features](docs/fzf-compat.md#preview-features) for the known issues. It is
+  shipped off by default so the default interactive path keeps the 0.1.x behavior.
+- Fixed interactive `Enter` returning a line the query does not match when it was pressed
+  before the search for what you had just typed finished. Results were only checked
+  against the query text they were computed for, and never against the case policy, so
+  on a 400,000-line list typing `ab` and then `C` and `Enter` in one burst accepted
+  `ABC-match` even though the live query `abC` is case-sensitive under smart case and
+  excludes it; a lowercase keystroke could likewise accept a row from the previous query.
+  Every result set now carries the query *and* the resolved case policy it answers, and
+  an `Enter` that arrives while the rows on screen belong to an older search is held
+  until the search for the live query lands, then applied to those results (accepting
+  nothing if the live query matches nothing). Rows stay on screen and keep repainting
+  while that search runs, and `Ctrl-C` / `Esc` still abort immediately.
+- Fixed interactive `Enter` accepting a different row than the one under the cursor when
+  the result list was replaced between the keystroke and the accept. The selection was a
+  row *number* into a list that is swapped out wholesale every time a search lands, so
+  the number survived the swap while its meaning did not. Moving with `Ctrl-P` before
+  the search for what you had just typed finished, then pressing `Enter`, reapplied the
+  old row number to the new rows: on a 100,000-line list, typing `ab`, then `C`,
+  `Ctrl-P` and `Enter` in one burst returned the row *below* the one that was
+  highlighted. The selection now remembers which candidate it is on and finds that same
+  candidate again wherever the replacement puts it. If that candidate is not in the
+  replacement at all, the cursor resets to the top like fzf, and an `Enter` that was
+  already aimed at the vanished row returns nothing rather than whatever took its place.
+  Pressing `Enter` without having moved still takes the top row of the live results.
+  This affects the default configuration as well as `--live-smart-case`: any query
+  change replaces the list.
+- Fixed marked rows being silently dropped when the query was refined before `Enter`.
+  With `--multi`, the accepted set was the marks intersected with the *current* result
+  list, so marking two files, typing a few more characters, and pressing `Enter`
+  returned only the marks that still matched. Marks are identities, not positions:
+  everything you marked is now returned, as fzf does. They are also returned in the
+  order you marked them rather than in result order; for marks made within a single
+  result list from top to bottom, which is the common case, that is the same order as
+  before.
+- Fixed a superseded Japanese, Korean, or Chinese row being painted as a match. When a
+  phonetic key matches something the surface text does not spell (`hangeul` for `한글`),
+  the whole row is highlighted, since there is no character to point at. That was done
+  without checking that the key still matches what is typed, so a row left on screen
+  while its replacement search ran was drawn as a live match: query `h`, then `G`, and
+  `한글` stayed fully highlighted although `hG` matches nothing. The fallback now
+  applies only while the key the row was scored on still matches the query.
+- Fixed the interactive interface not repainting on a terminal resize, which left a stale, wrongly sized frame until the next keystroke.
+
+### Security
+
+- Updated the locked `rkyv` to 0.8.17, which fixes RUSTSEC-2026-0235 (an out-of-bounds
+  read reachable through checked deserialization of a crafted archive). `rkyv` reaches
+  yuru only as a transitive dependency of the bundled `lindera` Japanese dictionary, so
+  no yuru code path deserializes untrusted archives; the advisory nevertheless failed the
+  project's own `cargo deny check advisories` gate. Lockfile-only change, no behavior
+  difference.
+
 ## 0.1.11
 
 - Added readline-style TUI key bindings and Unicode-aware query cursor positioning ([#3](https://github.com/Ameyanagi/yuru/pull/3), contributed by [@gw31415](https://github.com/gw31415)).

@@ -9,7 +9,6 @@ use crossterm::{
     },
     terminal::{Clear, ClearType},
 };
-use unicode_width::UnicodeWidthStr;
 use yuru_core::{Candidate, ScoredCandidate};
 
 use crate::api::{TuiLayout, TuiStyle};
@@ -18,8 +17,9 @@ use crate::state::TuiState;
 
 use super::highlight::highlight_segments_for_result_with_ansi;
 use super::layout::{
-    content_start_row, footer_start_row, preview_width, scroll_offset, terminal_safe_text,
-    terminal_visible_text, truncate_to_width_with_ellipsis, visible_line_count, Viewport,
+    content_start_row, display_width, footer_start_row, preview_width, scroll_offset,
+    terminal_safe_text, terminal_visible_text, truncate_to_width_with_ellipsis, visible_line_count,
+    width_prefix, Viewport,
 };
 use super::preview_pane::render_preview;
 
@@ -113,16 +113,29 @@ pub(crate) fn render(
             content_top + row + header_rows
         };
         queue!(output, MoveTo(0, result_row as u16))?;
-        let mark = if context.multi && state.marked().contains(&result.id) {
+        let mark = if context.multi && state.is_marked(result.id) {
             context.marker
         } else {
             " "
         };
         let selected = offset + row == state.selected();
         let pointer = terminal_safe_text(context.pointer);
-        let marker = terminal_safe_text(context.marker);
-        let pointer_width = pointer.chars().count() + marker.chars().count();
-        let result_width = list_width.saturating_sub(pointer_width);
+        let mark = terminal_safe_text(mark);
+        // The gutter costs the display columns this row actually prints, which
+        // is not two and not a character count: the pointer appears only on the
+        // selected row (a one-column blank stands in elsewhere), and the marker
+        // — which may be wide — only when this result is marked.
+        //
+        // It is also bounded by the list, not merely subtracted from it. A
+        // pointer or marker wider than the viewport would otherwise paint past
+        // the last column and wrap the row, since shrinking the result width
+        // saturates at zero and stops constraining anything.
+        let pointer = if selected { pointer.as_ref() } else { " " };
+        let pointer = width_prefix(pointer, list_width);
+        let pointer_width = display_width(pointer);
+        let mark = width_prefix(mark.as_ref(), list_width.saturating_sub(pointer_width));
+        let gutter_width = pointer_width.saturating_add(display_width(mark));
+        let result_width = list_width.saturating_sub(gutter_width);
         let selected_row_background = selected && context.highlight_line;
         if selected_row_background {
             queue!(
@@ -137,7 +150,7 @@ pub(crate) fn render(
             if let Some(color) = context.style.pointer_color() {
                 queue!(output, SetForegroundColor(color))?;
             }
-            queue!(output, Print(pointer), Print(terminal_safe_text(mark)))?;
+            queue!(output, Print(pointer), Print(mark))?;
             if selected_row_background {
                 if let Some(color) = context.style.selected_fg_color() {
                     queue!(output, SetForegroundColor(color))?;
@@ -148,9 +161,9 @@ pub(crate) fn render(
                 queue!(output, SetForegroundColor(Color::Reset))?;
             }
         } else {
-            queue!(output, Print(" "), Print(terminal_safe_text(mark)))?;
+            queue!(output, Print(pointer), Print(mark))?;
         }
-        let printed = render_highlighted_result(
+        let printed_columns = render_highlighted_result(
             output,
             state.query(),
             result,
@@ -159,7 +172,7 @@ pub(crate) fn render(
             selected,
         )?;
         if selected_row_background {
-            let padding = result_width.saturating_sub(printed);
+            let padding = result_width.saturating_sub(printed_columns);
             if padding > 0 {
                 queue!(output, Print(" ".repeat(padding)))?;
             }
@@ -173,7 +186,8 @@ pub(crate) fn render(
     if let Some(prompt_row) = prompt_row {
         let safe_prompt = terminal_safe_text(context.prompt);
         let safe_query = terminal_safe_text(&state.query()[..state.cursor()]);
-        let cursor_column = safe_prompt.width() + safe_query.width();
+        let cursor_column =
+            display_width(safe_prompt.as_ref()) + display_width(safe_query.as_ref());
         queue!(
             output,
             MoveTo(
@@ -205,6 +219,8 @@ pub(crate) struct RenderContext<'a> {
     pub(crate) ansi: bool,
 }
 
+/// Prints one result row and returns the number of display columns it occupied,
+/// so a `bg+` row can be padded to exactly the list width.
 fn render_highlighted_result(
     output: &mut impl Write,
     query: &str,
@@ -213,7 +229,7 @@ fn render_highlighted_result(
     width: usize,
     selected: bool,
 ) -> Result<usize> {
-    let mut printed = 0;
+    let mut printed_columns = 0;
     for segment in highlight_segments_for_result_with_ansi(
         query,
         result,
@@ -229,7 +245,7 @@ fn render_highlighted_result(
                 SetAttribute(Attribute::Bold)
             )?;
         }
-        printed += terminal_visible_text(&segment.text).chars().count();
+        printed_columns += display_width(terminal_visible_text(&segment.text).as_ref());
         queue!(output, Print(segment.text))?;
         if segment.highlighted {
             if selected && context.highlight_line {
@@ -244,5 +260,5 @@ fn render_highlighted_result(
             queue!(output, SetAttribute(Attribute::NormalIntensity))?;
         }
     }
-    Ok(printed)
+    Ok(printed_columns)
 }
