@@ -196,8 +196,9 @@ __yuru_ctrl_r__() {
   umask 077
   tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-history.XXXXXX") || { umask "$old_umask"; return; }
   umask "$old_umask"
-  HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return; }
-  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore "${opt_args[@]}")
+  HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' |
+    awk '{ line[NR] = $0 } END { for (i = NR; i >= 1; i--) if (!seen[line[i]]++) print line[i] }' >"$tmp" || { rm -f "$tmp"; return; }
+  selected=$("${YURU_BIN:-yuru}" --scheme history --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore "${opt_args[@]}")
   status=$?
   rm -f "$tmp"
   [ "$status" -eq 0 ] || return
@@ -473,8 +474,8 @@ __yuru_ctrl_r__() {
   umask 077
   tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-history.XXXXXX") || { umask "$old_umask"; return }
   umask "$old_umask"
-  fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return }
-  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-multi --query "$LBUFFER" --input "$tmp" --fzf-compat ignore ${(@Q)${(z)opts}})
+  fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' | awk '!seen[$0]++' >"$tmp" || { rm -f "$tmp"; return }
+  selected=$("${YURU_BIN:-yuru}" --scheme history --no-multi --query "$LBUFFER" --input "$tmp" --fzf-compat ignore ${(@Q)${(z)opts}})
   yuru_status=$?
   rm -f "$tmp"
   (( yuru_status == 0 )) || return
@@ -778,8 +779,8 @@ function __yuru_ctrl_r__
         set tmpdir $TMPDIR
     end
     set -l tmp (mktemp "$tmpdir/yuru-history.XXXXXX")
-    history >$tmp
-    set -l selected ($yuru_bin --scheme history --tac --no-multi --query (commandline) --input "$tmp" --fzf-compat ignore $opts)
+    history | awk '!seen[$0]++' >$tmp
+    set -l selected ($yuru_bin --scheme history --no-multi --query (commandline) --input "$tmp" --fzf-compat ignore $opts)
     set -l status_code $status
     rm -f "$tmp"
     test $status_code -eq 0; or return
@@ -1028,7 +1029,9 @@ function Get-YuruHistoryLines {
     Get-History | ForEach-Object CommandLine | ForEach-Object {
         if ($_ -and $_.Trim().Length -gt 0) { $items.Add($_) }
     }
-    $items | Select-Object -Unique
+    $items.Reverse()
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+    $items | Where-Object { $seen.Add($_) }
 }
 
 function Clear-YuruPendingConsoleInput {
@@ -1113,7 +1116,7 @@ function Invoke-YuruCtrlR {
     $line = $null
     $cursor = $null
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-    $yuruArgs = @("--scheme", "history", "--tac", "--no-multi", "--query", $line, "--fzf-compat", "ignore") + $opts
+    $yuruArgs = @("--scheme", "history", "--no-multi", "--query", $line, "--fzf-compat", "ignore") + $opts
     $selected = @(Invoke-YuruWithItems -Items @(Get-YuruHistoryLines) -YuruArgs $yuruArgs | Select-Object -First 1)
     if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
     [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
@@ -1473,6 +1476,25 @@ alt_c_opts = "--preview 'ls {}'"
             assert!(
                 script.contains(scheme),
                 "{kind:?} integration lost `{scheme}`, so recency would stop breaking ties"
+            );
+
+            // --tac reverses the input, which reassigns the ids the history scheme
+            // breaks ties on. Every shell now hands over newest-first, so reversing
+            // would make the OLDEST of two equally good matches win.
+            assert!(
+                !script.contains("--tac"),
+                "{kind:?} history search reverses its input, inverting the recency tiebreak"
+            );
+
+            // Duplicate commands otherwise crowd out distinct matches and consume the
+            // result limit. Dedup keeps the newest copy, so recency stays meaningful.
+            let dedup = match kind {
+                ShellKind::PowerShell => "HashSet",
+                _ => "seen[",
+            };
+            assert!(
+                script.contains(dedup),
+                "{kind:?} history search stopped deduplicating"
             );
         }
     }

@@ -20,6 +20,21 @@ All notable user-facing changes are tracked here.
   differs by more than case *before* the match are likewise no longer penalized
   past it.
 
+- Fixed `CTRL-R` history search preferring the OLDEST of two equally good matches on
+  zsh and fish, and showing duplicate commands. Every shell now hands the same thing to
+  Yuru - newest first, with duplicates removed keeping the newest copy - and none of them
+  passes `--tac` any more.
+
+  The shells disagreed about both. zsh's `fc -rl` and fish's `history` emit newest first;
+  bash's `history` and PowerShell's emit oldest first. `--tac` reversed whichever it was
+  given, and since the ids it reassigns are what `--scheme history` breaks ties on,
+  recency came out backwards on the two shells that were already newest-first. Only
+  PowerShell deduplicated. Searching `sudo mount` on zsh therefore surfaced the oldest
+  matching invocation first, with `/bin/python ...` repeated six times alongside it.
+
+  Re-run `yuru configure`, or re-evaluate `yuru --bash` / `--zsh` / `--fish` /
+  `--powershell`, to pick up the corrected binding.
+
 - Fixed `CTRL-R` history search ranking by recency alone instead of by how well
   each entry matched. The generated bash, zsh, fish, and PowerShell integrations
   passed `--no-sort`, which returns every match in input order and never consults
