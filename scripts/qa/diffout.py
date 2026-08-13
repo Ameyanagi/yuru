@@ -172,7 +172,9 @@ def records(args, out):
 
 
 def excerpt(counter, limit=3):
-    return [r.decode("utf-8", "replace") for r, _ in itertools.islice(counter.items(), limit)]
+    """A stable diagnostic sample. `most_common` orders by count then insertion, so two
+    runs over the same corpus quote the same records and the excerpts stay comparable."""
+    return [r.decode("utf-8", "replace") for r, _ in counter.most_common(limit)]
 
 
 def ordered_pass():

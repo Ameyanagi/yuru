@@ -1462,9 +1462,17 @@ alt_c_opts = "--preview 'ls {}'"
                 !script.contains("--no-sort"),
                 "{kind:?} integration passes --no-sort, which discards match ranking"
             );
+            // Not `contains("history")`: every script names the shell's own history
+            // builtin two to five times, so that would pass with the scheme removed.
+            // The scheme is what makes recency the tiebreak once --no-sort is gone,
+            // so it has to be checked as the argument it actually is.
+            let scheme = match kind {
+                ShellKind::PowerShell => "\"--scheme\", \"history\"",
+                _ => "--scheme history",
+            };
             assert!(
-                script.contains("history"),
-                "{kind:?} integration lost its history scheme"
+                script.contains(scheme),
+                "{kind:?} integration lost `{scheme}`, so recency would stop breaking ties"
             );
         }
     }
