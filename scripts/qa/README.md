@@ -40,20 +40,61 @@ Overrides: `YURU_QA_BIN`, `YURU_QA_BASELINE`, `YURU_QA_DIR`.
 ## Differential output testing
 
 ```sh
-python3 scripts/qa/diffout.py          # 257 invocations, both binaries, byte compare
+python3 scripts/qa/diffout.py          # two passes, both binaries
 python3 scripts/qa/classify.py         # splits differences: pure reorder vs content
 ```
 
-Runs the same command through both binaries and compares stdout exactly, across
-plain and extended queries, every tiebreak and scheme, all four matcher algos,
-every case flag combination, field transforms and delimiters, all language
-backends, and the output-shape flags.
+`diffout.py` runs two passes and prints a count line for each.
+
+**Ordered pass — 257 invocations, byte compare.** The same command through both
+binaries, stdout compared exactly, across plain and extended queries, every
+tiebreak and scheme, all four matcher algos, every case flag combination, field
+transforms and delimiters, all language backends, and the output-shape flags.
+Every case pins `--limit`, so what it compares is an ordered top-N. Its counts are
+quoted in `CHANGELOG.md`; add cases, never renumber them.
+
+**Set pass — 237 invocations, unbounded, membership compare.** The families where
+the matching set could plausibly move — case flags, case flags crossed with all
+four algos, plain and extended queries, language backends — rerun with no
+`--limit` at all, comparing the multiset of output records and the exit code.
+Reordering is expected here and is deliberately not reported.
+
+`classify.py` reads the ordered pass only.
 
 Any difference is either intended or a regression — there is no third category.
 Classify every one. `classify.py` separates "same lines, different order" from
 "different lines", which is the distinction that matters when a ranking change is
 deliberate: a reorder interacting with `--limit` looks like a content change
 until you check the unbounded result.
+
+### What this does and does not catch
+
+The set pass exists because the ordered pass alone was reported, after 0.2.0
+shipped, as "28 of 257 differ" — and that was a floor, not the extent:
+
+- **A change confined below `--limit` is invisible to the ordered pass.**
+  `--filter ABC --ignore-case --literal` on `case.txt` goes from 1355 to 3973
+  matched lines between 0.1.11 and 0.2.0, a 2618-line set change, and the ordered
+  pass calls the case identical because the top 100 is unchanged. Eleven case-flag
+  invocations were masked this way.
+- **A family is only as good as its inputs.** Every `--algo` case in the ordered
+  pass uses a *lowercase* query, so it could not see that 0.1.11 aborts (exit 101,
+  `should have been caught by prefilter`) on many uppercase queries under
+  `--algo fzf-v2` / `--algo nucleo`, nor that those backends ignored the case
+  policy. Crossing the case-flag queries with the algos surfaces both.
+
+Still not covered, and worth knowing before quoting a number from this tool:
+
+- only the argument combinations enumerated in `cases()` / `set_cases()`, on the
+  three generated corpora — a flag or corpus shape that is not listed is untested
+- nothing interactive: key handling, selection, preview, redraw. Use `pty/`
+- `stderr` is captured but only the exit code is compared, so a changed warning or
+  error message does not register
+- ordering *within* the set pass, by construction
+
+When adding a family, ask which of the two passes would see the change you are
+guarding against. A ranking change needs the ordered pass; a matching-semantics
+change needs the set pass; most case-folding work needs both.
 
 ## Benchmarking
 

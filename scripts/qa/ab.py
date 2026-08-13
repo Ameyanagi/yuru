@@ -58,7 +58,7 @@ def main():
                      "base_runs": bt, "after_runs": at}
         print("%s\t%.4f\t%.4f\t%.2fx" % (name, b, a, a / b))
         sys.stdout.flush()
-    with open(os.path.join(HERE, "ab-results.json"), "w") as fh:
+    with open(os.path.join(common.ensure_work(), "ab-results.json"), "w") as fh:
         json.dump(out, fh, indent=2)
 
 
