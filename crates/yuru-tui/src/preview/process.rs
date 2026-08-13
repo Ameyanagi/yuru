@@ -160,6 +160,7 @@ mod tests {
         let output = handle.join().unwrap();
 
         assert!(output.cancelled);
-        assert!(started.elapsed() < Duration::from_secs(1));
+        // Bounds "cancellation beat the 30s sleep", not speed.
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 }

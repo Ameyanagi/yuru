@@ -61,9 +61,9 @@ def main() -> None:
         print("%s\t%.4f" % (name, best[name]))
         sys.stdout.flush()
 
-    with open(os.path.join(HERE, "bench-%s.json" % label), "w") as fh:
+    with open(os.path.join(common.ensure_work(), "bench-%s.json" % label), "w") as fh:
         json.dump(best, fh, indent=2)
-    with open(os.path.join(HERE, "bench-%s-allruns.json" % label), "w") as fh:
+    with open(os.path.join(common.ensure_work(), "bench-%s-allruns.json" % label), "w") as fh:
         json.dump(allruns, fh, indent=2)
 
 

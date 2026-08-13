@@ -1,5 +1,6 @@
 use crate::{query::key_kind_allowed, QueryVariant, SearchKey};
 use nucleo_matcher::{chars, Config as NucleoConfig, Matcher, Utf32Str};
+use std::borrow::Cow;
 use unicode_normalization::UnicodeNormalization;
 
 const SCORE_MATCH: i64 = 160;
@@ -174,8 +175,8 @@ impl MatcherBackend for GreedyMatcher {
     }
 
     /// [`score_text`] compares characters through `fold_case_char`, which is the mapping
-    /// [`crate::SearchKey::case_fold_only`] is computed with. Its expanded retry keeps that
-    /// promise - see [`retry_with_lowercase_expansion`].
+    /// [`crate::SearchKey::case_fold_only`] is computed with. Its rewritten retry keeps that
+    /// promise - see [`retry_with_rewritten_multi_char_lowercase`].
     fn folds_case(&self) -> bool {
         !self.case_sensitive
     }
@@ -187,8 +188,8 @@ impl MatcherBackend for ExactMatcher {
     }
 
     /// [`score_exact_text`] compares characters through `fold_case_char`, which is the
-    /// mapping [`crate::SearchKey::case_fold_only`] is computed with. Its expanded retry keeps
-    /// that promise - see [`retry_with_lowercase_expansion`].
+    /// mapping [`crate::SearchKey::case_fold_only`] is computed with. Its rewritten retry
+    /// keeps that promise - see [`retry_with_rewritten_multi_char_lowercase`].
     fn folds_case(&self) -> bool {
         !self.case_sensitive
     }
@@ -290,8 +291,9 @@ pub fn score_text(pattern: &str, text: &str, case_sensitive: bool) -> Option<i64
         return score_unicode_text::<true>(pattern, text);
     }
 
-    score_unicode_text::<false>(pattern, text)
-        .or_else(|| retry_with_lowercase_expansion(pattern, text, score_unicode_text::<false>))
+    score_unicode_text::<false>(pattern, text).or_else(|| {
+        retry_with_rewritten_multi_char_lowercase(pattern, text, score_rewritten_unicode_text)
+    })
 }
 
 /// Folds one character for comparison, leaving it as written when case matters.
@@ -304,9 +306,9 @@ pub fn score_text(pattern: &str, text: &str, case_sensitive: bool) -> Option<i64
 /// to a bare `i` and match patterns the character does not contain.
 ///
 /// Refusing to fold it here is not the same as not folding it: case-insensitive matching
-/// reaches the full lowercase form through [`retry_with_lowercase_expansion`], which writes
-/// the mapping out on copies of both sides before comparing them, and through the
-/// [`crate::KeyKind::Normalized`] key, whose text already carries the expansion.
+/// reaches the full lowercase form through [`retry_with_rewritten_multi_char_lowercase`],
+/// which rewrites copies of both sides into one spelling before comparing them, and through
+/// the [`crate::KeyKind::Normalized`] key, whose text already carries the expansion.
 fn fold_char<const CASE_SENSITIVE: bool>(ch: char) -> char {
     if CASE_SENSITIVE {
         ch
@@ -333,10 +335,10 @@ pub(crate) fn fold_case_char(ch: char) -> char {
 /// COMBINING DOT ABOVE. An exhaustive walk of `char::to_lowercase` over the whole scalar
 /// range finds no second one; `only_one_character_has_a_multi_character_lowercase_mapping`
 /// pins that so a future Unicode table update cannot quietly add one.
-const MULTI_CHAR_LOWERCASE: char = 'İ';
+pub(crate) const MULTI_CHAR_LOWERCASE: char = 'İ';
 
 /// [`MULTI_CHAR_LOWERCASE`]'s full lowercase mapping, written out.
-const MULTI_CHAR_LOWERCASE_EXPANSION: &str = "i\u{307}";
+pub(crate) const MULTI_CHAR_LOWERCASE_EXPANSION: &str = "i\u{307}";
 
 /// First UTF-8 byte of [`MULTI_CHAR_LOWERCASE`], which is what
 /// [`expand_multi_char_lowercase`] looks for.
@@ -352,59 +354,124 @@ const _: () = assert!(
     "the lead byte must be the one a two-byte UTF-8 encoding of the character starts with"
 );
 
-/// Retries a case-insensitive comparison that failed, with [`MULTI_CHAR_LOWERCASE`] written
-/// out on both sides, and returns `None` when there was nothing to write out.
+/// Retries a case-insensitive comparison that failed, with the two spellings of
+/// [`MULTI_CHAR_LOWERCASE`] rewritten onto one another, and returns `None` when neither side
+/// spells it as one character.
 ///
 /// This is how case-insensitive matching folds the one character [`fold_char`] cannot:
 /// pairwise folding must stay one character in and one character out to keep every caller's
-/// indices lined up with the text as written, so the expansion happens *before* comparing
-/// instead, on copies, where both sides expand alike and every remaining fold is 1:1 again.
+/// indices lined up with the text as written, so the rewrite happens *before* comparing
+/// instead, on copies, where both sides spell the character alike and every remaining fold is
+/// 1:1 again.
+///
+/// Two rewrites, tried in this order, and the order is the whole point:
+///
+/// 1. **Compose** the written-out mapping back into the single character, on whichever side
+///    spells it out. One character then faces one character, so the comparison earns exactly
+///    the [`SCORE_MATCH`], boundary and [`BONUS_CONSECUTIVE`] terms a one-character match
+///    earns - which is what makes the resulting score comparable with the score of a
+///    candidate that spells the character the way the query does.
+/// 2. **Write it out** on both sides, which is where composing cannot help: a pattern that
+///    matches only *part* of the mapping (`i` against `İ`) has nothing to compose.
+///
+/// Writing it out first, as v0.2.0 did, scores a two-character copy: the written-out
+/// candidate collects a second [`SCORE_MATCH`] and a [`BONUS_CONSECUTIVE`] that the
+/// one-character spelling can never collect, which outranks the literally spelled candidate
+/// and inverts the preference [`BONUS_CASE_EXACT`] exists to state.
+///
+/// Trying composition first cannot change *which* pairs match, only what they score: a
+/// composed comparison rewrites one spelling into the other on one side only, so wherever it
+/// matches, writing both sides out afterwards matches too - and where it does not match, the
+/// written-out comparison still runs. The set of matches is exactly the one writing it out
+/// alone would produce.
+///
+/// `score` must never award [`BONUS_CASE_EXACT`]: it is handed rewritten copies, in which a
+/// character can be spelled the way the query spells it without the candidate being spelled
+/// that way at all. See [`score_rewritten_unicode_text`] and [`score_rewritten_exact_text`].
 ///
 /// Deliberately a retry rather than a pre-pass. Every text that already matched keeps the
-/// score it had, since the expanded comparison is only reached when the as-written one found
+/// score it had, since the rewritten comparison is only reached when the as-written one found
 /// nothing at all, so this can only turn a false negative into a match. It also keeps the
 /// cost off the hot path: nothing here runs until a comparison has already failed, and then
 /// only two `memchr`s, which for the overwhelmingly common text without a `İ` in it is all
-/// that happens.
+/// that happens - a text that holds none never reaches the substring searches composition
+/// needs.
 ///
-/// The indices the expanded comparison computes internally are indices into the expanded
+/// The indices the rewritten comparison computes internally are indices into the rewritten
 /// copies, which is why only score-only entry points may use it. [`score_text`] and
 /// [`score_exact_text`] both return nothing but a score. [`match_positions`], which does
 /// report indices into its argument, handles the expansion itself by carrying the unexpanded
 /// character index alongside each expanded character.
 ///
 /// [`MatcherBackend::folds_case`] stays true for the matchers that do this. Its promise is
-/// that a hit against the 1:1-folded text implies a hit against the text as written, and
-/// expansion preserves it: [`fold_char`] leaves [`MULTI_CHAR_LOWERCASE`] alone, so writing it
-/// out and folding 1:1 commute, and the expanded copy of a folded text is the 1:1 fold of the
-/// expanded text - the same comparison either way.
-fn retry_with_lowercase_expansion(
+/// that a hit against the 1:1-folded text implies a hit against the text as written, and the
+/// rewrites preserve it: [`fold_char`] leaves [`MULTI_CHAR_LOWERCASE`] alone, so rewriting a
+/// spelling and folding 1:1 commute, and the rewritten copy of a folded text is the 1:1 fold
+/// of the rewritten text - the same comparison either way.
+fn retry_with_rewritten_multi_char_lowercase(
     pattern: &str,
     text: &str,
-    score: impl FnOnce(&str, &str) -> Option<i64>,
+    score: fn(&str, &str) -> Option<i64>,
 ) -> Option<i64> {
-    let expanded_pattern = expand_multi_char_lowercase(pattern);
-    let expanded_text = expand_multi_char_lowercase(text);
-    if expanded_pattern.is_none() && expanded_text.is_none() {
+    let pattern_composed = contains_multi_char_lowercase(pattern);
+    let text_composed = contains_multi_char_lowercase(text);
+    if !pattern_composed && !text_composed {
         return None;
     }
 
+    let composed_pattern = compose_multi_char_lowercase(pattern);
+    let composed_text = compose_multi_char_lowercase(text);
+    if composed_pattern.is_some() || composed_text.is_some() {
+        let composed = score(
+            composed_pattern.as_deref().unwrap_or(pattern),
+            composed_text.as_deref().unwrap_or(text),
+        );
+        if composed.is_some() {
+            return composed;
+        }
+    }
+
     score(
-        expanded_pattern.as_deref().unwrap_or(pattern),
-        expanded_text.as_deref().unwrap_or(text),
+        &expand_multi_char_lowercase(pattern, pattern_composed),
+        &expand_multi_char_lowercase(text, text_composed),
     )
 }
 
-/// Returns `text` with [`MULTI_CHAR_LOWERCASE`] written out, or `None` when it holds none.
+/// Returns whether `text` spells [`MULTI_CHAR_LOWERCASE`] as the single character.
 ///
-/// The byte search is the gate every failed comparison pays; `slice::contains` over `u8` is
-/// specialized to `memchr`. Only text that holds the lead byte at all - `İ` itself or one of
-/// the 63 other Latin Extended-A characters that share it - pays for the character search
-/// that confirms it.
-fn expand_multi_char_lowercase(text: &str) -> Option<String> {
-    (text.as_bytes().contains(&MULTI_CHAR_LOWERCASE_LEAD_BYTE)
-        && text.contains(MULTI_CHAR_LOWERCASE))
-    .then(|| text.replace(MULTI_CHAR_LOWERCASE, MULTI_CHAR_LOWERCASE_EXPANSION))
+/// This is the gate every failed comparison pays; `slice::contains` over `u8` is specialized
+/// to `memchr`. Only text that holds the lead byte at all - `İ` itself or one of the 63 other
+/// Latin Extended-A characters that share it - pays for the character search that confirms
+/// it, and only text that passes this gate pays for the substring searches the rewrites need.
+fn contains_multi_char_lowercase(text: &str) -> bool {
+    text.as_bytes().contains(&MULTI_CHAR_LOWERCASE_LEAD_BYTE) && text.contains(MULTI_CHAR_LOWERCASE)
+}
+
+/// Returns `text` with [`MULTI_CHAR_LOWERCASE_EXPANSION`] composed back into the single
+/// character it is the lowercase mapping of, or `None` when `text` writes it out nowhere.
+///
+/// The replacement is derived from [`MULTI_CHAR_LOWERCASE`] rather than written down again,
+/// so the two spellings cannot drift apart.
+fn compose_multi_char_lowercase(text: &str) -> Option<String> {
+    if !text.contains(MULTI_CHAR_LOWERCASE_EXPANSION) {
+        return None;
+    }
+
+    let mut composed = [0u8; 4];
+    Some(text.replace(
+        MULTI_CHAR_LOWERCASE_EXPANSION,
+        MULTI_CHAR_LOWERCASE.encode_utf8(&mut composed),
+    ))
+}
+
+/// Returns `text` with [`MULTI_CHAR_LOWERCASE`] written out, borrowing it unchanged when
+/// `contains` says it holds none.
+fn expand_multi_char_lowercase(text: &str, contains: bool) -> Cow<'_, str> {
+    if contains {
+        Cow::Owned(text.replace(MULTI_CHAR_LOWERCASE, MULTI_CHAR_LOWERCASE_EXPANSION))
+    } else {
+        Cow::Borrowed(text)
+    }
 }
 
 /// Upper bound on the character comparisons a naive case-folded substring scan may do
@@ -481,9 +548,30 @@ fn fold_ascii<const CASE_SENSITIVE: bool>(byte: u8) -> u8 {
 }
 
 fn score_unicode_text<const CASE_SENSITIVE: bool>(pattern: &str, text: &str) -> Option<i64> {
+    score_unicode_text_with::<CASE_SENSITIVE, true>(pattern, text)
+}
+
+/// Scores a pair [`retry_with_rewritten_multi_char_lowercase`] rewrote, which is
+/// [`score_unicode_text`] minus any [`BONUS_CASE_EXACT`].
+///
+/// The rewrite makes one spelling of [`MULTI_CHAR_LOWERCASE`] look like the other, so a
+/// character can compare equal *as written* in the copies while the candidate is not spelled
+/// the way the query was typed at all. The bonus states that spelling and nothing else, so a
+/// match reached through a rewrite forfeits it.
+fn score_rewritten_unicode_text(pattern: &str, text: &str) -> Option<i64> {
+    score_unicode_text_with::<false, false>(pattern, text)
+}
+
+fn score_unicode_text_with<const CASE_SENSITIVE: bool, const CASE_EXACT_ALLOWED: bool>(
+    pattern: &str,
+    text: &str,
+) -> Option<i64> {
     let pattern_chars: Vec<char> = pattern.chars().collect();
     let text_chars: Vec<char> = text.chars().collect();
-    let compact_score = compact_char_match_score::<CASE_SENSITIVE>(&pattern_chars, &text_chars)?;
+    let compact_score = compact_char_match_score::<CASE_SENSITIVE, CASE_EXACT_ALLOWED>(
+        &pattern_chars,
+        &text_chars,
+    )?;
 
     let exact_bonus = if CASE_SENSITIVE {
         whole_text_bonus(pattern, text)
@@ -544,7 +632,7 @@ fn folded_chars_contain(text: &[char], pattern: &[char]) -> bool {
     (0..=last_start).any(|start| folded_chars_eq(pattern, &text[start..start + pattern.len()]))
 }
 
-fn compact_char_match_score<const CASE_SENSITIVE: bool>(
+fn compact_char_match_score<const CASE_SENSITIVE: bool, const CASE_EXACT_ALLOWED: bool>(
     pattern: &[char],
     text: &[char],
 ) -> Option<i64> {
@@ -615,7 +703,7 @@ fn compact_char_match_score<const CASE_SENSITIVE: bool>(
     }
 
     Some(
-        score + case_exact_bonus::<CASE_SENSITIVE>(case_exact)
+        score + case_exact_bonus::<CASE_SENSITIVE>(CASE_EXACT_ALLOWED && case_exact)
             - first as i64 * START_POSITION_PENALTY
             - text.len() as i64 / TEXT_LENGTH_PENALTY_DIVISOR,
     )
@@ -988,13 +1076,27 @@ pub fn score_exact_text(pattern: &str, text: &str, case_sensitive: bool) -> Opti
         return None;
     }
 
-    retry_with_lowercase_expansion(pattern, text, |pattern, text| {
-        score_exact_folded_text(pattern, text, false)
-    })
+    retry_with_rewritten_multi_char_lowercase(pattern, text, score_rewritten_exact_text)
+}
+
+/// Scores a pair [`retry_with_rewritten_multi_char_lowercase`] rewrote, which is
+/// [`score_exact_folded_text`] minus any [`BONUS_CASE_EXACT`] - see
+/// [`score_rewritten_unicode_text`] for why the bonus cannot survive a rewrite.
+fn score_rewritten_exact_text(pattern: &str, text: &str) -> Option<i64> {
+    score_exact_folded_text_with(pattern, text, false, false)
 }
 
 /// Scores an exact substring match comparing both sides as written, up to a 1:1 case fold.
 fn score_exact_folded_text(pattern: &str, text: &str, case_sensitive: bool) -> Option<i64> {
+    score_exact_folded_text_with(pattern, text, case_sensitive, true)
+}
+
+fn score_exact_folded_text_with(
+    pattern: &str,
+    text: &str,
+    case_sensitive: bool,
+    case_exact_allowed: bool,
+) -> Option<i64> {
     if pattern.is_empty() {
         return Some(0);
     }
@@ -1008,7 +1110,7 @@ fn score_exact_folded_text(pattern: &str, text: &str, case_sensitive: bool) -> O
         let start = find_ignore_case(text, pattern)?;
         (
             start,
-            case_exact_bonus::<false>(text[start..].starts_with(pattern)),
+            case_exact_bonus::<false>(case_exact_allowed && text[start..].starts_with(pattern)),
         )
     };
     // Only a match at the very start can cover the whole text.

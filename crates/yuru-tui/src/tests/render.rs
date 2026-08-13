@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthChar;
 use yuru_core::KeyKind;
 
 use crate::api::{TuiLayout, TuiStyle};
@@ -28,20 +27,43 @@ fn csi_sequence(text: &str) -> Option<(usize, u8, &str)> {
         .map(|index| (index + 3, bytes[2 + index], &text[2..2 + index]))
 }
 
+/// The characters a frame prints, with its escape sequences removed — the text
+/// the terminal is left holding.
+fn without_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut offset = 0usize;
+    while offset < text.len() {
+        if let Some((len, _, _)) = csi_sequence(&text[offset..]) {
+            offset += len;
+            continue;
+        }
+        let ch = text[offset..]
+            .chars()
+            .next()
+            .expect("valid character boundary");
+        assert_ne!(ch, '\u{1b}', "unhandled escape sequence in {text:?}");
+        out.push(ch);
+        offset += ch.len_utf8();
+    }
+    out
+}
+
 /// Replays a rendered frame and returns, per one-based terminal row, the last
-/// column that row actually paints. `MoveTo` sets the cursor, every other CSI
-/// sequence is skipped, and printed characters advance by their display width.
+/// column that row actually paints. `MoveTo` starts a run at a column and every
+/// other CSI sequence is skipped, since the terminal keeps composing across
+/// styling: a run's width is therefore measured over the grapheme clusters of
+/// its escape-free text, so a cluster written across an SGR sequence costs what
+/// it prints rather than the sum of its halves.
 fn painted_row_extents(rendered: &str) -> BTreeMap<usize, usize> {
-    let mut extents = BTreeMap::new();
-    let mut row = 1usize;
-    let mut column = 1usize;
+    let mut runs: Vec<(usize, usize, String)> = vec![(1, 1, String::new())];
     let mut offset = 0usize;
     while offset < rendered.len() {
         if let Some((len, final_byte, params)) = csi_sequence(&rendered[offset..]) {
             if final_byte == b'H' {
                 let mut parts = params.split(';');
-                row = parts.next().and_then(|part| part.parse().ok()).unwrap_or(1);
-                column = parts.next().and_then(|part| part.parse().ok()).unwrap_or(1);
+                let row = parts.next().and_then(|part| part.parse().ok()).unwrap_or(1);
+                let column = parts.next().and_then(|part| part.parse().ok()).unwrap_or(1);
+                runs.push((row, column, String::new()));
             }
             offset += len;
             continue;
@@ -52,10 +74,17 @@ fn painted_row_extents(rendered: &str) -> BTreeMap<usize, usize> {
             .next()
             .expect("valid character boundary");
         assert_ne!(ch, '\u{1b}', "unhandled escape sequence in {rendered:?}");
-        column += UnicodeWidthChar::width(ch).unwrap_or(0);
-        let entry = extents.entry(row).or_insert(0);
-        *entry = (*entry).max(column.saturating_sub(1));
+        runs.last_mut().expect("a run is always open").2.push(ch);
         offset += ch.len_utf8();
+    }
+
+    let mut extents = BTreeMap::new();
+    for (row, column, text) in runs {
+        if text.is_empty() {
+            continue;
+        }
+        let entry = extents.entry(row).or_insert(0);
+        *entry = (*entry).max(column.saturating_sub(1) + display_width(&text));
     }
     extents
 }
@@ -854,6 +883,156 @@ fn a_combining_mark_reaches_its_base_across_an_sgr_sequence() {
     let (clipped, truncated) = terminal_safe_prefix(text, true, 1);
     assert!(!clipped.contains('日'), "{clipped:?}");
     assert!(!clipped.contains('\u{301}'), "{clipped:?}");
+    assert!(truncated);
+}
+
+/// Grapheme clusters an `--ansi` record can split with an SGR sequence: the
+/// cluster written plainly, and the same cluster with a styling sequence
+/// between its base and its continuation scalars. The terminal composes each
+/// pair identically — the escape buys no columns and breaks nothing apart — so
+/// whatever the plain form costs, the styled one costs too.
+const SGR_SPLIT_CLUSTERS: [(&str, &str); 5] = [
+    // Keycap: the sum of the parts is one column, the composed cluster two.
+    ("#\u{fe0f}\u{20e3}", "#\u{1b}[31m\u{fe0f}\u{20e3}"),
+    // Emoji modifier: the sum of the parts is four columns, the cluster two.
+    ("👩\u{1f3fb}", "👩\u{1b}[0m\u{1f3fb}"),
+    // ZWJ sequence.
+    ("👩\u{200d}💻", "👩\u{1b}[1m\u{200d}💻"),
+    // Regional indicator pair.
+    ("🇯🇵", "🇯\u{1b}[32m🇵"),
+    // Variation selector.
+    ("☺\u{fe0f}", "☺\u{1b}[33m\u{fe0f}"),
+];
+
+#[test]
+fn an_sgr_sequence_inside_a_cluster_changes_nothing_but_the_bytes() {
+    for (plain, styled) in SGR_SPLIT_CLUSTERS {
+        for width in 0..=6 {
+            let (plain_clipped, plain_truncated) = terminal_safe_prefix(plain, false, width);
+            let (styled_clipped, styled_truncated) = terminal_safe_prefix(styled, true, width);
+
+            // The escape is carried through, and what it separated is charged
+            // and kept — or dropped — exactly as if it had never been written.
+            assert_eq!(
+                without_escapes(&styled_clipped),
+                plain_clipped,
+                "{styled:?} at {width} columns"
+            );
+            assert_eq!(
+                styled_truncated, plain_truncated,
+                "{styled:?} at {width} columns"
+            );
+            let cost = display_width(&without_escapes(&styled_clipped));
+            assert!(cost <= width, "{styled_clipped:?} costs {cost} of {width}");
+        }
+    }
+}
+
+#[test]
+fn a_cluster_split_by_an_sgr_sequence_survives_the_row_or_is_dropped_whole() {
+    for (plain, styled) in SGR_SPLIT_CLUSTERS {
+        // The gutter — pointer plus a one-column blank — leaves the result
+        // exactly the columns the composed cluster prints in.
+        let fits = 2 + display_width(plain);
+        let rendered = render_ansi_frame(
+            styled,
+            Viewport {
+                width: fits,
+                rows: 3,
+            },
+        );
+        assert!(
+            rendered.contains(styled),
+            "{styled:?} lost part of its cluster: {rendered:?}"
+        );
+        for (row, extent) in painted_row_extents(&rendered) {
+            assert!(
+                extent <= fits,
+                "row {row} reached column {extent} of a {fits}-column viewport: {rendered:?}"
+            );
+        }
+
+        // One column short, the whole cluster goes: painting the base alone
+        // would drop a modifier that costs nothing, and painting it with a
+        // continuation the terminal composes into a wider glyph would overrun
+        // the row.
+        let rendered = render_ansi_frame(
+            styled,
+            Viewport {
+                width: fits - 1,
+                rows: 3,
+            },
+        );
+        for ch in plain.chars() {
+            assert!(
+                !rendered.contains(ch),
+                "{styled:?} left {ch:?} behind: {rendered:?}"
+            );
+        }
+        for (row, extent) in painted_row_extents(&rendered) {
+            assert!(
+                extent < fits,
+                "row {row} reached column {extent} of a {}-column viewport: {rendered:?}",
+                fits - 1
+            );
+        }
+    }
+}
+
+#[test]
+fn a_keycap_split_by_an_sgr_sequence_does_not_overflow_a_three_column_row() {
+    // The audit reproduction for the over-charging direction. The gutter leaves
+    // one text column; `#` alone costs one, so charging it and its post-escape
+    // tail separately let the row through — and the terminal then composed the
+    // pieces into a two-column keycap and painted four columns into three.
+    let rendered = render_ansi_frame(
+        "#\u{1b}[31m\u{fe0f}\u{20e3}",
+        Viewport { width: 3, rows: 3 },
+    );
+    // The result row is the gutter and the `bg+` padding that replaces the
+    // keycap, and it ends at the last column rather than past it.
+    assert_eq!(painted_row_extents(&rendered).get(&3).copied(), Some(3));
+    assert!(!rendered.contains('#'), "{rendered:?}");
+}
+
+#[test]
+fn an_emoji_modifier_split_by_an_sgr_sequence_is_not_dropped_from_a_row_it_fits() {
+    // The audit reproduction for the under-charging direction. `👩` is charged
+    // two columns and the lone skin-tone modifier was then measured as another
+    // two-column cluster and dropped, so the row painted a bare `👩` where the
+    // whole styled grapheme takes the two columns available.
+    let text = "👩\u{1b}[0m\u{1f3fb}";
+    assert_eq!(
+        terminal_safe_prefix(text, true, 2),
+        (text.to_string(), false)
+    );
+
+    let rendered = render_ansi_frame(text, Viewport { width: 4, rows: 3 });
+    assert!(rendered.contains(text), "{rendered:?}");
+}
+
+#[test]
+fn free_content_is_followed_no_further_than_the_byte_cap() {
+    // Nothing in a record made only of SGR sequences and zero-width clusters
+    // costs a column, so the budget can never stop the scan and the byte cap
+    // has to — including through the widening window that lets a cluster reach
+    // its continuation, which must widen to the cap and stop rather than loop.
+    for (text, allow_sgr) in [
+        ("\u{200b}".repeat(100_000), false),
+        ("\u{1b}[31m".repeat(100_000), true),
+    ] {
+        let (clipped, truncated) = terminal_safe_prefix(&text, allow_sgr, 4);
+        assert!(truncated);
+        assert!(clipped.len() <= 4 * 64, "{} bytes scanned", clipped.len());
+    }
+
+    // The cap bounds where a cluster may begin, not where its bytes may end:
+    // `a` starts one byte inside a 64-byte cap and its combining acute lies
+    // past it, and a cap that cut there would clip the base off its mark — the
+    // same defect from the other side. It costs the one column it prints.
+    let text = format!("{}a\u{301}b", "\u{200b}".repeat(21));
+    let (clipped, truncated) = terminal_safe_prefix(&text, false, 1);
+    assert!(clipped.ends_with("a\u{301}"), "{clipped:?}");
     assert!(truncated);
 }
 

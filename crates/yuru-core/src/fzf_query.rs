@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use crate::{
     key_kind_allowed,
-    matcher::{fold_case_char, BONUS_CASE_EXACT},
+    matcher::{
+        fold_case_char, BONUS_CASE_EXACT, MULTI_CHAR_LOWERCASE, MULTI_CHAR_LOWERCASE_EXPANSION,
+    },
     normalize,
     query::{key_blocked_by_config, prepare_query_variants, variant_blocked_by_config},
     Candidate, KeyKind, LanguageBackend, MatcherBackend, QueryVariant, ScoredCandidate,
@@ -265,12 +267,12 @@ fn match_exact_term(
         }
 
         let haystack = exact_haystack(key, normalized_display, config);
-        let Some(hit) = exact_score(term.mode, &term.needle, &haystack.text) else {
+        let Some(hit) = exact_score(term.mode, &term.needle, &haystack) else {
             continue;
         };
         let score = hit.score
             + i64::from(key.weight)
-            + case_exact_bonus(term, key, &haystack, hit.byte_start, config);
+            + case_exact_bonus(term, &key.text, &haystack, hit.byte_start, config);
         if best.as_ref().is_none_or(|(current, _, _)| score > *current) {
             best = Some((score, key.kind, key_index as u32));
         }
@@ -289,24 +291,28 @@ fn match_exact_term(
 /// characters. Awarding it for a literal occurrence elsewhere would credit a spelling the
 /// score was not computed from.
 ///
-/// Yields nothing unless both sides are positionally comparable - see
-/// [`PreparedTerm::literal_folds_to_needle`] and [`ExactHaystack::folds_key_case`] - and
-/// nothing at all under case-sensitive matching, where every hit is exact by construction and
-/// scores must stay what they were.
+/// Both sides must be positionally comparable for that test to mean anything, but only *at
+/// the occurrence*: the term as a whole, through [`PreparedTerm::literal_folds_to_needle`],
+/// and the key only as far as [`key_text_from`] has to walk to name the matched character.
+/// Whether the fold lines up elsewhere in the key is not this occurrence's business - a key
+/// holding one character that folds to two (`İ`) used to forfeit the bonus for every term in
+/// the query, including an ASCII term matching an unrelated part of the text.
+///
+/// Yields nothing at all under case-sensitive matching, where every hit is exact by
+/// construction and scores must stay what they were.
 fn case_exact_bonus(
     term: &PreparedTerm,
-    key: &SearchKey,
-    haystack: &ExactHaystack<'_>,
+    key_text: &str,
+    haystack: &str,
     byte_start: usize,
     config: &SearchConfig,
 ) -> i64 {
-    if config.case_sensitive || !term.literal_folds_to_needle || !haystack.folds_key_case {
+    if config.case_sensitive || !term.literal_folds_to_needle {
         return 0;
     }
 
-    let as_written = match key_text_from(&key.text, &haystack.text, byte_start) {
-        Some(rest) => rest,
-        None => return 0,
+    let Some(as_written) = key_text_from(key_text, haystack, byte_start) else {
+        return 0;
     };
     if as_written.starts_with(&term.literal) {
         BONUS_CASE_EXACT
@@ -315,26 +321,60 @@ fn case_exact_bonus(
     }
 }
 
-/// Returns `key_text` from the character the haystack's `byte_start` names.
+/// Returns `key_text` from the character the haystack's `byte_start` names, or `None` when the
+/// haystack is not `key_text` folded character for character up to that point.
 ///
-/// Only valid when the haystack folds the key character for character, which
-/// [`case_exact_bonus`] has established: folding may resize a character in bytes (`U+212A`
-/// KELVIN SIGN folds to a one-byte `k`), so the offset is translated through a character
-/// count rather than used directly. Pure-ASCII pairs skip that count, since ASCII folding
-/// leaves every byte offset alone.
+/// Folding resizes characters, in both directions: `U+212A` KELVIN SIGN folds to a one-byte
+/// `k`, and `İ` lowercases to the two characters `i` + `U+0307`. So the offset is replayed
+/// rather than used directly - one key character at a time, each advancing by however many
+/// haystack bytes that character folded to. Replaying is what makes this local: an expansion
+/// *before* the occurrence is walked over like any other character, where a whole-key
+/// character count would have been thrown off by it and a whole-key "folds 1:1" test would
+/// have refused the offset outright.
+///
+/// `None` when a key character does not account for the haystack bytes at its position
+/// (normalization changed more than case there), and `None` when `byte_start` lands inside a
+/// character's folded form instead of at its start, since no key character is spelled there.
+///
+/// The walk only has to reach `byte_start`; the caller's `starts_with` covers the occurrence
+/// itself. A fold that expands *inside* the match cannot pass that check, because the key
+/// then spells as one character what the term spells as two.
+///
+/// Pure-ASCII keys skip the walk once the haystack is confirmed to be their ASCII fold, since
+/// ASCII folding leaves every byte offset alone.
 fn key_text_from<'a>(key_text: &'a str, haystack: &str, byte_start: usize) -> Option<&'a str> {
     if byte_start == 0 {
         return Some(key_text);
     }
-    if key_text.is_ascii() && haystack.is_ascii() {
+    if key_text.is_ascii()
+        && haystack
+            .as_bytes()
+            .eq_ignore_ascii_case(key_text.as_bytes())
+    {
         return key_text.get(byte_start..);
     }
 
-    let char_start = haystack[..byte_start].chars().count();
-    key_text
-        .char_indices()
-        .nth(char_start)
-        .map(|(offset, _)| &key_text[offset..])
+    let mut folded_len = 0usize;
+    for (offset, ch) in key_text.char_indices() {
+        if folded_len >= byte_start {
+            return (folded_len == byte_start).then(|| &key_text[offset..]);
+        }
+
+        let rest = haystack.get(folded_len..)?;
+        let folded = fold_case_char(ch);
+        if rest.starts_with(folded) {
+            folded_len += folded.len_utf8();
+        } else if ch == MULTI_CHAR_LOWERCASE && rest.starts_with(MULTI_CHAR_LOWERCASE_EXPANSION) {
+            // The one character `fold_case_char` refuses to fold, because its lowercase
+            // mapping is two characters. `comparable` writes it out; this is where the walk
+            // absorbs the extra character instead of losing count.
+            folded_len += MULTI_CHAR_LOWERCASE_EXPANSION.len();
+        } else {
+            return None;
+        }
+    }
+
+    (folded_len == byte_start).then_some("")
 }
 
 /// Returns the candidate's normalized key when its text already equals
@@ -367,58 +407,28 @@ fn reusable_normalized_key<'a>(
         .find(|key| key.kind == KeyKind::Normalized)
 }
 
-/// One key's haystack for exact matching, plus whether it lines up with the key text.
-struct ExactHaystack<'a> {
-    /// The text exact terms are located in: the key text with case folded, unless the
-    /// config asked for case-sensitive matching.
-    text: Cow<'a, str>,
-    /// True when [`Self::text`] is the key text with every character folded by
-    /// [`fold_case_char`], so a character index into it is also a character index into the
-    /// key text as written. False when normalization changed more than case, which moves
-    /// characters around and makes the two texts positionally incomparable.
-    folds_key_case: bool,
-}
-
+/// Returns the text exact terms are located in for one key: the key text with case folded,
+/// unless the config asked for case-sensitive matching.
+///
+/// Whether that text lines up with the key text as written is [`key_text_from`]'s question,
+/// asked per occurrence and only of the prefix that matters, so nothing is computed here for
+/// the keys - the overwhelming majority - that never produce a hit.
 fn exact_haystack<'a>(
     key: &'a SearchKey,
     normalized_display: Option<&'a SearchKey>,
     config: &SearchConfig,
-) -> ExactHaystack<'a> {
+) -> Cow<'a, str> {
     if config.case_sensitive {
-        // Nothing was folded, so there is no folded-position question to answer.
-        return ExactHaystack {
-            text: Cow::Borrowed(&key.text),
-            folds_key_case: false,
-        };
+        return Cow::Borrowed(&key.text);
     }
 
     if key.kind == KeyKind::Original {
         if let Some(normalized) = normalized_display {
-            return ExactHaystack {
-                text: Cow::Borrowed(&normalized.text),
-                // `case_fold_only` says exactly this about the display text, which is what
-                // the original key holds.
-                folds_key_case: normalized.case_fold_only,
-            };
+            return Cow::Borrowed(&normalized.text);
         }
     }
 
-    let text = comparable(&key.text, config);
-    let folds_key_case = folds_case_only(&text, &key.text);
-    ExactHaystack {
-        text: Cow::Owned(text),
-        folds_key_case,
-    }
-}
-
-/// Returns whether `folded` is `text` with every character folded by [`fold_case_char`].
-///
-/// The same question [`crate::SearchKey::case_fold_only`] answers for the normalized key,
-/// asked here for a haystack built on the spot. The byte comparison short-circuits unchanged
-/// and ASCII-cased text, which is the common case.
-fn folds_case_only(folded: &str, text: &str) -> bool {
-    folded.as_bytes().eq_ignore_ascii_case(text.as_bytes())
-        || folded.chars().eq(text.chars().map(fold_case_char))
+    Cow::Owned(comparable(&key.text, config))
 }
 
 /// A located exact-term match: its score, and where in the haystack it starts.

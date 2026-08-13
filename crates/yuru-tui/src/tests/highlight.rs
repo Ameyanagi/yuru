@@ -493,3 +493,34 @@ fn a_phonetic_row_whose_key_still_matches_keeps_its_source_map_highlight() {
         "{segments:?}"
     );
 }
+
+#[test]
+fn highlight_positions_stay_character_based_across_a_cluster_split_by_an_sgr_sequence() {
+    // The record writes a reset between `👩` and its skin-tone modifier, which
+    // the terminal still composes into one two-column grapheme. Charging that
+    // grapheme once is a column question; deciding what `ab` matched is not.
+    // Positions are character indices into the escape-free text — `a` is 0 and
+    // `b` is 3, with the two scalars of the cluster at 1 and 2 — so the cluster
+    // is unhighlighted between two highlighted runs, and the reset stays inside
+    // it rather than being pulled into either.
+    let result = scored("a👩\u{1b}[0m\u{1f3fb}b", KeyKind::Original);
+    let segments = highlight_segments_for_result_with_ansi("ab", &result, &[], false, 80, true);
+
+    assert_eq!(
+        segments,
+        vec![
+            HighlightSegment {
+                text: "a".to_string(),
+                highlighted: true,
+            },
+            HighlightSegment {
+                text: "👩\u{1b}[0m\u{1f3fb}".to_string(),
+                highlighted: false,
+            },
+            HighlightSegment {
+                text: "b".to_string(),
+                highlighted: true,
+            },
+        ]
+    );
+}

@@ -197,7 +197,7 @@ __yuru_ctrl_r__() {
   tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-history.XXXXXX") || { umask "$old_umask"; return; }
   umask "$old_umask"
   HISTTIMEFORMAT= history | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return; }
-  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore "${opt_args[@]}")
+  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-multi --query "$READLINE_LINE" --input "$tmp" --fzf-compat ignore "${opt_args[@]}")
   status=$?
   rm -f "$tmp"
   [ "$status" -eq 0 ] || return
@@ -474,7 +474,7 @@ __yuru_ctrl_r__() {
   tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-history.XXXXXX") || { umask "$old_umask"; return }
   umask "$old_umask"
   fc -rl 1 | sed 's/^[[:space:]]*[0-9][0-9]*[[:space:]]*//' >"$tmp" || { rm -f "$tmp"; return }
-  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-sort --no-multi --query "$LBUFFER" --input "$tmp" --fzf-compat ignore ${(@Q)${(z)opts}})
+  selected=$("${YURU_BIN:-yuru}" --scheme history --tac --no-multi --query "$LBUFFER" --input "$tmp" --fzf-compat ignore ${(@Q)${(z)opts}})
   yuru_status=$?
   rm -f "$tmp"
   (( yuru_status == 0 )) || return
@@ -779,7 +779,7 @@ function __yuru_ctrl_r__
     end
     set -l tmp (mktemp "$tmpdir/yuru-history.XXXXXX")
     history >$tmp
-    set -l selected ($yuru_bin --scheme history --tac --no-sort --no-multi --query (commandline) --input "$tmp" --fzf-compat ignore $opts)
+    set -l selected ($yuru_bin --scheme history --tac --no-multi --query (commandline) --input "$tmp" --fzf-compat ignore $opts)
     set -l status_code $status
     rm -f "$tmp"
     test $status_code -eq 0; or return
@@ -1113,7 +1113,7 @@ function Invoke-YuruCtrlR {
     $line = $null
     $cursor = $null
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-    $yuruArgs = @("--scheme", "history", "--tac", "--no-sort", "--no-multi", "--query", $line, "--fzf-compat", "ignore") + $opts
+    $yuruArgs = @("--scheme", "history", "--tac", "--no-multi", "--query", $line, "--fzf-compat", "ignore") + $opts
     $selected = @(Invoke-YuruWithItems -Items @(Get-YuruHistoryLines) -YuruArgs $yuruArgs | Select-Object -First 1)
     if ($selected.Count -eq 0 -or [string]::IsNullOrEmpty($selected[0])) { return }
     [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
@@ -1440,6 +1440,40 @@ alt_c_opts = "--preview 'ls {}'"
             assert!(!script.contains("eval \"set opts $raw\""));
             assert!(!script.contains("yuru-history.$$"));
             assert!(script.contains("mktemp"));
+        }
+    }
+
+    #[test]
+    fn history_search_ranks_by_match_quality_not_only_recency() {
+        // `--no-sort` returns every match in input order and never consults the
+        // score, so CTRL-R showed whatever matched most recently rather than
+        // whatever matched best - a command whose letters merely appear scattered
+        // across a long line outranked an exact `sudo mount ...`. `--scheme
+        // history` already makes recency the TIEBREAK, which is the intended
+        // behaviour, so history search must not pass `--no-sort` on top of it.
+        for kind in [
+            ShellKind::Bash,
+            ShellKind::Zsh,
+            ShellKind::Fish,
+            ShellKind::PowerShell,
+        ] {
+            let script = script(kind);
+            assert!(
+                !script.contains("--no-sort"),
+                "{kind:?} integration passes --no-sort, which discards match ranking"
+            );
+            // Not `contains("history")`: every script names the shell's own history
+            // builtin two to five times, so that would pass with the scheme removed.
+            // The scheme is what makes recency the tiebreak once --no-sort is gone,
+            // so it has to be checked as the argument it actually is.
+            let scheme = match kind {
+                ShellKind::PowerShell => "\"--scheme\", \"history\"",
+                _ => "--scheme history",
+            };
+            assert!(
+                script.contains(scheme),
+                "{kind:?} integration lost `{scheme}`, so recency would stop breaking ties"
+            );
         }
     }
 }

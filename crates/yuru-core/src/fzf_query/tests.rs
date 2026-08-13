@@ -197,6 +197,97 @@ fn a_term_needing_more_than_case_folding_forfeits_the_case_bonus() {
     );
 }
 
+/// Returns a config that folds case and nothing else, i.e. what `--literal --ignore-case`
+/// asks for: no normalized key, so the exact path folds the original key itself.
+fn literal_config() -> SearchConfig {
+    SearchConfig {
+        normalize: false,
+        ..SearchConfig::default()
+    }
+}
+
+/// A fold that resizes a character somewhere else in the key is not this occurrence's
+/// business.
+///
+/// `İ` is the one character whose lowercase mapping is two characters, so a key holding it
+/// does not fold to itself character for character. Testing that across the whole key cost
+/// such a candidate the bonus for *every* term in the query - here a pure-ASCII term matching
+/// an `a` the expansion is nowhere near, which the same word spelled `i` + U+0307 collected.
+/// Two spellings of one text ranked 75 points apart on a term neither spelling touches.
+#[test]
+fn case_bonus_ignores_a_multi_character_fold_elsewhere_in_the_key() {
+    for cfg in [SearchConfig::default(), literal_config()] {
+        assert_eq!(
+            extended_score("'a", "İ a", &cfg),
+            extended_score("'a", "i\u{307} a", &cfg),
+            "the expansion is before the match and changes nothing about it"
+        );
+        // And it is the bonus both collect, not the bonus both lost: the same key with the
+        // match case-flipped scores exactly `BONUS_CASE_EXACT` lower.
+        assert_eq!(
+            extended_score("'a", "İ a", &cfg),
+            extended_score("'a", "İ A", &cfg).map(|score| score + BONUS_CASE_EXACT)
+        );
+    }
+}
+
+/// A `U+212A` KELVIN SIGN control: it folds to a one-byte `k`, so the key resizes in bytes
+/// without resizing in characters. Both the old whole-key test and the new per-occurrence one
+/// accept it; it is here to keep the `İ` case above from being read as "non-ASCII forfeits".
+#[test]
+fn case_bonus_survives_a_fold_that_only_resizes_a_character_in_bytes() {
+    let cfg = literal_config();
+    assert_eq!(
+        extended_score("'a", "\u{212a} a", &cfg),
+        extended_score("'a", "K a", &cfg)
+    );
+}
+
+/// An offset landing *inside* a character's folded form names no character of the key, so
+/// there is nothing to check the term against and the bonus is refused.
+///
+/// The term is the combining dot alone, which the folded haystack spells at the second
+/// character of `İ`'s expansion. Both keys fold to the same haystack and so score the same
+/// match; only the key that spells the dot itself may collect the bonus.
+#[test]
+fn case_bonus_refuses_an_offset_inside_a_folded_expansion() {
+    let cfg = literal_config();
+    assert_eq!(
+        extended_score("'\u{307}", "i\u{307}x", &cfg),
+        extended_score("'\u{307}", "İx", &cfg).map(|score| score + BONUS_CASE_EXACT)
+    );
+}
+
+/// A fold that expands *inside* the match cannot pass the as-written check, because the key
+/// spells as one character what the term spells as two. This is the guard's stated contract:
+/// never credit a spelling the score was not computed from.
+#[test]
+fn case_bonus_refuses_a_key_that_spells_the_match_as_one_character() {
+    let cfg = literal_config();
+    assert_eq!(
+        extended_score("'i\u{307}", "i\u{307}", &cfg),
+        extended_score("'i\u{307}", "İ", &cfg).map(|score| score + BONUS_CASE_EXACT)
+    );
+}
+
+/// Normalization changing more than case *before* the occurrence leaves no way to name the
+/// matched character, so the bonus is refused - but only for occurrences that sit behind it.
+#[test]
+fn case_bonus_refuses_an_occurrence_behind_a_non_case_normalization() {
+    let cfg = SearchConfig::default();
+    // `ｆ` normalizes to `f`, a change of width rather than case, so the walk cannot account
+    // for the haystack and the `bar` occurrence past it forfeits the bonus.
+    assert_eq!(
+        extended_score("'bar", "ｆ bar", &cfg),
+        extended_score("'bar", "ｆ BAR", &cfg)
+    );
+    // The same occurrence at the front of the key is named without walking anything.
+    assert_eq!(
+        extended_score("'bar", "bar ｆ", &cfg),
+        extended_score("'bar", "BAR ｆ", &cfg).map(|score| score + BONUS_CASE_EXACT)
+    );
+}
+
 #[test]
 fn exact_term_checks_later_phonetic_keys() {
     let cfg = SearchConfig::default();

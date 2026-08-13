@@ -1,7 +1,7 @@
 # Yuru
 
 <p align="center">
-  <img src="docs/assets/yuru-icon.svg" alt="Yuru icon" width="128">
+  <img src="https://raw.githubusercontent.com/Ameyanagi/yuru/main/docs/assets/yuru-icon.svg" alt="Yuru icon" width="128">
 </p>
 
 [![CI](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml/badge.svg)](https://github.com/Ameyanagi/yuru/actions/workflows/ci.yml)
@@ -11,385 +11,209 @@
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![MSRV](https://img.shields.io/badge/MSRV-1.90-blue.svg)](Cargo.toml)
 
-Yuru is a fast command-line fuzzy finder with Japanese, Korean, and Chinese
-phonetic search. It is designed to feel familiar to fzf users while adding
-multilingual matching and source-span highlighting for CJK text.
+**A command-line fuzzy finder that can find CJK text by how it sounds.**
 
-The name comes from `ゆるい`, meaning loose or relaxed. In this project it points
-to forgiving fuzzy matching: the query can be a little loose, and Yuru tries to
-find the intended multilingual text.
+Type Latin letters, match Japanese, Korean, and Chinese:
 
-Yuru was developed with heavy AI assistance. The project direction, feature
-choices, language behavior, testing decisions, release process, and maintenance
-are human-led by the maintainer. AI tools were used extensively during
-implementation and documentation, but the code is reviewed, tested, and
-maintained as an open-source project rather than published as unreviewed AI
-output.
+```sh
+yuru --lang zh --filter bjdx      # finds 北京大学.txt   (pinyin initials)
+yuru --lang ja --filter kamera    # finds カメラ.txt     (romaji)
+yuru --lang ko --filter hangeul   # finds 한글.txt       (romanized Hangul)
+```
 
-## Demo Video
+If you use fzf, Yuru should feel familiar: the same key bindings, the same shell
+integration, and most of the same options.
+
+The name is `ゆるい` - loose, relaxed. Your query can be a little loose and Yuru
+still finds what you meant.
+
+Localized: [日本語](docs/README.ja.md) · [中文](docs/README.zh.md) · [한국어](docs/README.ko.md)
+
+## Demo
+
+<!--
+  Keep every repo asset link absolute. crates.io rewrites relative paths to
+  .../raw/HEAD/crates/yuru/<path>, which 404s for this workspace layout, and it
+  strips <video>, so the YouTube thumbnail below is the fallback that renders
+  in both places.
+-->
 
 https://github.com/user-attachments/assets/37f9643f-0ed1-4cca-8a15-c4a8bd78cf34
 
-## Why Yuru instead of fzf?
-
-| Feature | fzf | Yuru |
-| --- | --- | --- |
-| General fuzzy finding | Yes | Yes |
-| Japanese kana/kanji phonetic matching | Limited | Yes |
-| Korean Hangul romanized/initial matching | Limited | Yes |
-| Chinese pinyin and initials matching | Limited | Yes |
-| fzf-like shell bindings | Yes | Yes |
-| Full fzf option compatibility | Yes | Partial, evolving |
-| CJK source-span highlighting | Limited | Yes |
-
-Multilingual fuzzy finding has problems that are different from plain fzf-style
-matching. A single visible candidate may need original text, normalized text,
-Japanese kana and romaji readings, Korean Hangul romanization and choseong
-initials, Chinese pinyin and initials, and source-span maps for highlighting.
-Yuru keeps those as typed search keys and expands each query into a small set of
-compatible variants, so a romanized query can match CJK readings without turning
-every search into an unbounded cross-product.
-
-See [architecture and optimization details](docs/internals.md) for the indexing
-model, search algorithms, Big-O estimates, fzf comparison, streaming input, lazy
-candidate construction, async search workers, and preview workers.
-
-Localized documentation:
-
-- [日本語](docs/README.ja.md)
-- [中文](docs/README.zh.md)
-- [한국어](docs/README.ko.md)
+[![Watch the Yuru demo on YouTube](https://img.youtube.com/vi/_RyVr3VLULo/maxresdefault.jpg)](https://youtu.be/_RyVr3VLULo)
 
 ## Install
 
-Yuru installs into user space by default. It does not require `sudo`.
+Installs into your home directory. No `sudo`.
 
-macOS and Linux guided install:
+**macOS / Linux**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --all --version v0.2.0
 ```
 
-This installs `yuru` into `~/.local/bin` unless `XDG_BIN_HOME` or
-`YURU_INSTALL_BIN_DIR` is set. `--all` also adds shell integration for the current
-shell. Run from an interactive terminal, this command asks for install-time
-choices such as default language, preview command, image preview protocol, shell
-bindings, preview text extensions, and shell path backend, then writes
-user-space defaults to `~/.config/yuru/config.toml`. Pressing Enter accepts the
-prompt defaults. The preview command default `auto` uses Yuru's built-in preview
-with `bat` when available for configured text extensions. The image preview
-protocol default is `none`. The shell path backend default `auto` tries `fd`,
-then `fdfind`, then the portable fallback.
-
-To preselect guided-install defaults:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --all --version v0.2.0 --default-lang none --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
-```
-
-To make a language backend the default during install, use `--default-lang ja`,
-`--default-lang zh`, `--default-lang ko`, or `--default-lang all` on Unix. In
-PowerShell, use `-DefaultLang ja`, `-DefaultLang zh`, `-DefaultLang ko`, or
-`-DefaultLang all`. The localized READMEs show commands prefilled for each
-language.
-
-`--bindings` accepts `all`, `none`, `ask`, or a comma-separated list such as
-`ctrl-t,ctrl-r,completion`. You can re-run the guided config later with
-`yuru configure`.
-
-Windows PowerShell:
+**Windows (PowerShell)**
 
 ```powershell
 $script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
 Invoke-Expression "& { $script } -All -Version v0.2.0"
 ```
 
-This installs `yuru.exe` into `%LOCALAPPDATA%\Yuru\bin`, adds that directory to
-the user PATH, adds PowerShell integration to your user profile, and can write
-guided config values to `%APPDATA%\yuru\config.toml`. Interactive installs ask
-for the default language, preview command, preview text extensions, image
-preview protocol, shell bindings, and shell path backend. Use `-DefaultLang`,
-`-PreviewCommand`, `-PreviewImageProtocol`, `-PathBackend`, and `-Bindings` to
-preselect those values.
-
-```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.2.0 -DefaultLang none -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
-```
-
-To install only the binary:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --version v0.2.0
-```
-
-```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
-Invoke-Expression "& { $script } -Version v0.2.0"
-```
-
-Crates.io:
+**Cargo**
 
 ```sh
 cargo install yuru
 ```
 
-The crates.io package and installed command are both `yuru`.
-Source builds use Lindera's embedded IPADIC dictionary for Japanese readings, so
-they require a working C compiler. On macOS, install Xcode Command Line Tools;
-Yuru's Cargo config and scripts prefer `/usr/bin/clang` for Apple targets.
-Release binaries do not require a local compiler.
+`--all` also sets up shell integration and asks a few setup questions - default
+language, preview style, key bindings - writing your answers to
+`~/.config/yuru/config.toml`. Press Enter to accept the defaults, or re-run the
+questions any time with `yuru configure`.
 
-Image preview support is compiled by default through the `image` feature. To
-build without image decoding/rendering dependencies:
+Drop `--all` to install just the binary. Building from source needs a C compiler
+for the Japanese dictionary; the released binaries do not.
 
-```sh
-cargo install yuru --no-default-features
-```
+For unattended installs, checksums, update, and uninstall, see
+[install and uninstall](docs/install-uninstall.md).
 
-Latest convenience install commands are also available from the `main` branch,
-but release-pinned commands are recommended for reproducibility.
+## Shell integration
 
-See [install and uninstall details](docs/install-uninstall.md), including
-release checksums and exactly which files the installer can modify.
-
-## Shell Integration
-
-Yuru can print shell setup code directly from the binary:
+Add to your shell config:
 
 ```sh
-eval "$(yuru --bash)"
-source <(yuru --zsh)
-yuru --fish | source
+eval "$(yuru --bash)"      # bash
+source <(yuru --zsh)       # zsh
+yuru --fish | source       # fish
 ```
-
-PowerShell:
 
 ```powershell
-Invoke-Expression ((yuru --powershell) -join "`n")
+Invoke-Expression ((yuru --powershell) -join "`n")   # PowerShell
 ```
 
-The shell integration provides:
+That gives you:
 
-- `CTRL-T`: insert selected files or directories
-- `CTRL-R`: search command history
-- `ALT-C`: cd into a selected directory
-- `**<TAB>`: fuzzy path completion
+| Key | Does |
+| --- | --- |
+| `CTRL-T` | insert a file or directory path |
+| `CTRL-R` | search command history |
+| `ALT-C` | `cd` into a directory |
+| `**` then `TAB` | fuzzy path completion |
 
-The bash, zsh, and fish behavior follows fzf’s documented shell integration
-model. PowerShell support uses PSReadLine key handlers.
+Same bindings as fzf, so muscle memory carries over.
 
 ## Usage
 
-Filter input:
-
-```sh
-printf "README.md\nsrc/lib.rs\ntests/日本語.txt\n" | yuru --lang ja --filter ni
-```
-
-Open the interactive finder:
+Pipe anything in:
 
 ```sh
 fd --hidden --exclude .git . | yuru --scheme path
 ```
 
-Interactive mode streams stdin and default commands, so large generators such as
-`fd` can keep producing candidates while the UI is already open. Use `--sync` if
-you want fzf-style synchronous startup.
+The interface opens immediately and keeps filling while the input arrives, so it
+works on large inputs. Use `--sync` to wait for all input first, like fzf.
 
-Chinese pinyin initials:
+Use `--filter` for non-interactive use, in scripts:
+
+```sh
+printf "README.md\nsrc/lib.rs\n" | yuru --filter lib
+```
+
+### Matching CJK text
+
+Pick a language with `--lang`, or set one as your default during install:
 
 ```sh
 printf "北京大学.txt\nnotes.txt\n" | yuru --lang zh --filter bjdx
+printf "カメラ.txt\n"              | yuru --lang ja --filter kamera
+printf "한글.txt\n"                | yuru --lang ko --filter hangeul
 ```
 
-Japanese romaji:
+Korean also matches choseong initials (`ㅎㄱ`) and 2-set keyboard input
+(`gksrmf`). Use `--lang all` for mixed lists, or `--lang auto` to pick a backend
+from your locale and the input.
 
-```sh
-printf "カメラ.txt\ntests/日本人の.txt\n" | yuru --lang ja --filter kamera
-```
-
-Korean Hangul romanization, choseong initials, and 2-set keyboard input:
-
-```sh
-printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter hangeul
-printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter ㅎㄱ
-printf "한글.txt\nnotes.txt\n" | yuru --lang ko --filter gksrmf
-```
-
-Auto language mode keeps one backend active per run:
-
-```sh
-printf "北京大学.txt\n" | LANG=zh_CN.UTF-8 yuru --lang auto --filter bjdx
-```
-
-Use all-language mode for mixed Japanese, Korean, and Chinese candidate lists:
-
-```sh
-printf "北京大学.txt\nカメラ.txt\n한글.txt\n" | yuru --lang all --filter bjdx
-```
-
-Explain a match:
+Not sure why something matched?
 
 ```sh
 printf "北京大学.txt\n" | yuru --lang zh --filter bjdx --explain
 ```
 
-Check local setup:
+Something not working? Start with `yuru doctor`.
+
+More detail in [language matching](docs/language-matching.md).
+
+## fzf compatibility
+
+Yuru accepts fzf's option surface, so existing shell bindings and
+`FZF_DEFAULT_OPTS` keep working. Search and scripting options - `--query`,
+`--filter`, `--nth`, `--with-nth`, `--scheme`, `--expect`, `--select-1`,
+`--print-query`, `--read0`, `--print0` and friends - are implemented.
+
+`--bind` is partial, and unsupported actions warn rather than fail:
 
 ```sh
-yuru doctor
+yuru --fzf-compat warn    # default
+yuru --fzf-compat strict  # fail instead
+yuru --fzf-compat ignore  # stay quiet
 ```
 
-## fzf Compatibility
-
-Yuru accepts fzf's current option surface so existing shell bindings and
-`FZF_DEFAULT_OPTS` do not fail at parse time. Search/scripting options such as
-`--query`, `--filter`, `--select-1`, `--exit-0`, `--print-query`, `--read0`,
-`--print0`, `--nth`, `--with-nth`, `--accept-nth`, `--scheme`, `--walker`, and
-`--expect` are implemented. `--bind` is partial; unsupported bind actions warn
-by default:
-
-```sh
-yuru --fzf-compat warn   # default
-yuru --fzf-compat strict # fail on unsupported bind actions
-yuru --fzf-compat ignore # keep quiet
-```
-
-`FZF_DEFAULT_OPTS` is loaded in safe mode by default so UI-heavy fzf options do
-not accidentally break Yuru:
-
-```sh
-yuru --load-fzf-default-opts never|safe|all
-```
-
-`[preview] command = "auto"` enables Yuru's built-in preview: images are
-rendered internally, configured text extensions use `bat` when available and
-fall back to `cat`-style plain text output. Files outside the configured
-extension list also use the text path when their contents look like ASCII text.
-Preview commands that emit image bytes,
-or select image files directly, can be rendered through the default `image`
-feature with `ratatui-image`; raster images and SVG files are supported. Set
-`[preview] image_protocol = "auto"` to enable environment/terminal detection.
-Ghostty uses the Kitty graphics protocol, including inside tmux when passthrough
-is enabled. Set `YURU_PREVIEW_IMAGE_PROTOCOL=sixel|kitty|iterm2|halfblocks` with
-`auto`, or set `[preview] image_protocol = "kitty"` in config, to force a
-protocol. The config default `none` disables image rendering and shows compact
-image metadata instead.
-
-Preview text and each command output stream are bounded to 1 MiB, commands time
-out after five seconds, and oversized image inputs are rejected. SVG previews
-do not load external or local `href` resources.
-
-See the full [fzf compatibility matrix](docs/fzf-compat.md).
+Full matrix, including preview and image support, in
+[fzf compatibility](docs/fzf-compat.md).
 
 ## Configuration
 
-Yuru reads `~/.config/yuru/config.toml` after safe fzf defaults and before
-`YURU_DEFAULT_OPTS` and CLI arguments.
+`~/.config/yuru/config.toml`, written for you by the guided install:
 
 ```toml
 [defaults]
-lang = "auto"          # plain | ja | ko | zh | all | auto
-scheme = "path"        # default | path | history
-case = "smart"         # smart | ignore | respect
-limit = 200
-load_fzf_defaults = "safe"
-fzf_compat = "warn"
+lang = "auto"        # plain | ja | ko | zh | all | auto
+scheme = "path"      # default | path | history
+case = "smart"       # smart | ignore | respect
 
 [preview]
-command = "auto"        # auto | none | shell command
-text_extensions = [
-  "txt", "md", "markdown", "toml", "json", "yaml", "yml", "csv", "tsv",
-  "log", "rs", "py", "js", "ts", "tsx", "sh", "ps1", "sql", "html", "css",
-]
-image_protocol = "none" # none | auto | halfblocks | sixel | kitty | iterm2
-
-[matching]
-algo = "greedy"        # greedy | fzf-v1 | fzf-v2 | nucleo
-max_query_variants = 8
-max_search_keys_per_candidate = 8
-max_total_key_bytes_per_candidate = 1024
-
-[ja]
-reading = "lindera"    # none | lindera
-
-[ko]
-romanization = true
-initials = true
-keyboard = true
-
-[zh]
-pinyin = true
-initials = true
-polyphone = "common"   # none | common
+command = "auto"     # auto | none | any shell command
 
 [shell]
-bindings = "all"       # all | none | ctrl-t,ctrl-r,alt-c,completion
-path_backend = "auto"  # auto | fd | fdfind | find
-ctrl_t_command = "__yuru_compgen_path__ ."
-ctrl_t_opts = "--preview-auto"
-alt_c_command = "__yuru_compgen_dir__ ."
-alt_c_opts = "--preview-auto"
+bindings = "all"     # all | none | ctrl-t,ctrl-r,alt-c,completion
 ```
 
-See [configuration details](docs/config.md) and
-[language matching behavior](docs/language-matching.md).
-Matcher algorithm names are compatibility-inspired modes: `fzf-v1` uses Yuru's
-greedy scorer, while `fzf-v2` and `nucleo` use the nucleo-backed quality scorer.
+Every key, and how config interacts with `FZF_DEFAULT_OPTS`, is in
+[configuration](docs/config.md).
 
-## Development
+## Documentation
 
-Install local git hooks:
+| | |
+| --- | --- |
+| [Install and uninstall](docs/install-uninstall.md) | unattended installs, checksums, updating, removal |
+| [Configuration](docs/config.md) | every option, and precedence rules |
+| [Language matching](docs/language-matching.md) | what matches what, per language |
+| [fzf compatibility](docs/fzf-compat.md) | option matrix, preview, known gaps |
+| [Troubleshooting](docs/troubleshooting.md) | when something misbehaves |
+| [Architecture](docs/internals.md) | indexing, search, and why it is fast |
+| [Performance](docs/performance.md) | benchmark results |
+
+## Contributing
 
 ```sh
-./scripts/install-hooks
+./scripts/install-hooks   # formatter, linter, tests, benches on commit
+./scripts/check           # run the same gate manually
 ```
 
-Run the quality gate:
+`scripts/qa/` holds harnesses for questions the test suite cannot answer -
+comparing output against a previous release, benchmarking against a baseline
+binary, and driving the interface through a pty. See
+[scripts/qa/README.md](scripts/qa/README.md).
 
-```sh
-./scripts/check
-```
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) have the
+policies. Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
-Run benchmarks:
+## About this project
 
-```sh
-./scripts/bench
-YURU_BENCH_1M=1 ./scripts/bench
-```
-
-The hook policy runs formatter, linter, tests, and benchmarks before commits and
-pushes. Set `YURU_SKIP_BENCH=1` only when you intentionally need a fast local
-checkpoint.
-
-Performance numbers from the current benchmark suite are published in
-[docs/performance.md](docs/performance.md). Troubleshooting notes are in
-[docs/troubleshooting.md](docs/troubleshooting.md).
-
-## Releases
-
-GitHub Actions builds release assets for:
-
-- `x86_64-unknown-linux-gnu`
-- `x86_64-apple-darwin`
-- `aarch64-apple-darwin`
-- `x86_64-pc-windows-msvc`
-
-Create a version tag to publish a release and crates.io packages. The release
-workflow only runs on tags, and the tag must match the crate version.
-
-```sh
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-Release notes are tracked in [CHANGELOG.md](CHANGELOG.md). Contributor and
-security policies live in [CONTRIBUTING.md](CONTRIBUTING.md) and
-[SECURITY.md](SECURITY.md).
+Yuru is built with heavy AI assistance. Direction, feature choices, language
+behavior, testing, and releases are decided and reviewed by the maintainer - the
+code is treated as a maintained open-source project, not unreviewed AI output.
 
 ## License
 
-Yuru is distributed under the terms of both the MIT license and the Apache
-License 2.0. See [LICENSE-MIT](LICENSE-MIT) and
+MIT or Apache-2.0, at your option. See [LICENSE-MIT](LICENSE-MIT) and
 [LICENSE-APACHE](LICENSE-APACHE).

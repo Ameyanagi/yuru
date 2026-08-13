@@ -2,6 +2,40 @@
 
 All notable user-facing changes are tracked here.
 
+## Unreleased
+
+### Fixed
+
+- Fixed an extended-query exact term (`'foo`, `--exact`) withholding its
+  exact-case bonus from every candidate containing `İ` (U+0130), the one
+  character whose lowercase mapping is two characters. The bonus asks whether the
+  matched occurrence is spelled the way the term was typed, which needs the
+  candidate's case folding to line up character for character - but that was
+  tested across the whole candidate rather than at the occurrence, so one such
+  character cost the candidate 75 points on *every* term in the query, including
+  a pure-ASCII term matching a part of the text it was nowhere near.
+  `İ a` scored 86 below `X a` for the term `'a`; it now scores like the same text
+  spelled `i` + U+0307, and `İ a` ranks above `i̇ a` for a query typed `İ a` on
+  every matcher path, as `--no-extended` already did. Candidates whose folding
+  differs by more than case *before* the match are likewise no longer penalized
+  past it.
+
+- Fixed `CTRL-R` history search ranking by recency alone instead of by how well
+  each entry matched. The generated bash, zsh, fish, and PowerShell integrations
+  passed `--no-sort`, which returns every match in input order and never consults
+  the score, so a recently typed long command whose letters merely appeared
+  scattered across it outranked an exact match. Searching `sudo mount` could put
+  an unrelated recent line above `sudo mount /dev/sdc1 /mnt/sdcard`.
+
+  `--scheme history`, which the integrations already pass, makes recency the
+  tiebreak - so equally good matches still come back newest first, which is the
+  intended behavior. `--no-sort` on top of that was discarding the "equally good"
+  part. fzf's own history widget sorts by score for the same reason and offers
+  recency-only order as a toggle rather than as the default.
+
+  Re-run `yuru configure`, or re-evaluate `yuru --bash` / `--zsh` / `--fish` /
+  `--powershell`, to pick up the corrected binding.
+
 ## 0.2.0
 
 ### Breaking
@@ -63,17 +97,34 @@ These affect code that depends on the `yuru-core` or `yuru-tui` libraries. The
 
   Verified scope, comparing 257 command invocations against the previous release:
   229 are byte-identical and 28 differ. All 28 are on a deliberately mixed-case
-  corpus, all are pure reorderings with an identical matching set and exit code,
-  and two of the 28 differ only in the score printed by `--explain`. 20 of them are
-  extended exact terms (`'readme`, `^src 'main`, `--exact` with several terms),
-  which reached the bonus later than the rest - see the Fixed entry below; those 20
-  are permutations once `--limit` is removed. Case-sensitive
-  matching (`--no-ignore-case`, or an uppercase query under default smart case),
-  case-insensitive `--algo fzf-v2` / `--algo nucleo`, and all Japanese, Korean, and
-  Chinese phonetic matching produce byte-identical output. Where `--limit`
-  truncates, a reordering can change which candidates fall inside the limit.
+  corpus and all 28 keep the exit code. 26 of the 28 are pure reorderings with an
+  identical matching set, and are permutations once `--limit` is removed; 20 of
+  those 26 are extended exact terms (`'readme`, `^src 'main`, `--exact` with
+  several terms), which reached the bonus later than the rest - see the Fixed entry
+  below. The remaining 2 are the `--explain` cases, and they are not reorderings:
+  besides the `score:` they print, they change `matched key:` and `key text:`,
+  because a case-insensitive match is now reported against the candidate's original
+  text instead of the lowercased normalized key. For `--explain --filter read` over
+  that corpus, 2770 of 4455 result blocks move from `matched key: Normalized` to
+  `matched key: Original`, and 2921 `key text:` lines change from lowercased text to
+  the key as written. Case-sensitive matching (`--no-ignore-case`, or an uppercase
+  query under default smart case) and all Japanese, Korean, and Chinese phonetic
+  matching produce byte-identical output. Where `--limit` truncates, a reordering
+  can change which candidates fall inside the limit.
   Case-*sensitive* `--algo fzf-v2` / `--algo nucleo` does change, for the separate
   reason recorded under Fixed: it never applied the case policy at all before.
+
+  Two limits of that comparison, both found after the release went out, so read
+  "28 differ" as a floor rather than the full extent. First, every one of the 257
+  invocations pins `--limit`, so it compares an ordered top-N and cannot see a
+  change confined below the limit. Rerunning the case-flag family unbounded shows
+  11 invocations whose *matching set* grew - `--filter ABC --ignore-case --literal`
+  goes from 1355 to 3973 matched lines - which is the `--ignore-case` / `--literal`
+  fix recorded below finding matches 0.1.11 missed, not a reordering. Second, every
+  `--algo` invocation in the set uses a lowercase query, so the set says nothing
+  about `--algo fzf-v2` / `--algo nucleo` under an uppercase one; see the two
+  `--algo` entries under Fixed for what actually changes there. `scripts/qa/diffout.py`
+  now runs an unbounded second pass covering both gaps.
 - Improved multi-term query performance substantially. Extended fzf-style queries
   parsed the query, re-expanded every term's query variants, and re-normalized
   every candidate key once *per candidate*; all of that is now done once per
@@ -128,14 +179,26 @@ These affect code that depends on the `yuru-core` or `yuru-tui` libraries. The
   --no-ignore-case --algo nucleo` returned both lines instead of only `abc`. The
   matcher is now configured from the requested policy, on the plain, extended, and
   parallel paths alike, so those searches now behave like the default `--algo
-  greedy`. Case-insensitive searches on these algorithms are unchanged and remain
-  byte-identical to 0.1.11.
+  greedy`. *This* entry changes case-sensitive searches only; it leaves a
+  case-insensitive one exactly as it scored before. Case-insensitive output on these
+  algorithms is nevertheless **not** byte-identical to 0.1.11, for two reasons
+  recorded separately: 0.1.11 aborts outright on many uppercase queries, including
+  under an explicit `--ignore-case` (see the crash entry below), and
+  `--ignore-case --literal` gains the matches described in the `--literal` entry
+  above. Across the case-flag queries crossed with these two backends, every
+  case-insensitive invocation that 0.1.11 completed and that does not pass
+  `--literal` is byte-identical.
 - Fixed `--algo fzf-v2` / `--algo nucleo` **crashing** on a query containing an
   uppercase letter. `nucleo-matcher` requires the caller to case-fold the query
   before handing it over when the matcher is case-insensitive; yuru never did, so
   nucleo's prefilter and its scoring matrix could disagree and abort the process
   with `should have been caught by prefilter`. `yuru --filter ReadMe --algo nucleo`
-  over a list containing `lib/ReadMe1.md` exited 101 with no output. The query is
+  over a list containing `lib/ReadMe1.md` exited 101 with no output. Whether a given
+  uppercase query aborts depends on the candidates as well as on the query, so the
+  failure is not reliably visible from one input: over the mixed-case corpus used
+  for the comparison above, `ReadMe`, `READ`, and `AbcDef` all abort - with or
+  without `--ignore-case`, `--no-ignore-case`, or `--literal` - while `ABC` and
+  `HTTP` complete. The query is
   now folded with nucleo's own table before matching, for every case mode. Deciding
   whether a query needs folding costs a table lookup per character, so it is
   memoized on the query rather than repeated for every candidate; the remaining cost
