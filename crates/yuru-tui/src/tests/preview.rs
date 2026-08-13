@@ -176,7 +176,8 @@ fn clearing_preview_cancels_and_joins_the_active_child() {
 
     let started = std::time::Instant::now();
     cache.request_for_selection(None, None, &results, &state, Some(test_geometry()), None);
-    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    // Bounds "clearing the cache does not block on the in-flight worker", not speed.
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
     assert!(cache.next_poll_timeout().is_none());
 }
 

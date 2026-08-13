@@ -56,7 +56,11 @@ fn svg_preview_does_not_read_external_local_resources() {
     let image = preview_image_from_output(svg).expect("bounded SVG should still render");
 
     assert_eq!((image.width(), image.height()), (10, 10));
-    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    // Bounds "did not follow the href", not speed: reading /dev/zero would never
+    // finish, so any completion proves the resource was refused. The threshold sits
+    // far below that and far above CI scheduling noise - a tight bound here tests the
+    // runner's load rather than the code, and has failed on a loaded runner.
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
 }
 
 #[test]
