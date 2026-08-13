@@ -16,6 +16,33 @@ fn score_unicode_text_for_test(pattern: &str, text: &str, case_sensitive: bool) 
     }
 }
 
+/// Scores the way v0.2.0 did: one retry, writing `İ` out on both sides.
+///
+/// The reference for [`composing_a_multi_char_lowercase_mapping_changes_no_match`]. Composing
+/// the written-out mapping is tried first now, and it must move scores only - never the set
+/// of pairs that match.
+fn score_writing_out_only(pattern: &str, text: &str, exact: bool) -> Option<i64> {
+    let score = |pattern: &str, text: &str| {
+        if exact {
+            score_exact_folded_text(pattern, text, false)
+        } else {
+            score_unicode_text_for_test(pattern, text, false)
+        }
+    };
+
+    if let Some(as_written) = score(pattern, text) {
+        return Some(as_written);
+    }
+
+    let written_out_pattern = pattern.replace(MULTI_CHAR_LOWERCASE, MULTI_CHAR_LOWERCASE_EXPANSION);
+    let written_out_text = text.replace(MULTI_CHAR_LOWERCASE, MULTI_CHAR_LOWERCASE_EXPANSION);
+    if written_out_pattern == pattern && written_out_text == text {
+        return None;
+    }
+
+    score(&written_out_pattern, &written_out_text)
+}
+
 #[test]
 fn subsequence_match_basic() {
     assert!(score_text("abc", "a_b_c", false).is_some());
@@ -221,6 +248,114 @@ fn case_insensitive_matching_folds_a_multi_char_lowercase_mapping() {
     // Case-sensitive matching folds nothing, so it must not expand anything either.
     assert!(score_exact_text("i\u{307}", "İ", true).is_none());
     assert!(score_text("i\u{307}a", "İa", true).is_none());
+}
+
+/// A match reached by rewriting one spelling of `İ` into the other must never collect
+/// [`BONUS_CASE_EXACT`], and must score exactly the one-character match it stands for.
+///
+/// The bonus states one thing: the candidate is spelled the way the query was typed. A
+/// rewritten copy makes the two spellings look alike, so reading the bonus off the rewritten
+/// comparison awards it to a candidate that is spelled the other way - which is what v0.2.0
+/// did. Scoring the *composed* copy is the other half: writing the character out instead
+/// scores a two-character copy, which collects a second `SCORE_MATCH` and a
+/// `BONUS_CONSECUTIVE` the one-character spelling can never collect.
+#[test]
+fn a_rewritten_multi_char_lowercase_match_forfeits_the_exact_case_bonus() {
+    for scorer in [
+        score_text as fn(&str, &str, bool) -> Option<i64>,
+        score_exact_text,
+    ] {
+        let composed = scorer("İ", "İ", false).expect("a text matches itself");
+
+        // Whichever side spells it as one character, the score is the one-character match
+        // minus the bonus - not a longer, higher-scoring comparison of written-out copies.
+        assert_eq!(
+            scorer("İ", "i\u{307}", false),
+            Some(composed - BONUS_CASE_EXACT)
+        );
+        assert_eq!(
+            scorer("i\u{307}", "İ", false),
+            Some(composed - BONUS_CASE_EXACT)
+        );
+
+        // A query matching only part of the mapping has nothing to compose, so it is scored
+        // against the written-out copy - and still forfeits the bonus, because `İ` is not
+        // spelled `i`.
+        let written_out = scorer("i", "i\u{307}", false).expect("the written-out form matches");
+        assert_eq!(
+            scorer("i", "İ", false),
+            Some(written_out - BONUS_CASE_EXACT)
+        );
+    }
+}
+
+/// The exact-case preference the bonus exists to provide must survive the rewrite: for either
+/// spelling of the query, the candidate spelled that way outranks the one that is not.
+///
+/// v0.2.0 inverted both directions - `İ` ranked `i` + U+0307 first, and `i` + U+0307 tied,
+/// leaving the length tiebreak to emit `İ` first.
+#[test]
+fn either_spelling_of_a_multi_char_lowercase_mapping_prefers_its_own_candidate() {
+    for scorer in [
+        score_text as fn(&str, &str, bool) -> Option<i64>,
+        score_exact_text,
+    ] {
+        for (query, other) in [("İ", "i\u{307}"), ("i\u{307}", "İ")] {
+            let literal = scorer(query, query, false).expect("a text matches itself");
+            let rewritten = scorer(query, other, false).expect("the other spelling matches");
+            assert!(
+                literal > rewritten,
+                "{query:?} scored {literal} against itself and {rewritten} against {other:?}",
+            );
+        }
+    }
+}
+
+/// No candidate reached by case folding may outrank one spelled the way the query was typed,
+/// for *any* character with a case mapping.
+///
+/// Exhaustive rather than a list, because the defect this guards was specific to the one
+/// character whose lowercase mapping is longer than one character: a hand-written list would
+/// have to be extended by whoever adds the next one. `char::to_lowercase` ships exactly one
+/// such character today - pinned by
+/// [`folding_never_truncates_a_multi_char_lowercase_mapping`] - and this asserts the ranking
+/// property that character broke, over every character that folds at all.
+#[test]
+fn a_folded_candidate_never_outranks_the_spelling_the_query_was_typed_with() {
+    let mut folding_characters = 0usize;
+    for code_point in 0..=0x10_FFFF_u32 {
+        let Some(ch) = char::from_u32(code_point) else {
+            continue;
+        };
+        let written = ch.to_string();
+        let lowered: String = ch.to_lowercase().collect();
+        if lowered == written {
+            continue;
+        }
+        folding_characters += 1;
+
+        for (query, folded) in [(&written, &lowered), (&lowered, &written)] {
+            for scorer in [
+                score_text as fn(&str, &str, bool) -> Option<i64>,
+                score_exact_text,
+            ] {
+                let literal = scorer(query, query, false).expect("a text matches itself");
+                let folded_score = scorer(query, folded, false).unwrap_or_else(|| {
+                    panic!("U+{code_point:04X}: {query:?} must match {folded:?} case-insensitively")
+                });
+                assert!(
+                    literal > folded_score,
+                    "U+{code_point:04X}: {query:?} scored {literal} against itself \
+                     and {folded_score} against {folded:?}",
+                );
+            }
+        }
+    }
+
+    assert!(
+        folding_characters > 1_000,
+        "only {folding_characters} characters fold, so the scan cannot have run"
+    );
 }
 
 /// The expanded retry must not disturb a comparison that already answered.
@@ -572,6 +707,28 @@ proptest! {
                 );
             }
         }
+    }
+
+    /// Composing the written-out mapping is a scoring device, not a matching rule: it must
+    /// leave the set of matching pairs exactly where writing the mapping out alone put it.
+    ///
+    /// Only the alphabet the rewrites can touch, so that the generated pairs are the ones
+    /// where a composed comparison and a written-out comparison can disagree.
+    #[test]
+    fn composing_a_multi_char_lowercase_mapping_changes_no_match(
+        pattern in "[iİa\u{307}]{0,4}",
+        text in "[iİa\u{307}]{0,6}",
+    ) {
+        prop_assert_eq!(
+            score_text(&pattern, &text, false).is_some(),
+            score_writing_out_only(&pattern, &text, false).is_some(),
+            "fuzzy match set changed for {:?} against {:?}", pattern, text
+        );
+        prop_assert_eq!(
+            score_exact_text(&pattern, &text, false).is_some(),
+            score_writing_out_only(&pattern, &text, true).is_some(),
+            "exact match set changed for {:?} against {:?}", pattern, text
+        );
     }
 
     #[test]

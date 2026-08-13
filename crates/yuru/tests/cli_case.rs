@@ -3,6 +3,36 @@ mod support;
 use predicates::prelude::*;
 use support::command;
 
+/// Runs a case-insensitive plain-language filter under `--explain` and returns each output
+/// record with the score reported for it, in ranked order.
+///
+/// Order alone cannot tell a win from a tie the tiebreak resolved, which is what let a
+/// ranking test pass with the exact-case bonus removed. The scores can.
+fn explain_scores(args: &[&str], stdin: &str) -> Vec<(String, i64)> {
+    let output = command()
+        .args(["--ignore-case", "--lang", "plain", "--explain"])
+        .args(args)
+        .write_stdin(stdin.to_string())
+        .output()
+        .expect("yuru ran");
+    assert!(output.status.success(), "yuru {args:?} failed");
+
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 output");
+    let mut ranked: Vec<(String, i64)> = Vec::new();
+    for line in stdout.lines() {
+        // `--explain` prints the record itself unindented and every detail of it indented.
+        match line.strip_prefix("  score: ") {
+            Some(score) => {
+                ranked.last_mut().expect("a record before its score").1 =
+                    score.parse().expect("an integer score");
+            }
+            None if !line.starts_with("  ") => ranked.push((line.to_string(), 0)),
+            None => {}
+        }
+    }
+    ranked
+}
+
 #[test]
 fn cli_ignore_case_matches_mixed_case_candidate() {
     command()
@@ -221,4 +251,105 @@ fn cli_ignore_case_survives_literal_for_a_multi_char_lowercase_mapping() {
                 .stdout(predicate::eq(stdin));
         }
     }
+}
+
+/// Every matcher path must rank the candidate spelled the way the query was typed first,
+/// whichever of the two spellings of `İ` the query used.
+///
+/// `--literal` is where the matcher's own folding is all there is to enforce this. v0.2.0
+/// scored the written-out copy of the query against the written-out copy of the candidate, so
+/// `i` + U+0307 collected a second character's `SCORE_MATCH` and a consecutive bonus that the
+/// one-character `İ` cannot collect, and won a query typed `İ` outright. With the query typed
+/// the other way round the same inflation produced a tie that the length tiebreak resolved
+/// towards `İ`, while an extended exact term - which never awarded the exact-case bonus
+/// through an expansion - put `i` + U+0307 first. Four paths, three answers.
+///
+/// A query typed `İ` is only listed under `--literal` because with normalization on the
+/// query's own normalized variant *is* `i` + U+0307, so the candidate spelled that way is
+/// matched by a variant of the query as typed rather than through the matcher's rewrite. What
+/// wins there is decided by the query-variant weights, not by this.
+///
+/// The two candidates are one and two characters long, so the order alone is weak evidence:
+/// the length tiebreak would put `İ` first on its own, and for a query typed `İ` that is in
+/// fact all that decides it. So this asserts the reported *scores*, and asserts per cell
+/// whether the win is earned by score or conceded to the tiebreak.
+#[test]
+fn cli_ignore_case_ranks_the_spelling_the_query_was_typed_with_first() {
+    let stdin = "i\u{307}\nİ\n";
+    for (query, expected, literal) in [
+        ("İ", "İ", &["--literal"][..]),
+        ("i\u{307}", "i\u{307}", &["--literal"][..]),
+        ("i\u{307}", "i\u{307}", &[][..]),
+    ] {
+        for (filter, algo, decided_by_score) in [
+            (query.to_string(), &[][..], true),
+            (query.to_string(), &["--exact"][..], true),
+            (query.to_string(), &["--algo", "nucleo"][..], true),
+            // An extended exact term typed `İ` is folded to `i` + U+0307 before it is looked
+            // up, so it is not the 1:1 fold of itself and neither spelling can collect the
+            // exact-case bonus. That one cell is a real tie, and the length tiebreak - not a
+            // score - is what resolves it towards the spelling the query used.
+            (format!("'{query}"), &["--extended"][..], query != "İ"),
+        ] {
+            let mut args = vec!["--filter", filter.as_str()];
+            args.extend(literal);
+            args.extend(algo);
+            let ranked = explain_scores(&args, stdin);
+            let context = format!("{filter:?} {literal:?} {algo:?}");
+
+            assert_eq!(
+                ranked.first().map(|(text, _)| text.as_str()),
+                Some(expected)
+            );
+            // `--algo nucleo` folds `İ` only towards itself, so under `--literal` the other
+            // spelling does not match at all and there is no runner-up to compare against.
+            if let Some((runner_up, score)) = ranked.get(1) {
+                if decided_by_score {
+                    assert!(
+                        ranked[0].1 > *score,
+                        "{context}: {expected:?} must outscore {runner_up:?}, got {} vs {score}",
+                        ranked[0].1
+                    );
+                } else {
+                    assert_eq!(ranked[0].1, *score, "{context}: expected a scoring tie");
+                }
+            }
+        }
+    }
+}
+
+/// The exact-case bonus belongs to the occurrence that was matched, not to the candidate.
+///
+/// `İ` is the one character whose lowercase mapping is two characters, so a candidate holding
+/// it does not fold to itself character for character. Requiring that of the whole candidate
+/// made every term in the query pay for it - here a pure-ASCII term matching an `a` the `İ` is
+/// nowhere near, which the same text spelled `i` + U+0307 collected the bonus for. Two
+/// spellings of one line ranked 75 points apart on a term neither spelling touches.
+///
+/// The controls say the same thing from the other side: `U+212A` KELVIN SIGN folds to a
+/// one-byte `k`, resizing the candidate in bytes without resizing it in characters, and it
+/// scored - and still scores - exactly like plain ASCII.
+#[test]
+fn cli_ignore_case_exact_term_bonus_ignores_folding_elsewhere_in_the_candidate() {
+    let ranked = explain_scores(&["--filter", "'a", "--literal"], "İ a\ni\u{307} a\nİ A\n");
+    let score = |text: &str| {
+        ranked
+            .iter()
+            .find(|(display, _)| display == text)
+            .unwrap_or_else(|| panic!("{text:?} matched"))
+            .1
+    };
+
+    assert_eq!(
+        score("İ a"),
+        score("i\u{307} a"),
+        "the two spellings fold to the same text and the term matches neither of them"
+    );
+    assert!(
+        score("İ a") > score("İ A"),
+        "and both collect the bonus rather than both losing it"
+    );
+
+    let controls = explain_scores(&["--filter", "'a", "--literal"], "X a\n\u{212a} a\n");
+    assert_eq!(controls[0].1, controls[1].1, "KELVIN SIGN folds 1:1");
 }
