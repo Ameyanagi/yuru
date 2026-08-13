@@ -90,6 +90,10 @@ pub(super) fn scroll_offset(selected: usize, len: usize, rows: usize) -> usize {
     }
 }
 
+/// Longest a single grapheme cluster is allowed to be before the scan gives up
+/// on it, which keeps one pathological record from costing an unbounded scan.
+const MAX_CLUSTER_SCAN_BYTES: usize = 256;
+
 /// Longest byte run at the front of `text` that the terminal renders as one
 /// indivisible unit — a grapheme cluster, so a base character keeps its
 /// combining marks, emoji modifiers, variation selectors, and ZWJ partners.
@@ -99,8 +103,6 @@ pub(super) fn scroll_offset(selected: usize, len: usize, rows: usize) -> usize {
 /// there rather than emit half a cluster, and the window keeps a single record
 /// from costing an unbounded scan.
 pub(super) fn leading_cluster(text: &str) -> Option<&str> {
-    const MAX_CLUSTER_SCAN_BYTES: usize = 256;
-
     let window = &text[..floor_char_boundary(text, MAX_CLUSTER_SCAN_BYTES)];
     let cluster = window.graphemes(true).next()?;
     (cluster.len() < window.len() || window.len() == text.len()).then_some(cluster)
@@ -190,6 +192,176 @@ pub(super) fn terminal_safe_text(text: &str) -> Cow<'_, str> {
     sanitize_terminal_text(text, false)
 }
 
+/// Escape-free view of escape-interleaved text, with the SGR sequences lifted
+/// out and keyed by where they sit in that view.
+///
+/// A control byte ends a grapheme cluster, so segmenting the raw string splits
+/// every cluster an SGR sequence was written inside — and then charges the
+/// halves a width the terminal does not print, in both directions. A keycap
+/// written as `#`, `ESC[31m`, U+FE0F, U+20E3 splits into a one-column `#` and a
+/// zero-width tail: one column for something composed in two. A modifier
+/// sequence written as `👩`, `ESC[0m`, U+1F3FB splits into two clusters of two
+/// columns each: four for something that also prints in two. Segmenting this
+/// view instead, then mapping the clusters back onto the source, charges what
+/// is actually painted.
+pub(super) struct SgrSplit<'a> {
+    visible: Cow<'a, str>,
+    /// Every SGR sequence with its byte offset in `visible`, in source order.
+    sgrs: Vec<(usize, &'a str)>,
+    /// Bytes of the source the scan consumed.
+    scanned: usize,
+    /// Where the byte cap fell: the length of `visible`, and the number of
+    /// sequences recorded, at the moment the scan crossed it. Nothing past the
+    /// cap may start a cluster or contribute styling of its own.
+    capped: (usize, usize),
+}
+
+impl<'a> SgrSplit<'a> {
+    /// Splits `text` up to a `max_scanned_bytes` cap on the source.
+    ///
+    /// The scan runs one cluster's worth past that cap, so a cluster starting
+    /// inside it is seen whole rather than cut in half by the cap itself: the
+    /// cap bounds where a cluster may begin, not where its bytes may end.
+    ///
+    /// `sanitize_controls` replaces control characters with visible
+    /// one-character stand-ins, the form whose width the terminal will actually
+    /// print.
+    pub(super) fn new(
+        text: &'a str,
+        allow_sgr: bool,
+        sanitize_controls: bool,
+        max_scanned_bytes: usize,
+    ) -> Self {
+        let scan_end = max_scanned_bytes.saturating_add(MAX_CLUSTER_SCAN_BYTES);
+        let scannable = floor_char_boundary(text, scan_end);
+        // Text without control characters has nothing to lift out and nothing
+        // to replace, so its view is the source itself.
+        if !text[..scannable].chars().any(char::is_control) {
+            return Self {
+                visible: Cow::Borrowed(&text[..scannable]),
+                sgrs: Vec::new(),
+                scanned: scannable,
+                capped: (floor_char_boundary(text, max_scanned_bytes), 0),
+            };
+        }
+
+        let mut visible = String::with_capacity(scannable);
+        let mut sgrs = Vec::new();
+        let mut offset = 0usize;
+        let mut capped = None;
+        while offset < text.len() {
+            if capped.is_none() && offset >= max_scanned_bytes {
+                capped = Some((visible.len(), sgrs.len()));
+            }
+            if allow_sgr {
+                if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
+                    if offset.saturating_add(len) > scan_end {
+                        break;
+                    }
+                    // Only a cluster is worth reaching past the cap for, so a
+                    // sequence that straddles it is what ends the capped part.
+                    if capped.is_none() && offset.saturating_add(len) > max_scanned_bytes {
+                        capped = Some((visible.len(), sgrs.len()));
+                    }
+                    sgrs.push((visible.len(), &text[offset..offset + len]));
+                    offset += len;
+                    continue;
+                }
+            }
+
+            let ch = text[offset..]
+                .chars()
+                .next()
+                .expect("valid character boundary");
+            if offset.saturating_add(ch.len_utf8()) > scan_end {
+                break;
+            }
+            visible.push(if sanitize_controls {
+                visible_control_char(ch)
+            } else {
+                ch
+            });
+            offset += ch.len_utf8();
+        }
+
+        let capped = capped.unwrap_or((visible.len(), sgrs.len()));
+        Self {
+            visible: Cow::Owned(visible),
+            sgrs,
+            scanned: offset,
+            capped,
+        }
+    }
+
+    pub(super) fn visible(&self) -> &str {
+        &self.visible
+    }
+
+    /// Byte offset in the escape-free view past which no cluster may start.
+    fn cluster_start_limit(&self) -> usize {
+        self.capped.0
+    }
+
+    /// Whether the scan reached the end of `text` rather than the byte cap.
+    fn is_complete(&self, text: &str) -> bool {
+        self.scanned == text.len()
+    }
+
+    /// The `index`-th SGR sequence and where it sits in the escape-free view.
+    pub(super) fn sgr(&self, index: usize) -> Option<(usize, &'a str)> {
+        self.sgrs.get(index).copied()
+    }
+
+    /// The escape-free prefix ending at `end`, with every SGR sequence put back
+    /// where it was written — including any at exactly `end`, so a trailing
+    /// reset at the viewport boundary is retained and styling cannot leak past
+    /// the row. Sequences beyond the byte cap are dropped with the rest of it.
+    fn render_prefix(&self, end: usize) -> String {
+        let visible = &self.visible[..end];
+        let sgrs = &self.sgrs[..self.capped.1.min(self.sgrs.len())];
+        if sgrs.is_empty() {
+            return visible.to_string();
+        }
+
+        let mut out = String::with_capacity(visible.len() + sgrs.len() * 8);
+        let mut cursor = 0usize;
+        for (offset, sequence) in sgrs {
+            if *offset > end {
+                break;
+            }
+            out.push_str(&visible[cursor..*offset]);
+            out.push_str(sequence);
+            cursor = *offset;
+        }
+        out.push_str(&visible[cursor..]);
+        out
+    }
+}
+
+/// Byte offset in escape-free `visible` of the end of the longest
+/// grapheme-cluster prefix that fits `max_columns`, plus whether the walk
+/// stopped on the budget rather than on running out of scanned text.
+///
+/// A cluster that would straddle the budget is dropped whole. `start_limit`
+/// bounds where a cluster may start, so the last one taken keeps continuation
+/// scalars that lie past it.
+fn cluster_prefix_end(visible: &str, max_columns: usize, start_limit: usize) -> (usize, bool) {
+    let mut columns = 0usize;
+    let mut end = 0usize;
+    while end < start_limit {
+        let Some(cluster) = leading_cluster(&visible[end..]) else {
+            return (end, true);
+        };
+        let next = columns.saturating_add(cluster_display_width(cluster));
+        if next > max_columns {
+            return (end, true);
+        }
+        columns = next;
+        end += cluster.len();
+    }
+    (end, false)
+}
+
 /// Sanitizes only the visible prefix required by the viewport, budgeting by
 /// display columns rather than characters so wide CJK and emoji rows cannot
 /// overflow the row and wrap.
@@ -201,15 +373,17 @@ pub(super) fn terminal_safe_text(text: &str) -> Cow<'_, str> {
 /// whole rather than half-emitted, so a wide character is never split and a
 /// combining mark or emoji modifier is never separated from its base.
 ///
-/// Only a cluster that costs columns can exhaust the budget, so the scan runs
-/// on past a full budget through anything free — SGR sequences and zero-width
-/// clusters — and stops at the first cluster that would actually overflow.
-/// Two things follow, and both are load-bearing. A combining scalar reaches its
-/// base even when an SGR sequence sits between them, which grapheme
-/// segmentation alone cannot deliver because a control byte ends a cluster. And
-/// a zero-width tail is consumed rather than left behind, so text that occupies
-/// exactly the budget does not report itself truncated and collect an ellipsis
-/// it never earned.
+/// Clusters are taken from the escape-free view of the text rather than the raw
+/// bytes, because an SGR sequence written between a base character and its
+/// continuation would otherwise split the cluster the terminal composes and get
+/// the halves charged the wrong width. A zero-width tail is consumed rather
+/// than left behind, so text that occupies exactly the budget does not report
+/// itself truncated and collect an ellipsis it never earned.
+///
+/// The view is built over a window of the source that widens only while the
+/// budget stays unfilled, so a long line costs the prefix it prints rather than
+/// its length, and free content — SGR sequences and zero-width clusters — is
+/// still followed out to the byte cap.
 pub(crate) fn terminal_safe_prefix(
     text: &str,
     allow_sgr: bool,
@@ -220,43 +394,19 @@ pub(crate) fn terminal_safe_prefix(
     }
 
     let max_scanned_bytes = max_visible.saturating_mul(64).clamp(64, 64 * 1024);
-    let mut out = String::with_capacity(text.len().min(max_visible.saturating_mul(4)));
-    let mut offset = 0usize;
-    let mut visible = 0usize;
-    let mut safe_cluster = String::new();
-    while offset < text.len() && offset < max_scanned_bytes {
-        if allow_sgr {
-            if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
-                if offset.saturating_add(len) > max_scanned_bytes {
-                    break;
-                }
-                out.push_str(&text[offset..offset + len]);
-                offset += len;
-                continue;
-            }
+    let mut window = max_visible.saturating_mul(4).clamp(64, max_scanned_bytes);
+    loop {
+        let split = SgrSplit::new(text, allow_sgr, true, window);
+        let (end, budget_stopped) =
+            cluster_prefix_end(split.visible(), max_visible, split.cluster_start_limit());
+        let whole_text = end == split.visible().len() && split.is_complete(text);
+        if budget_stopped || whole_text || window == max_scanned_bytes {
+            return (split.render_prefix(end), !whole_text);
         }
-
-        // A control character always ends a grapheme cluster, so an SGR
-        // sequence can never begin inside the cluster taken here.
-        let Some(cluster) = leading_cluster(&text[offset..]) else {
-            break;
-        };
-        if offset.saturating_add(cluster.len()) > max_scanned_bytes {
-            break;
-        }
-        // Width is measured on the sanitized replacement, since that is what
-        // the terminal actually prints.
-        safe_cluster.clear();
-        safe_cluster.extend(cluster.chars().map(visible_control_char));
-        let cluster_width = cluster_display_width(&safe_cluster);
-        if visible.saturating_add(cluster_width) > max_visible {
-            break;
-        }
-        out.push_str(&safe_cluster);
-        visible += cluster_width;
-        offset += cluster.len();
+        // The window ran out before the budget did, so everything scanned so
+        // far was free: widen and rescan until one of them decides.
+        window = window.saturating_mul(4).min(max_scanned_bytes);
     }
-    (out, offset < text.len())
 }
 
 pub(super) fn safe_sgr_sequence_len(text: &str) -> Option<usize> {

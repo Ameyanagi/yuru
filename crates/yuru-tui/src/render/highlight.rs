@@ -4,8 +4,7 @@ use std::collections::HashSet;
 use yuru_core::{match_positions, Candidate, KeyKind, ScoredCandidate, SearchKey};
 
 use super::layout::{
-    cluster_display_width, leading_cluster, safe_sgr_sequence_len, terminal_safe_prefix,
-    terminal_visible_text,
+    cluster_display_width, leading_cluster, terminal_safe_prefix, terminal_visible_text, SgrSplit,
 };
 
 const MAX_HIGHLIGHT_TEXT_CHARS: usize = 512;
@@ -204,12 +203,22 @@ fn bounded_chars(text: &str, max_chars: usize) -> Cow<'_, str> {
 /// character, but the budget advances per grapheme cluster, and a cluster that
 /// would straddle the boundary is dropped whole rather than split. A cluster
 /// whose base is highlighted keeps its continuation scalars in the same run, so
-/// no styling escape is ever emitted in the middle of one.
+/// this module never emits a styling escape in the middle of one.
+///
+/// Clusters come from the escape-free view of `text`, since a base character
+/// and its continuation stay one cluster to the terminal however many SGR
+/// sequences the record wrote between them; the record's own sequences are put
+/// back where it wrote them, inside that cluster included. `text` arrives
+/// already clipped by `terminal_safe_prefix`, so all of it is in budget to
+/// scan.
 fn highlight_segments(
     text: &str,
     highlighted_positions: &HashSet<usize>,
     width: usize,
 ) -> Vec<HighlightSegment> {
+    let split = SgrSplit::new(text, true, false, text.len());
+    let visible = split.visible();
+
     let mut segments = Vec::new();
     let mut current = String::new();
     let mut current_highlighted = None;
@@ -217,15 +226,19 @@ fn highlight_segments(
     let mut char_index = 0;
     let mut columns = 0usize;
     let mut offset = 0;
+    let mut sgr_index = 0usize;
     let mut pending_sgr = String::new();
-    while offset < text.len() {
-        if let Some(len) = safe_sgr_sequence_len(&text[offset..]) {
-            pending_sgr.push_str(&text[offset..offset + len]);
-            offset += len;
-            continue;
+    while offset < visible.len() {
+        // A sequence written before the cluster opens the run it lands in.
+        while let Some((sgr_offset, sequence)) = split.sgr(sgr_index) {
+            if sgr_offset > offset {
+                break;
+            }
+            pending_sgr.push_str(sequence);
+            sgr_index += 1;
         }
 
-        let Some(cluster) = leading_cluster(&text[offset..]) else {
+        let Some(cluster) = leading_cluster(&visible[offset..]) else {
             break;
         };
         let cluster_width = cluster_display_width(cluster);
@@ -246,20 +259,33 @@ fn highlight_segments(
         }
         current.push_str(&pending_sgr);
         pending_sgr.clear();
-        current.push_str(cluster);
+
+        // A sequence written inside the cluster keeps its place in it.
+        let cluster_end = offset + cluster.len();
+        let mut cursor = offset;
+        while let Some((sgr_offset, sequence)) = split.sgr(sgr_index) {
+            if sgr_offset >= cluster_end {
+                break;
+            }
+            current.push_str(&visible[cursor..sgr_offset]);
+            current.push_str(sequence);
+            cursor = sgr_offset;
+            sgr_index += 1;
+        }
+        current.push_str(&visible[cursor..cluster_end]);
         char_index += cluster_chars;
         columns += cluster_width;
-        offset += cluster.len();
+        offset = cluster_end;
     }
 
     // Retain a trailing reset or style sequence when it falls exactly at the
     // viewport boundary, preventing input styling from leaking into later UI.
-    while offset < text.len() {
-        let Some(len) = safe_sgr_sequence_len(&text[offset..]) else {
+    while let Some((sgr_offset, sequence)) = split.sgr(sgr_index) {
+        if sgr_offset > offset {
             break;
-        };
-        current.push_str(&text[offset..offset + len]);
-        offset += len;
+        }
+        current.push_str(sequence);
+        sgr_index += 1;
     }
 
     current.push_str(&pending_sgr);
