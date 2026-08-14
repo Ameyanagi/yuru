@@ -49,14 +49,14 @@ Installs into your home directory. No `sudo`.
 **macOS / Linux**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --all --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.1/install | sh -s -- --all --version v0.2.1
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.2.0"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.1/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.2.1"
 ```
 
 **Cargo**

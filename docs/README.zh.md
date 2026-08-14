@@ -18,7 +18,7 @@ Yuru 默认安装到用户目录，不需要 `sudo`。
 macOS / Linux 交互式安装:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --all --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.1/install | sh -s -- --all --version v0.2.1
 ```
 
 默认会把 `yuru` 安装到 `~/.local/bin`。可以通过 `XDG_BIN_HOME` 或
@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh 
 如果希望把中文设为默认搜索语言，并显式给出交互式安装的默认值:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --all --version v0.2.0 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.1/install | sh -s -- --all --version v0.2.1 --default-lang zh --preview-command auto --preview-image-protocol none --path-backend auto --bindings all
 ```
 
 之后可以运行 `yuru configure` 重新配置。
@@ -40,8 +40,8 @@ curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.2.0"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.1/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.2.1"
 ```
 
 这会把 `yuru.exe` 安装到 `%LOCALAPPDATA%\Yuru\bin`，更新用户 PATH，并写入 PowerShell profile。
@@ -49,14 +49,14 @@ Invoke-Expression "& { $script } -All -Version v0.2.0"
 如果希望把中文设为默认语言，可以这样显式指定:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.2.0 -DefaultLang zh -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.1/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.2.1 -DefaultLang zh -PreviewCommand auto -PreviewImageProtocol none -PathBackend auto -Bindings all"
 ```
 
 只安装二进制文件:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.0/install | sh -s -- --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.1/install | sh -s -- --version v0.2.1
 ```
 
 从 crates.io 安装:
@@ -163,8 +163,8 @@ git hook 会运行 formatter、linter、test 和 benchmark。只有在确实需�
 release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 ## 许可证
