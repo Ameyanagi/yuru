@@ -133,6 +133,10 @@ pub(crate) fn score_candidate<M: MatcherBackend + ?Sized>(
     }
 
     let mut best: Option<ScoredCandidate> = None;
+    // One set of fold-replay caches per candidate: the mapping they hold is a
+    // property of (key, haystack), which never changes within one candidate's
+    // scoring and must never survive past it.
+    let mut replays = ReplayCaches::default();
     for group in &query.groups {
         let mut group_score = 0i64;
         let mut group_kind = KeyKind::Original;
@@ -140,7 +144,7 @@ pub(crate) fn score_candidate<M: MatcherBackend + ?Sized>(
         let mut group_matches = true;
 
         for term in group {
-            let matched = match_term(term, candidate, matcher, config, stats);
+            let matched = match_term(term, candidate, matcher, config, stats, &mut replays);
             if term.negated {
                 if matched.is_some() {
                     group_matches = false;
@@ -204,6 +208,7 @@ fn match_term<M: MatcherBackend + ?Sized>(
     matcher: &mut M,
     config: &SearchConfig,
     stats: &mut SearchStats,
+    replays: &mut ReplayCaches,
 ) -> Option<(i64, KeyKind, u32)> {
     match term.mode {
         TermMode::Fuzzy => match_fuzzy_term(term, candidate, matcher, config, stats),
@@ -211,7 +216,7 @@ fn match_term<M: MatcherBackend + ?Sized>(
         | TermMode::Prefix
         | TermMode::Suffix
         | TermMode::Equal
-        | TermMode::Boundary => match_exact_term(term, candidate, config),
+        | TermMode::Boundary => match_exact_term(term, candidate, config, replays),
     }
 }
 
@@ -255,6 +260,7 @@ fn match_exact_term(
     term: &PreparedTerm,
     candidate: &Candidate,
     config: &SearchConfig,
+    replays: &mut ReplayCaches,
 ) -> Option<(i64, KeyKind, u32)> {
     let normalized_display = reusable_normalized_key(candidate, config);
     let mut best: Option<(i64, KeyKind, u32)> = None;
@@ -272,7 +278,15 @@ fn match_exact_term(
         };
         let score = hit.score
             + i64::from(key.weight)
-            + case_exact_bonus(term, &key.text, &haystack, hit.byte_start, config);
+            + case_exact_bonus(
+                term,
+                &key.text,
+                &haystack,
+                hit.byte_start,
+                config,
+                replays,
+                key_index,
+            );
         if best.as_ref().is_none_or(|(current, _, _)| score > *current) {
             best = Some((score, key.kind, key_index as u32));
         }
@@ -306,12 +320,14 @@ fn case_exact_bonus(
     haystack: &str,
     byte_start: usize,
     config: &SearchConfig,
+    replays: &mut ReplayCaches,
+    key_index: usize,
 ) -> i64 {
     if config.case_sensitive || !term.literal_folds_to_needle {
         return 0;
     }
 
-    let Some(as_written) = key_text_from(key_text, haystack, byte_start) else {
+    let Some(as_written) = key_text_from(key_text, haystack, byte_start, replays, key_index) else {
         return 0;
     };
     if as_written.starts_with(&term.literal) {
@@ -342,7 +358,13 @@ fn case_exact_bonus(
 ///
 /// Pure-ASCII keys skip the walk once the haystack is confirmed to be their ASCII fold, since
 /// ASCII folding leaves every byte offset alone.
-fn key_text_from<'a>(key_text: &'a str, haystack: &str, byte_start: usize) -> Option<&'a str> {
+fn key_text_from<'a>(
+    key_text: &'a str,
+    haystack: &str,
+    byte_start: usize,
+    replays: &mut ReplayCaches,
+    key_index: usize,
+) -> Option<&'a str> {
     if byte_start == 0 {
         return Some(key_text);
     }
@@ -354,27 +376,126 @@ fn key_text_from<'a>(key_text: &'a str, haystack: &str, byte_start: usize) -> Op
         return key_text.get(byte_start..);
     }
 
-    let mut folded_len = 0usize;
-    for (offset, ch) in key_text.char_indices() {
-        if folded_len >= byte_start {
-            return (folded_len == byte_start).then(|| &key_text[offset..]);
+    // The cache is fetched - and on first use, allocated - only here, past the
+    // fast paths: an ASCII hit or a hit at offset zero never pays for a replay
+    // it will not perform. Fetching it eagerly at the call site doubled the
+    // allocations of a plain `^a` search over ASCII candidates.
+    replays
+        .for_key(key_index)
+        .key_offset_at(key_text, haystack, byte_start)
+        .map(|offset| &key_text[offset..])
+}
+
+/// Resumable fold replay for one key, shared by every exact term of one query.
+///
+/// The walk from haystack byte offsets back to key byte offsets is deterministic
+/// for a given key and haystack, so it is done once and checkpointed. Each term
+/// used to replay the whole prefix again, which made a query of `T` exact terms
+/// against a candidate whose expansion sits before the matches cost
+/// `O(prefix * T)` - the subject of issue #8. Resuming from the checkpoints
+/// makes the total walk `O(prefix)` per key however many terms ask.
+///
+/// One instance is only ever valid for one key of one candidate; the per-scoring
+/// [`ReplayCaches`] owns that scoping so a cache can never answer with another
+/// key's mapping.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct KeyReplay {
+    /// `(haystack byte offset, key byte offset)` for every character boundary
+    /// the walk has passed, in order. Starts implicitly at `(0, 0)`.
+    checkpoints: Vec<(usize, usize)>,
+    /// Haystack offset the walk has validated up to.
+    walked: usize,
+    /// Key offset matching `walked`.
+    key_pos: usize,
+    /// Set when the walk hit a fold mismatch; every offset past `walked` is
+    /// unanswerable from then on.
+    failed: bool,
+}
+
+impl KeyReplay {
+    /// Key byte offset whose character the haystack's `byte_start` names, or
+    /// `None` when the fold does not line up character for character up to it -
+    /// the same contract as the un-memoized walk, checked by
+    /// `memoized_replay_agrees_with_a_fresh_walk`.
+    fn key_offset_at(
+        &mut self,
+        key_text: &str,
+        haystack: &str,
+        byte_start: usize,
+    ) -> Option<usize> {
+        while self.walked < byte_start && !self.failed {
+            let Some(ch) = key_text[self.key_pos..].chars().next() else {
+                break;
+            };
+            let Some(rest) = haystack.get(self.walked..) else {
+                self.failed = true;
+                break;
+            };
+            let folded = fold_case_char(ch);
+            if rest.starts_with(folded) {
+                self.walked += folded.len_utf8();
+            } else if ch == MULTI_CHAR_LOWERCASE && rest.starts_with(MULTI_CHAR_LOWERCASE_EXPANSION)
+            {
+                // The one character `fold_case_char` refuses to fold, because its
+                // lowercase mapping is two characters. `comparable` writes it out;
+                // this is where the walk absorbs the extra character instead of
+                // losing count.
+                self.walked += MULTI_CHAR_LOWERCASE_EXPANSION.len();
+            } else {
+                self.failed = true;
+                break;
+            }
+            self.key_pos += ch.len_utf8();
+            self.checkpoints.push((self.walked, self.key_pos));
+            #[cfg(test)]
+            REPLAY_STEPS.with(|steps| steps.set(steps.get() + 1));
         }
 
-        let rest = haystack.get(folded_len..)?;
-        let folded = fold_case_char(ch);
-        if rest.starts_with(folded) {
-            folded_len += folded.len_utf8();
-        } else if ch == MULTI_CHAR_LOWERCASE && rest.starts_with(MULTI_CHAR_LOWERCASE_EXPANSION) {
-            // The one character `fold_case_char` refuses to fold, because its lowercase
-            // mapping is two characters. `comparable` writes it out; this is where the walk
-            // absorbs the extra character instead of losing count.
-            folded_len += MULTI_CHAR_LOWERCASE_EXPANSION.len();
-        } else {
+        if byte_start == 0 {
+            return Some(0);
+        }
+        if byte_start > self.walked {
+            // The walk stopped short: a mismatch, or the key ran out first.
             return None;
         }
+        // A hit at the checkpoint means `byte_start` sits on a character boundary
+        // of the fold; a miss means it landed inside a character's folded form,
+        // where no key character is spelled.
+        self.checkpoints
+            .binary_search_by_key(&byte_start, |(haystack_offset, _)| *haystack_offset)
+            .ok()
+            .map(|index| self.checkpoints[index].1)
     }
+}
 
-    (folded_len == byte_start).then_some("")
+/// Fold-replay caches for the candidate currently being scored, one slot per
+/// key, created lazily so the common case - keys that never produce an exact
+/// hit off the fast paths - allocates nothing.
+#[derive(Debug, Default)]
+pub(crate) struct ReplayCaches {
+    per_key: Vec<Option<KeyReplay>>,
+}
+
+impl ReplayCaches {
+    fn for_key(&mut self, key_index: usize) -> &mut KeyReplay {
+        #[cfg(test)]
+        REPLAY_FETCHES.with(|fetches| fetches.set(fetches.get() + 1));
+        if self.per_key.len() <= key_index {
+            self.per_key.resize(key_index + 1, None);
+        }
+        self.per_key[key_index].get_or_insert_with(KeyReplay::default)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Characters consumed by fold-replay walks, for the complexity test: with the
+    /// cache, scoring `T` exact terms against one key walks its prefix once, not
+    /// `T` times.
+    pub(crate) static REPLAY_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Cache fetches, for the fast-path test: an ASCII or offset-zero hit must
+    /// resolve without touching - and so without ever allocating - a cache.
+    pub(crate) static REPLAY_FETCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Returns the candidate's normalized key when its text already equals
