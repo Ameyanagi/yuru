@@ -329,6 +329,15 @@ impl<'a> SgrSplit<'a> {
             if *offset > end {
                 break;
             }
+            // A sequence exactly at the clip point styles whatever comes next, and
+            // what comes next was discarded. Keeping it there is right only when it
+            // CLEARS styling - dropping a trailing reset would let the retained
+            // text's styling leak into the rest of the interface, which is the leak
+            // the retention exists to prevent. Keeping an OPENER there causes the
+            // opposite leak: the discarded character's colour paints the row padding.
+            if *offset == end && !sgr_only_clears(sequence) {
+                continue;
+            }
             out.push_str(&visible[cursor..*offset]);
             out.push_str(sequence);
             cursor = *offset;
@@ -336,6 +345,148 @@ impl<'a> SgrSplit<'a> {
         out.push_str(&visible[cursor..]);
         out
     }
+}
+
+/// Whether an SGR sequence, taken as a whole, leaves no styling of its own
+/// active - i.e. whether retaining it at a clip boundary can only move
+/// attributes toward their defaults.
+///
+/// Judged by final state, not parameter by parameter: `ESC[7;27m` sets reverse
+/// video and then clears it, ending with nothing active, so it clears; while
+/// `ESC[0;31m` resets everything and then leaves red active, so it does not.
+/// The simulation tracks which attribute families a parameter touches - `0`
+/// clears them all, an "off" opcode clears its family, anything else sets its
+/// family - and the sequence clears iff no family is left set at the end.
+///
+/// The extended forms `38` / `48` / `58` take arguments: in semicolon syntax
+/// they consume the following parameters (`38;5;49m` is "foreground palette
+/// 49", and its `49` must not read as "background default"), and in colon
+/// syntax the arguments stay inside one parameter. `4:0m` is the colon-form
+/// underline-off and clears; other `4:n` select underline styles and set.
+/// A parameter this table does not know is treated as setting an attribute
+/// that only a full reset can clear, so unknown syntax is never retained past
+/// the boundary on a guess.
+pub(super) fn sgr_only_clears(sequence: &str) -> bool {
+    let Some(params) = sequence
+        .strip_prefix("\u{1b}[")
+        .and_then(|rest| rest.strip_suffix('m'))
+    else {
+        // Not an SGR sequence at all; never retain it at the boundary.
+        return false;
+    };
+
+    // One bit per attribute family; `active == 0` at the end means clearing.
+    const INTENSITY: u32 = 1 << 0;
+    const ITALIC: u32 = 1 << 1;
+    const UNDERLINE: u32 = 1 << 2;
+    const BLINK: u32 = 1 << 3;
+    const REVERSE: u32 = 1 << 4;
+    const CONCEAL: u32 = 1 << 5;
+    const STRIKE: u32 = 1 << 6;
+    const FONT: u32 = 1 << 7;
+    const FOREGROUND: u32 = 1 << 8;
+    const BACKGROUND: u32 = 1 << 9;
+    const FRAME: u32 = 1 << 10;
+    const OVERLINE: u32 = 1 << 11;
+    const UNDERLINE_COLOUR: u32 = 1 << 12;
+    const IDEOGRAM: u32 = 1 << 13;
+    const SPACING: u32 = 1 << 14;
+    const UNKNOWN: u32 = 1 << 15;
+
+    let mut active = 0u32;
+    let mut params = params.split(';');
+    while let Some(param) = params.next() {
+        // Colon syntax keeps a sub-parametrised value in one parameter.
+        if let Some((opcode, arguments)) = param.split_once(':') {
+            match opcode {
+                // `4:0` is underline-off; any other underline style sets.
+                "4" => {
+                    if arguments == "0" {
+                        active &= !UNDERLINE;
+                    } else {
+                        active |= UNDERLINE;
+                    }
+                }
+                "38" => active |= FOREGROUND,
+                "48" => active |= BACKGROUND,
+                "58" => active |= UNDERLINE_COLOUR,
+                _ => active |= UNKNOWN,
+            }
+            continue;
+        }
+
+        let opcode = if param.is_empty() {
+            0 // an omitted parameter is a full reset
+        } else if param.bytes().all(|byte| byte.is_ascii_digit()) {
+            // All zeros parses empty and defaults to 0: the full reset with
+            // leading zeros.
+            param
+                .trim_start_matches('0')
+                .parse::<u16>()
+                .unwrap_or_default()
+        } else {
+            active |= UNKNOWN;
+            continue;
+        };
+
+        match opcode {
+            0 => active = 0,
+            1 | 2 => active |= INTENSITY,
+            3 | 20 => active |= ITALIC,
+            4 | 21 => active |= UNDERLINE,
+            5 | 6 => active |= BLINK,
+            7 => active |= REVERSE,
+            8 => active |= CONCEAL,
+            9 => active |= STRIKE,
+            10 => active &= !FONT,
+            11..=19 => active |= FONT,
+            22 => active &= !INTENSITY,
+            23 => active &= !ITALIC,
+            24 => active &= !UNDERLINE,
+            25 => active &= !BLINK,
+            26 => active |= SPACING,
+            27 => active &= !REVERSE,
+            28 => active &= !CONCEAL,
+            29 => active &= !STRIKE,
+            30..=37 | 90..=97 => active |= FOREGROUND,
+            38 | 48 | 58 => {
+                let family = match opcode {
+                    38 => FOREGROUND,
+                    48 => BACKGROUND,
+                    _ => UNDERLINE_COLOUR,
+                };
+                active |= family;
+                // Semicolon syntax: the arguments are the FOLLOWING parameters,
+                // and they must not be read as opcodes of their own.
+                match params.next() {
+                    Some("5") => {
+                        params.next();
+                    }
+                    Some("2") => {
+                        params.next();
+                        params.next();
+                        params.next();
+                    }
+                    // A malformed colour spec; whatever follows is unknowable.
+                    _ => active |= UNKNOWN,
+                }
+            }
+            39 => active &= !FOREGROUND,
+            40..=47 | 100..=107 => active |= BACKGROUND,
+            49 => active &= !BACKGROUND,
+            50 => active &= !SPACING,
+            51 | 52 => active |= FRAME,
+            53 => active |= OVERLINE,
+            54 => active &= !FRAME,
+            55 => active &= !OVERLINE,
+            59 => active &= !UNDERLINE_COLOUR,
+            60..=64 => active |= IDEOGRAM,
+            65 => active &= !IDEOGRAM,
+            _ => active |= UNKNOWN,
+        }
+    }
+
+    active == 0
 }
 
 /// Byte offset in escape-free `visible` of the end of the longest

@@ -309,3 +309,115 @@ fn exact_term_checks_later_phonetic_keys() {
     assert!(scored.is_some());
     assert_eq!(scored.unwrap().key_index, 2);
 }
+
+/// The un-memoized walk `KeyReplay` replaced, kept as the oracle it is compared
+/// against. Byte-for-byte the pre-#8 `key_text_from` slow path.
+fn fresh_walk_key_offset(key_text: &str, haystack: &str, byte_start: usize) -> Option<usize> {
+    let mut folded_len = 0usize;
+    for (offset, ch) in key_text.char_indices() {
+        if folded_len >= byte_start {
+            return (folded_len == byte_start).then_some(offset);
+        }
+        let rest = haystack.get(folded_len..)?;
+        let folded = crate::matcher::fold_case_char(ch);
+        if rest.starts_with(folded) {
+            folded_len += folded.len_utf8();
+        } else if ch == crate::matcher::MULTI_CHAR_LOWERCASE
+            && rest.starts_with(crate::matcher::MULTI_CHAR_LOWERCASE_EXPANSION)
+        {
+            folded_len += crate::matcher::MULTI_CHAR_LOWERCASE_EXPANSION.len();
+        } else {
+            return None;
+        }
+    }
+    (folded_len == byte_start).then_some(key_text.len())
+}
+
+#[test]
+fn memoized_replay_agrees_with_a_fresh_walk() {
+    // Keys mixing 1:1 folds, the İ expansion, KELVIN (shrinking fold), ASCII,
+    // and text the fold cannot account for at all.
+    let cases: &[&str] = &[
+        "İ a b c",
+        "abc",
+        "AİBİC",
+        "\u{212a}elvin İstanbul",
+        "İİİ",
+        "ｆＷ İ x", // width-normalized characters: the fold does not line up
+    ];
+    let config = SearchConfig::default();
+    for key_text in cases {
+        let haystack = comparable(key_text, &config);
+        // Ask in an adversarial order: far offset first (forces the full walk),
+        // then every offset from both ends, then repeats.
+        let mut asks: Vec<usize> = (0..=haystack.len()).collect();
+        asks.reverse();
+        asks.extend(0..=haystack.len());
+        let mut replay = KeyReplay::default();
+        for byte_start in asks {
+            assert_eq!(
+                replay.key_offset_at(key_text, &haystack, byte_start),
+                fresh_walk_key_offset(key_text, &haystack, byte_start),
+                "key={key_text:?} byte_start={byte_start}"
+            );
+        }
+    }
+}
+
+#[test]
+fn replay_walks_a_key_prefix_once_however_many_terms_ask() {
+    // Issue #8: eight exact terms against a candidate whose İ expansion sits
+    // before every match used to replay the whole prefix once PER TERM. The
+    // walk is character-counted; with the cache it is bounded by the key
+    // length, not terms x length.
+    let padding = "x".repeat(1000);
+    let display = format!("İ{padding} a b c d e f g h");
+    let cfg = SearchConfig::default();
+    let index = build_index([display.as_str()], &PlainBackend, &cfg);
+    let mut matcher = GreedyMatcher::new(cfg.case_sensitive);
+    let mut stats = SearchStats::default();
+    let prepared = PreparedQuery::new("'a 'b 'c 'd 'e 'f 'g 'h", &PlainBackend, &cfg);
+
+    REPLAY_STEPS.with(|steps| steps.set(0));
+    let scored = score_candidate(&prepared, &index[0], &mut matcher, &cfg, &mut stats);
+    let steps = REPLAY_STEPS.with(|steps| steps.get());
+
+    assert!(scored.is_some(), "all eight terms match");
+    let key_chars = display.chars().count();
+    // One walk of one key's prefix, shared. Without the cache this is ~8x the
+    // key length per matching key; the bound is set between the two so the
+    // regression cannot come back silently. Slack covers the walk running once
+    // per distinct key of the candidate (original + normalized).
+    assert!(
+        steps <= key_chars * 2 + 16,
+        "replay walked {steps} chars for a {key_chars}-char display: \
+         the per-term recomputation is back"
+    );
+}
+
+#[test]
+fn ascii_and_offset_zero_hits_never_build_a_replay_cache() {
+    // Issue #8 follow-up: the cache must be fetched only past the fast paths.
+    // Fetching it as a call-site argument allocated one per exact hit, doubling
+    // the allocations of a plain `^a` search over ASCII candidates.
+    let cfg = SearchConfig::default();
+    let index = build_index(["alpha beta", "Alpha Beta"], &PlainBackend, &cfg);
+    let mut matcher = GreedyMatcher::new(cfg.case_sensitive);
+    let mut stats = SearchStats::default();
+    let prepared = PreparedQuery::new("^a 'beta", &PlainBackend, &cfg);
+
+    REPLAY_FETCHES.with(|fetches| fetches.set(0));
+    for candidate in &index {
+        score_candidate(&prepared, candidate, &mut matcher, &cfg, &mut stats);
+    }
+
+    // Pure-ASCII candidates resolve every bonus on the fast paths. Fetches, not
+    // walk steps, are what the eager-argument regression produced: the cache
+    // was allocated per hit and then never consulted, so a step counter reads
+    // zero either way and only a fetch counter can see it.
+    assert_eq!(
+        REPLAY_FETCHES.with(|fetches| fetches.get()),
+        0,
+        "an ASCII exact hit fetched (and so allocated) a replay cache"
+    );
+}

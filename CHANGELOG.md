@@ -2,6 +2,37 @@
 
 All notable user-facing changes are tracked here.
 
+## Unreleased
+
+### Fixed
+
+- Fixed a colour belonging to clipped-off content bleeding into the selected row's
+  padding for `yuru-tui` embedders. An SGR sequence sitting exactly at the clip
+  point was always retained, on the reasoning that dropping a trailing *reset*
+  there would let the retained text's styling leak into the rest of the interface -
+  but the rule never distinguished a reset from an opener, so a sequence that had
+  been styling the discarded character survived and painted the row padding with
+  its colour. A boundary sequence is now kept only when every one of its parameters
+  clears styling: `0` (however written), `22`-`25`, `27`-`29`, `39`, and `49`. A
+  mixed sequence such as `ESC[0;31m` still ends with red active, so it is dropped,
+  and the extended colour introducers `38`/`48` classify as setting without their
+  arguments - which can spell `39` or `49` - being misread as resets. Not reachable
+  from the `yuru` command line, whose `--ansi` handling strips escapes before
+  indexing. (#9)
+
+### Changed
+
+- Improved multi-term exact-query performance against candidates containing `İ`
+  (U+0130), the one character whose lowercase mapping is two characters. Locating
+  each exact-case match replayed the candidate's fold from the start once per
+  term, making a query of many exact terms cost prefix-length times term-count;
+  the replay is now checkpointed per key and shared by every term of the query.
+  The issue's pathological case - 100,000 long records, eight exact terms -
+  returns to its pre-0.2.1 time. Ranking output is unchanged: the memoized walk
+  is tested character-for-character against the walk it replaced, and the
+  differential harness reports byte-identical output against 0.2.1 across all
+  257 ordered and 237 set-membership cases. (#8)
+
 ## 0.2.1
 
 ### Fixed
