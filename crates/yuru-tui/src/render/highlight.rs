@@ -278,17 +278,34 @@ fn highlight_segments(
         offset = cluster_end;
     }
 
-    // Retain a trailing reset or style sequence when it falls exactly at the
-    // viewport boundary, preventing input styling from leaking into later UI.
+    // Retain a trailing sequence at the viewport boundary only when it CLEARS
+    // styling: dropping a reset there would let the retained text's styling leak
+    // into later UI, while keeping an opener would paint the row padding with a
+    // colour that belonged to the discarded content. Same rule as
+    // `layout::SgrSplit::render_prefix`.
     while let Some((sgr_offset, sequence)) = split.sgr(sgr_index) {
         if sgr_offset > offset {
             break;
         }
-        current.push_str(sequence);
+        if super::layout::sgr_only_clears(sequence) {
+            current.push_str(sequence);
+        }
         sgr_index += 1;
     }
 
-    current.push_str(&pending_sgr);
+    // `pending_sgr` still holding anything here means the loop consumed boundary
+    // sequences at its top and then stopped before reaching another cluster - the
+    // same boundary position as above, so the same rule applies. (Mid-loop, pending
+    // sequences are flushed in front of the cluster they precede and are inside
+    // retained content; this final flush is the only one at the boundary.)
+    let mut rest = pending_sgr.as_str();
+    while let Some(len) = super::layout::safe_sgr_sequence_len(rest) {
+        let (sequence, remaining) = rest.split_at(len);
+        if super::layout::sgr_only_clears(sequence) {
+            current.push_str(sequence);
+        }
+        rest = remaining;
+    }
 
     if let Some(highlighted) = current_highlighted {
         segments.push(HighlightSegment {

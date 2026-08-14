@@ -89,6 +89,88 @@ fn painted_row_extents(rendered: &str) -> BTreeMap<usize, usize> {
     extents
 }
 
+/// SGR parameters `TuiStyle::default()` paints the selected row's background
+/// with, as they appear in a rendered frame.
+const SELECTED_ROW_BG: &str = "48;2;52;58;70";
+
+/// Replays a rendered frame and returns, for every character painted on
+/// one-based terminal `row`, the SGR parameters of the background colour that
+/// was in effect when the terminal printed it — `None` for the default.
+///
+/// Only the background is tracked, because that is what `bg+` paints and what a
+/// record's own SGR sequences can steal from the row's padding. `0` and `49`
+/// clear it, `40`–`47` and `100`–`107` set it, and `48` sets it from the
+/// extended form whose arguments follow it and are not parameters of their own.
+fn row_cell_backgrounds(rendered: &str, row: usize) -> Vec<(char, Option<String>)> {
+    let mut cells = Vec::new();
+    let mut current_row = 1usize;
+    let mut background: Option<String> = None;
+    let mut offset = 0usize;
+    while offset < rendered.len() {
+        if let Some((len, final_byte, params)) = csi_sequence(&rendered[offset..]) {
+            match final_byte {
+                b'H' => {
+                    current_row = params
+                        .split(';')
+                        .next()
+                        .and_then(|part| part.parse().ok())
+                        .unwrap_or(1);
+                }
+                b'm' => apply_background_sgr(params, &mut background),
+                _ => {}
+            }
+            offset += len;
+            continue;
+        }
+
+        let ch = rendered[offset..]
+            .chars()
+            .next()
+            .expect("valid character boundary");
+        assert_ne!(ch, '\u{1b}', "unhandled escape sequence in {rendered:?}");
+        if current_row == row {
+            cells.push((ch, background.clone()));
+        }
+        offset += ch.len_utf8();
+    }
+    cells
+}
+
+fn apply_background_sgr(params: &str, background: &mut Option<String>) {
+    let params: Vec<&str> = params.split(';').collect();
+    let mut index = 0usize;
+    while index < params.len() {
+        let parameter = params[index];
+        // An omitted parameter is a `0`, the full reset.
+        let value = if parameter.is_empty() {
+            Some(0u16)
+        } else {
+            parameter.parse::<u16>().ok()
+        };
+        match value {
+            Some(0) | Some(49) => *background = None,
+            Some(value) if (40..=47).contains(&value) || (100..=107).contains(&value) => {
+                *background = Some(parameter.to_string());
+            }
+            Some(48) => {
+                let arguments = match params
+                    .get(index + 1)
+                    .and_then(|part| part.parse::<u16>().ok())
+                {
+                    Some(5) => 2,
+                    Some(2) => 4,
+                    _ => 0,
+                };
+                let end = (index + 1 + arguments).min(params.len());
+                *background = Some(params[index..end].join(";"));
+                index = end - 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+}
+
 /// Renders one wide-text result with `query` as the live query and returns the
 /// raw frame.
 fn render_wide_frame(query: &str, display: &str, viewport: Viewport, ellipsis: &str) -> String {
@@ -1009,6 +1091,153 @@ fn an_emoji_modifier_split_by_an_sgr_sequence_is_not_dropped_from_a_row_it_fits(
 
     let rendered = render_ansi_frame(text, Viewport { width: 4, rows: 3 });
     assert!(rendered.contains(text), "{rendered:?}");
+}
+
+/// SGR sequences that only ever clear styling. A sequence sitting exactly at
+/// the clip point is the last thing the row emits, so one of these belongs to
+/// the text that was retained and has to survive.
+const CLEARING_BOUNDARY_SGRS: [&str; 18] = [
+    // A full reset, written out and written as the empty default.
+    "\u{1b}[0m",
+    "\u{1b}[m",
+    // Leading zeros and an omitted parameter are both a `0`.
+    "\u{1b}[00m",
+    "\u{1b}[0;m",
+    // Partial resets: each turns one attribute back off.
+    "\u{1b}[22m",
+    "\u{1b}[23m",
+    "\u{1b}[24m",
+    "\u{1b}[25m",
+    "\u{1b}[27m",
+    "\u{1b}[28m",
+    "\u{1b}[29m",
+    "\u{1b}[39m",
+    "\u{1b}[49m",
+    // A sequence carrying several parameters, every one of them a reset.
+    "\u{1b}[0;39;49m",
+    // Judged by final state: reverse video set and then cleared ends with
+    // nothing active. (Codex review of the first classifier.)
+    "\u{1b}[7;27m",
+    // Overline-off and framed-off, missing from the first whitelist.
+    "\u{1b}[55m",
+    "\u{1b}[54m",
+    // The colon-form underline-off.
+    "\u{1b}[4:0m",
+];
+
+/// SGR sequences that leave some styling set, so one at the clip point belongs
+/// to the character that was just discarded and must go with it.
+const SETTING_BOUNDARY_SGRS: [&str; 13] = [
+    // The issue reproduction: a background opener.
+    "\u{1b}[41m",
+    "\u{1b}[31m",
+    "\u{1b}[1m",
+    // A reset followed by a set still ends with red active.
+    "\u{1b}[0;31m",
+    "\u{1b}[39;41m",
+    // Extended colour. Its embedded numbers spell partial resets — `49`, `39`,
+    // `22`, `29` — and reading them as parameters in their own right would keep
+    // a sequence that paints a colour.
+    "\u{1b}[38;5;49m",
+    "\u{1b}[48;2;39;49;22m",
+    // Overline on; its off-opcode 55 is in the clearing set above.
+    "\u{1b}[53m",
+    // Colon-form underline styles other than 0 select a style.
+    "\u{1b}[4:3m",
+    // Clearing reverse and then setting it again ends set.
+    "\u{1b}[27;7m",
+    // A malformed extended colour: whatever follows 38 is unknowable.
+    "\u{1b}[38m",
+    // The colon-delimited forms of the same thing.
+    "\u{1b}[38:5:29m",
+    "\u{1b}[48:2:39:49:22m",
+];
+
+#[test]
+fn a_boundary_sgr_sequence_is_kept_only_when_it_clears_styling() {
+    // `a` costs one of the two columns, `界` needs two and one remains, so `界`
+    // is dropped whole — and the sequence written immediately before it sits
+    // exactly at the clip point.
+    for sequence in CLEARING_BOUNDARY_SGRS {
+        assert_eq!(
+            terminal_safe_prefix(&format!("a{sequence}\u{754c}"), true, 2),
+            (format!("a{sequence}"), true),
+            "{sequence:?} clears styling and belongs to the retained text"
+        );
+    }
+
+    for sequence in SETTING_BOUNDARY_SGRS {
+        assert_eq!(
+            terminal_safe_prefix(&format!("a{sequence}\u{754c}"), true, 2),
+            ("a".to_string(), true),
+            "{sequence:?} sets styling and belongs to the discarded character"
+        );
+    }
+}
+
+#[test]
+fn a_setting_sgr_sequence_inside_the_retained_text_is_untouched() {
+    // Only the clip point distinguishes the two. Every sequence the retained
+    // text was written around stays exactly where the record put it, opener or
+    // not, or a row loses the styling it asked for.
+    for sequence in SETTING_BOUNDARY_SGRS {
+        let text = format!("{sequence}ab\u{754c}");
+        assert_eq!(
+            terminal_safe_prefix(&text, true, 2),
+            (format!("{sequence}ab"), true),
+            "{sequence:?} is inside the retained text"
+        );
+    }
+}
+
+#[test]
+fn a_boundary_sgr_opener_does_not_recolour_the_selected_row_padding() {
+    // The issue reproduction at the render path. The gutter — pointer plus a
+    // one-column blank — takes two of the four columns, leaving the result two:
+    // `a` costs one, `界` needs two, and the column `界` vacates is filled with
+    // `bg+` padding. Keeping the red opener painted that padding red.
+    let rendered = render_ansi_frame("a\u{1b}[41m\u{754c}", Viewport { width: 4, rows: 3 });
+    assert!(
+        !rendered.contains("\u{1b}[41m"),
+        "the discarded character's opener reached the terminal: {rendered:?}"
+    );
+    assert_eq!(
+        row_cell_backgrounds(&rendered, 3),
+        vec![
+            ('>', Some(SELECTED_ROW_BG.to_string())),
+            (' ', Some(SELECTED_ROW_BG.to_string())),
+            ('a', Some(SELECTED_ROW_BG.to_string())),
+            (' ', Some(SELECTED_ROW_BG.to_string())),
+        ],
+        "{rendered:?}"
+    );
+
+    // Unstyled text pads the same row the same way, so the assertion above is
+    // pinning the padding's colour rather than the absence of styling.
+    let rendered = render_ansi_frame("a\u{754c}", Viewport { width: 4, rows: 3 });
+    assert_eq!(
+        row_cell_backgrounds(&rendered, 3),
+        vec![
+            ('>', Some(SELECTED_ROW_BG.to_string())),
+            (' ', Some(SELECTED_ROW_BG.to_string())),
+            ('a', Some(SELECTED_ROW_BG.to_string())),
+            (' ', Some(SELECTED_ROW_BG.to_string())),
+        ],
+        "{rendered:?}"
+    );
+}
+
+#[test]
+fn a_boundary_reset_still_reaches_the_terminal() {
+    // The other half of the rule, end to end: the reset belongs to the `a` that
+    // was kept, and dropping it would let styling opened earlier in the record
+    // run on into the rest of the interface.
+    let rendered = render_ansi_frame(
+        "\u{1b}[31ma\u{1b}[0m\u{754c}",
+        Viewport { width: 4, rows: 3 },
+    );
+    assert!(rendered.contains("\u{1b}[31ma\u{1b}[0m"), "{rendered:?}");
+    assert!(!rendered.contains('\u{754c}'), "{rendered:?}");
 }
 
 #[test]
