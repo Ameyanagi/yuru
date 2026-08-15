@@ -246,11 +246,13 @@ cat "$YURU_FAKE_INPUT""#,
 }
 #[test]
 fn cli_rejects_multiple_shell_integration_flags() {
-    command()
-        .args(["--bash", "--zsh"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "only one of --bash, --zsh, --fish, or --powershell",
-        ));
+    for pair in [["--bash", "--zsh"], ["--clink", "--powershell"]] {
+        command()
+            .args(pair)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "only one of --bash, --zsh, --fish, --powershell, or --clink",
+            ));
+    }
 }
