@@ -6,6 +6,7 @@ use crate::config::{yuru_config_source, ConfigSource};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShellKind {
+    Clink,
     Bash,
     Zsh,
     Fish,
@@ -14,12 +15,132 @@ pub enum ShellKind {
 
 pub fn script(kind: ShellKind) -> &'static str {
     match kind {
+        ShellKind::Clink => CLINK,
         ShellKind::Bash => BASH,
         ShellKind::Zsh => ZSH,
         ShellKind::Fish => FISH,
         ShellKind::PowerShell => POWERSHELL,
     }
 }
+
+const CLINK: &str = r#"-- yuru integration for Clink (cmd.exe)
+-- Load by placing this file in a Clink scripts directory:
+--   yuru --clink > "%LOCALAPPDATA%\clink\yuru.lua"   (then restart cmd)
+-- Requires Clink v1.2.46 or newer for rl.setbinding.
+
+local function yuru_bin()
+  return os.getenv("YURU_BIN") or "yuru.exe"
+end
+
+local function run_yuru(candidate_cmd, args)
+  local cmd
+  if candidate_cmd then
+    cmd = candidate_cmd .. " 2>nul | " .. yuru_bin() .. " " .. args
+  else
+    cmd = yuru_bin() .. " " .. args
+  end
+  local pipe = io.popen(cmd)
+  if not pipe then
+    return nil
+  end
+  local selected = pipe:read("*line")
+  pipe:close()
+  if selected and selected ~= "" then
+    return selected
+  end
+  return nil
+end
+
+local function quote_path(path)
+  if path:find("[ \t]") then
+    return '"' .. path .. '"'
+  end
+  return path
+end
+
+-- CTRL-T: insert a file or directory path. Candidates come from yuru's own
+-- walker, so no external fd/dir pipeline is needed; set YURU_CTRL_T_COMMAND
+-- to override with your own generator.
+function yuru_ctrl_t(rl_buffer)
+  local generator = os.getenv("YURU_CTRL_T_COMMAND")
+  local selected
+  if generator then
+    selected = run_yuru(generator, "--scheme path --no-multi --fzf-compat ignore")
+  else
+    selected = run_yuru(nil,
+      "--walker file,follow,hidden --scheme path --no-multi --fzf-compat ignore")
+  end
+  rl_buffer:refreshline()
+  if selected then
+    rl_buffer:insert(quote_path(selected))
+  end
+end
+
+-- CTRL-R: search command history. Newest first, duplicates removed keeping
+-- the newest copy - the same contract as the bash/zsh/fish/powershell
+-- integrations; recency stays the tiebreak, never the ranking.
+function yuru_ctrl_r(rl_buffer)
+  local lines = {}
+  local pipe = io.popen("clink history 2>nul")
+  if pipe then
+    for line in pipe:lines() do
+      local command = line:gsub("^%s*%d+%s%s?", "")
+      if command ~= "" then
+        table.insert(lines, command)
+      end
+    end
+    pipe:close()
+  end
+  local tmp = os.getenv("TEMP") .. "\\yuru-history-" .. os.time() .. ".txt"
+  local file = io.open(tmp, "w")
+  if not file then
+    return
+  end
+  local seen = {}
+  for index = #lines, 1, -1 do
+    if not seen[lines[index]] then
+      seen[lines[index]] = true
+      file:write(lines[index], "\n")
+    end
+  end
+  file:close()
+  local query = rl_buffer:getbuffer() or ""
+  local selected = run_yuru(nil,
+    '--scheme history --no-multi --fzf-compat ignore --input "' .. tmp ..
+    '" --query "' .. query:gsub('"', '\\"') .. '"')
+  os.remove(tmp)
+  rl_buffer:refreshline()
+  if selected then
+    rl_buffer:beginundogroup()
+    rl_buffer:remove(0, -1)
+    rl_buffer:insert(selected)
+    rl_buffer:endundogroup()
+  end
+end
+
+-- ALT-C: cd into a selected directory.
+function yuru_alt_c(rl_buffer)
+  local selected = run_yuru(nil,
+    "--walker dir,follow,hidden --scheme path --no-multi --fzf-compat ignore")
+  rl_buffer:refreshline()
+  if selected then
+    rl_buffer:beginundogroup()
+    rl_buffer:remove(0, -1)
+    rl_buffer:insert("cd /d " .. quote_path(selected))
+    rl_buffer:endundogroup()
+    rl.invokecommand("accept-line")
+  end
+end
+
+if rl.setbinding then
+  rl.setbinding([["\C-t"]], [["luafunc:yuru_ctrl_t"]])
+  rl.setbinding([["\C-r"]], [["luafunc:yuru_ctrl_r"]])
+  rl.setbinding([["\M-c"]], [["luafunc:yuru_alt_c"]])
+else
+  print("yuru: Clink 1.2.46+ is required for automatic key bindings;")
+  print('yuru: bind manually in .inputrc, e.g. "\\C-t": "luafunc:yuru_ctrl_t"')
+end
+"#;
 
 const BASH: &str = r#"# yuru shell integration for bash
 # Install with: eval "$(yuru --bash)"
@@ -1343,6 +1464,7 @@ fn shell_config_defaults() -> Result<ShellConfigDefaults> {
 
 pub(crate) fn shell_config_prefix(kind: ShellKind, config: &ShellConfigDefaults) -> String {
     match kind {
+        ShellKind::Clink => String::new(),
         ShellKind::Bash | ShellKind::Zsh => format!(
             "# yuru config defaults\n\
              if [ -z \"${{YURU_SHELL_BINDINGS+x}}\" ]; then export YURU_SHELL_BINDINGS={}; fi\n\
@@ -1536,6 +1658,7 @@ alt_c_opts = "--preview 'ls {}'"
             ShellKind::Zsh,
             ShellKind::Fish,
             ShellKind::PowerShell,
+            ShellKind::Clink,
         ] {
             let script = script(kind);
             assert!(
