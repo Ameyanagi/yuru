@@ -197,37 +197,59 @@ config_file() {
   fi
 }
 
-validate_default_lang() {
-  case "$1" in
-    ask | plain | ja | ko | zh | all | auto | none) ;;
-    *)
-      echo "install: unsupported default language: $1" >&2
-      echo "install: expected one of: ask, plain, ja, ko, zh, all, auto, none" >&2
-      exit 2
-      ;;
-  esac
+# validate_choice LABEL VALUE CHOICE...
+# Exits with the usage error unless VALUE is one of the CHOICEs.
+validate_choice() {
+  vc_label="$1" vc_value="$2"
+  shift 2
+  for vc_choice in "$@"; do
+    [ "$vc_value" = "$vc_choice" ] && return 0
+  done
+  vc_list=""
+  for vc_choice in "$@"; do
+    vc_list="${vc_list}${vc_list:+, }${vc_choice}"
+  done
+  echo "install: unsupported ${vc_label}: ${vc_value}" >&2
+  echo "install: expected one of: ${vc_list}" >&2
+  exit 2
 }
 
-validate_preview_image_protocol() {
-  case "$1" in
-    ask | none | auto | halfblocks | sixel | kitty | iterm2) ;;
-    *)
-      echo "install: unsupported preview image protocol: $1" >&2
-      echo "install: expected one of: ask, none, auto, halfblocks, sixel, kitty, iterm2" >&2
-      exit 2
-      ;;
-  esac
-}
-
-validate_path_backend() {
-  case "$1" in
-    ask | auto | fd | fdfind | find) ;;
-    *)
-      echo "install: unsupported shell path backend: $1" >&2
-      echo "install: expected one of: ask, auto, fd, fdfind, find" >&2
-      exit 2
-      ;;
-  esac
+# prompt_choice LABEL DEFAULT CURRENT CHOICE...
+# Prints CURRENT unless it is "ask"; otherwise prompts on the tty until one of
+# the CHOICEs is entered, with DEFAULT taken on an empty answer.
+prompt_choice() {
+  pc_label="$1" pc_default="$2" pc_current="$3"
+  shift 3
+  if [ "$pc_current" != "ask" ]; then
+    printf '%s' "$pc_current"
+    return
+  fi
+  if ! can_prompt; then
+    printf '%s' "$pc_default"
+    return
+  fi
+  pc_slash="" pc_or="" pc_i=0
+  for pc_choice in "$@"; do
+    pc_i=$((pc_i + 1))
+    pc_slash="${pc_slash}${pc_slash:+/}${pc_choice}"
+    if [ "$pc_i" -eq $# ]; then
+      pc_or="${pc_or}${pc_or:+, or }${pc_choice}"
+    else
+      pc_or="${pc_or}${pc_or:+, }${pc_choice}"
+    fi
+  done
+  while :; do
+    printf 'Choose Yuru %s [%s] (%s): ' "$pc_label" "$pc_slash" "$pc_default" >/dev/tty
+    IFS= read -r pc_answer </dev/tty || pc_answer=""
+    pc_answer="${pc_answer:-$pc_default}"
+    for pc_choice in "$@"; do
+      if [ "$pc_answer" = "$pc_choice" ]; then
+        printf '%s' "$pc_answer"
+        return
+      fi
+    done
+    printf 'Please enter %s.\n' "$pc_or" >/dev/tty
+  done
 }
 
 validate_bindings() {
@@ -318,60 +340,6 @@ prompt_bindings() {
   done
 }
 
-prompt_default_lang() {
-  if [ "$default_lang" != "ask" ]; then
-    printf '%s' "$default_lang"
-    return
-  fi
-
-  if ! can_prompt; then
-    printf 'none'
-    return
-  fi
-
-  while :; do
-    printf 'Choose Yuru default language [plain/ja/ko/zh/all/auto/none] (none): ' >/dev/tty
-    IFS= read -r answer </dev/tty || answer=""
-    answer="${answer:-none}"
-    case "$answer" in
-      plain | ja | ko | zh | all | auto | none)
-        printf '%s' "$answer"
-        return
-        ;;
-      *)
-        printf 'Please enter plain, ja, ko, zh, all, auto, or none.\n' >/dev/tty
-        ;;
-    esac
-  done
-}
-
-prompt_preview_image_protocol() {
-  if [ "$preview_image_protocol" != "ask" ]; then
-    printf '%s' "$preview_image_protocol"
-    return
-  fi
-
-  if ! can_prompt; then
-    printf 'none'
-    return
-  fi
-
-  while :; do
-    printf 'Choose Yuru preview image protocol [none/auto/halfblocks/sixel/kitty/iterm2] (none): ' >/dev/tty
-    IFS= read -r answer </dev/tty || answer=""
-    answer="${answer:-none}"
-    case "$answer" in
-      none | auto | halfblocks | sixel | kitty | iterm2)
-        printf '%s' "$answer"
-        return
-        ;;
-      *)
-        printf 'Please enter none, auto, halfblocks, sixel, kitty, or iterm2.\n' >/dev/tty
-        ;;
-    esac
-  done
-}
-
 prompt_preview_command() {
   if [ "$preview_command" != "ask" ]; then
     printf '%s' "$preview_command"
@@ -420,33 +388,6 @@ prompt_preview_text_extensions() {
   printf '%s' "${answer:-$preview_text_extensions}"
 }
 
-prompt_path_backend() {
-  if [ "$path_backend" != "ask" ]; then
-    printf '%s' "$path_backend"
-    return
-  fi
-
-  if ! can_prompt; then
-    printf 'auto'
-    return
-  fi
-
-  while :; do
-    printf 'Choose Yuru shell path backend [auto/fd/fdfind/find] (auto): ' >/dev/tty
-    IFS= read -r answer </dev/tty || answer=""
-    answer="${answer:-auto}"
-    case "$answer" in
-      auto | fd | fdfind | find)
-        printf '%s' "$answer"
-        return
-        ;;
-      *)
-        printf 'Please enter auto, fd, fdfind, or find.\n' >/dev/tty
-        ;;
-    esac
-  done
-}
-
 toml_string_array() {
   old_ifs="$IFS"
   IFS=','
@@ -486,18 +427,18 @@ install_config() {
     return
   }
 
-  selected_lang="$(prompt_default_lang)"
-  validate_default_lang "$selected_lang"
-  selected_preview_image_protocol="$(prompt_preview_image_protocol)"
-  validate_preview_image_protocol "$selected_preview_image_protocol"
+  selected_lang="$(prompt_choice 'default language' none "$default_lang" plain ja ko zh all auto none)"
+  validate_choice 'default language' "$selected_lang" ask plain ja ko zh all auto none
+  selected_preview_image_protocol="$(prompt_choice 'preview image protocol' none "$preview_image_protocol" none auto halfblocks sixel kitty iterm2)"
+  validate_choice 'preview image protocol' "$selected_preview_image_protocol" ask none auto halfblocks sixel kitty iterm2
   selected_preview_command="$(prompt_preview_command)"
   selected_preview_command_toml="$(toml_escape_string "$selected_preview_command")"
   selected_preview_text_extensions="$(prompt_preview_text_extensions)"
   selected_preview_text_extensions_toml="$(toml_string_array "$selected_preview_text_extensions")"
   selected_path_backend=""
   if [ -n "$config_bindings" ]; then
-    selected_path_backend="$(prompt_path_backend)"
-    validate_path_backend "$selected_path_backend"
+    selected_path_backend="$(prompt_choice 'shell path backend' auto "$path_backend" auto fd fdfind find)"
+    validate_choice 'shell path backend' "$selected_path_backend" ask auto fd fdfind find
   fi
   ctrl_t_command="__yuru_compgen_path__ ."
   ctrl_t_opts="$(preview_opts_for_command "$selected_preview_command")"
@@ -932,9 +873,9 @@ else
 fi
 
 log "installed binary into $bin_dir"
-validate_default_lang "$default_lang"
-validate_preview_image_protocol "$preview_image_protocol"
-validate_path_backend "$path_backend"
+validate_choice 'default language' "$default_lang" ask plain ja ko zh all auto none
+validate_choice 'preview image protocol' "$preview_image_protocol" ask none auto halfblocks sixel kitty iterm2
+validate_choice 'shell path backend' "$path_backend" ask auto fd fdfind find
 validate_bindings "$bindings"
 if [ -n "$shells" ] || [ "$bindings" != "ask" ]; then
   selected_bindings="$(prompt_bindings)"
