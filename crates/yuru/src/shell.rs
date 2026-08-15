@@ -94,9 +94,27 @@ __yuru_read_opts__() {
 }
 
 __yuru_run_with_optional_command__() {
-  local command_set="$1" command_text="$2" status
+  local command_set="$1" command_text="$2" status tmp old_umask
   shift 2
   if [ "$command_set" = 1 ]; then
+    case "$OSTYPE" in
+      msys*|cygwin*)
+        # On MSYS2 and Git Bash, a shell left alive as the pipe writer competes
+        # with a native console application for console input records, and the
+        # finder stops receiving keystrokes (issue #11, reported with the fix
+        # shape by @MapleLuz). Buffer the candidates first so nothing shares
+        # the console while the finder is interactive. Unix keeps streaming.
+        old_umask=$(umask)
+        umask 077
+        tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-candidates.XXXXXX") || { umask "$old_umask"; return 1; }
+        umask "$old_umask"
+        eval "$command_text" 2>/dev/null >"$tmp"
+        cat "$tmp" | "${YURU_BIN:-yuru}" "$@"
+        status=${PIPESTATUS[1]}
+        rm -f "$tmp"
+        return $status
+        ;;
+    esac
     eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}" "$@"
     status=${PIPESTATUS[1]}
     return $status
@@ -365,9 +383,24 @@ __yuru_alt_c_opts__() {
 
 __yuru_run_with_optional_command__() {
   emulate -L zsh
-  local command_set="$1" command_text="$2" yuru_status
+  local command_set="$1" command_text="$2" yuru_status tmp old_umask
   shift 2
   if [[ "$command_set" == 1 ]]; then
+    case "$OSTYPE" in
+      msys*|cygwin*)
+        # See the bash integration: on MSYS2/Cygwin a lingering pipe-writer
+        # shell competes with the finder for console input (issue #11).
+        old_umask=$(umask)
+        umask 077
+        tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-candidates.XXXXXX") || { umask "$old_umask"; return 1 }
+        umask "$old_umask"
+        eval "$command_text" 2>/dev/null >"$tmp"
+        cat "$tmp" | "${YURU_BIN:-yuru}" "$@"
+        yuru_status=${pipestatus[2]}
+        rm -f "$tmp"
+        return $yuru_status
+        ;;
+    esac
     eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}" "$@"
     yuru_status=${pipestatus[2]}
     return $yuru_status

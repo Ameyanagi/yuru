@@ -2,6 +2,21 @@
 
 All notable user-facing changes are tracked here.
 
+## Unreleased
+
+### Fixed
+
+- Fixed `CTRL-T` / `ALT-C` breaking keyboard input on Windows under Git Bash and
+  MSYS2: arrow keys and typed characters appeared as raw escape sequences instead
+  of reaching the finder. A shell left alive as the pipe writer competes with a
+  native console application for console input records, so on MSYS2 and Cygwin
+  (`$OSTYPE` `msys*` / `cygwin*`) the bash and zsh integrations now buffer the
+  candidate command's output before opening the finder, leaving nothing sharing
+  the console while it is interactive. Unix keeps streaming candidates unchanged.
+  Reported with the diagnosis and the fix shape by
+  [@MapleLuz](https://github.com/MapleLuz) ([#11](https://github.com/Ameyanagi/yuru/issues/11));
+  verified on Windows 11 Git Bash.
+
 ## 0.2.2
 
 ### Fixed
