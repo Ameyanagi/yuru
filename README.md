@@ -42,6 +42,10 @@ https://github.com/user-attachments/assets/37f9643f-0ed1-4cca-8a15-c4a8bd78cf34
 
 [![Watch the Yuru demo on YouTube](https://img.youtube.com/vi/_RyVr3VLULo/maxresdefault.jpg)](https://youtu.be/_RyVr3VLULo)
 
+Full-quality MP4 demos from the repository:
+[English](https://github.com/Ameyanagi/yuru/blob/main/demo.mp4) ·
+[中文](https://github.com/Ameyanagi/yuru/blob/main/demo-zh.mp4)
+
 ## Install
 
 Installs into your home directory. No `sudo`.
