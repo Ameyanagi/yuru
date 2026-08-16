@@ -818,15 +818,19 @@ pub(crate) struct Args {
 
     #[arg(long)]
     pub(crate) powershell: bool,
+
+    /// Print the Clink (cmd.exe) integration script (Lua).
+    #[arg(long)]
+    pub(crate) clink: bool,
 }
 
 pub(crate) fn shell_script_kind(args: &Args) -> Result<Option<crate::shell::ShellKind>> {
-    let selected = [args.bash, args.zsh, args.fish, args.powershell]
+    let selected = [args.bash, args.zsh, args.fish, args.powershell, args.clink]
         .into_iter()
         .filter(|enabled| *enabled)
         .count();
     if selected > 1 {
-        bail!("only one of --bash, --zsh, --fish, or --powershell can be used");
+        bail!("only one of --bash, --zsh, --fish, --powershell, or --clink can be used");
     }
 
     Ok(if args.bash {
@@ -837,6 +841,8 @@ pub(crate) fn shell_script_kind(args: &Args) -> Result<Option<crate::shell::Shel
         Some(crate::shell::ShellKind::Fish)
     } else if args.powershell {
         Some(crate::shell::ShellKind::PowerShell)
+    } else if args.clink {
+        Some(crate::shell::ShellKind::Clink)
     } else {
         None
     })

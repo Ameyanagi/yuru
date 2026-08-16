@@ -95,6 +95,11 @@ yuru --fish | source       # fish
 Invoke-Expression ((yuru --powershell) -join "`n")   # PowerShell
 ```
 
+```bat
+:: cmd.exe, via Clink (https://chrisant996.github.io/clink/), v1.2.46+
+yuru --clink > "%LOCALAPPDATA%\clink\yuru.lua"
+```
+
 That gives you:
 
 | Key | Does |

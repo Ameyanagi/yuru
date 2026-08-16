@@ -23,6 +23,7 @@ yuru --fzf-compat ignore
 | `--bind` | Partial | Supports common navigation/editing actions, `accept`, `abort`, `clear-query`, mark toggles, and preview scroll actions. Shell actions such as `execute(...)` and `reload(...)` are still reported by compatibility mode. |
 | `--header`, `--header-lines` | Supported | Explicit header text is shown in the TUI. Header lines are removed from the candidate set before search/output. |
 | `--walker`, `--walker-root`, `--walker-skip` | Supported | Built-in walker respects `.gitignore`. |
+| cmd.exe via Clink | Yuru extension | `yuru --clink` prints a Lua script for [Clink](https://chrisant996.github.io/clink/) v1.2.46+ binding `CTRL-T`, `CTRL-R`, and `ALT-C` in cmd.exe. Candidates come from Yuru's own walker, so no `fd` is needed. fzf has no cmd integration. |
 | `--layout default|reverse|reverse-list`, `--reverse` | Supported | `default` places the prompt at the bottom and paints results bottom-up; `reverse` places prompt/results at the top; `reverse-list` places the prompt at the bottom with a top-down list. |
 | `--preview` | Supported | Text preview pane; `{}` is replaced with the selected item. With the default `image` feature, preview commands that emit image bytes are rendered through `ratatui-image`. Scroll text with `shift-up`, `shift-down`, `shift-page-up`, and `shift-page-down`. |
 | `--preview-auto` | Yuru extension | Built-in preview: render images internally, use `bat` for configured text extensions or ASCII text files when available, and fall back to `cat`-style plain text. |

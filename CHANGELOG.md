@@ -4,6 +4,19 @@ All notable user-facing changes are tracked here.
 
 ## Unreleased
 
+### Added
+
+- Added `yuru --clink`, printing a Lua integration script for
+  [Clink](https://chrisant996.github.io/clink/) v1.2.46+ that binds `CTRL-T`,
+  `CTRL-R`, and `ALT-C` in cmd.exe - a shell fzf does not integrate with.
+  Candidates come from Yuru's own walker, so no external `fd` is required, and
+  history follows the same contract as the other shells: newest first,
+  deduplicated keeping the newest copy, ranked by match quality with recency as
+  the tiebreak. Verified on Windows 11 with Clink 1.9.31: the script loads
+  without errors and `CTRL-T` opens the picker; typing into the picker could
+  not be exercised over the remote test rig, so treat the first release as
+  needing real-terminal feedback.
+
 ### Fixed
 
 - Fixed `CTRL-T` / `ALT-C` breaking keyboard input on Windows under Git Bash and

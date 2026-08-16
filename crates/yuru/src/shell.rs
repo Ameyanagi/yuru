@@ -6,6 +6,7 @@ use crate::config::{yuru_config_source, ConfigSource};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShellKind {
+    Clink,
     Bash,
     Zsh,
     Fish,
@@ -14,12 +15,173 @@ pub enum ShellKind {
 
 pub fn script(kind: ShellKind) -> &'static str {
     match kind {
+        ShellKind::Clink => CLINK,
         ShellKind::Bash => BASH,
         ShellKind::Zsh => ZSH,
         ShellKind::Fish => FISH,
         ShellKind::PowerShell => POWERSHELL,
     }
 }
+
+const CLINK: &str = r#"-- yuru integration for Clink (cmd.exe)
+-- Load by placing this file in a Clink scripts directory:
+--   yuru --clink > "%LOCALAPPDATA%\clink\yuru.lua"   (then restart cmd)
+-- Requires Clink v1.2.46 or newer for rl.setbinding.
+
+-- Wrap a value in double quotes for cmd.exe. Double quotes turn cmd's
+-- operators (& | < > ^ etc.) into literals, and Windows paths and executable
+-- names cannot themselves contain a double quote, so this is lossless for the
+-- binary path and for selected paths.
+local function cmd_quote(value)
+  return '"' .. value .. '"'
+end
+
+local function yuru_bin()
+  return cmd_quote(os.getenv("YURU_BIN") or "yuru.exe")
+end
+
+-- A cmd.exe command line cannot carry an arbitrary argument safely: outside
+-- double quotes cmd acts on & | < > ^ % and friends, and inside them a literal
+-- double quote ends the quoted span, so there is no single escaping that both
+-- protects operators and preserves an embedded quote. The query is only a fuzzy
+-- pre-filter, so drop the characters that would let it break out of its
+-- argument or run as cmd syntax; a slightly shorter query still narrows the
+-- list. Everything a normal query contains survives.
+local function safe_query(query)
+  return (query:gsub('["&|<>%^%%!()]', ""))
+end
+
+-- A unique temp path. os.tmpname() is purpose-built for this and returns a
+-- fresh name per call; the fallback keys off the OS process id (distinct across
+-- Clink processes, unlike a per-process PRNG seeded from the wall clock) plus a
+-- per-call counter, so two sessions pressing CTRL-R in the same second cannot
+-- read or truncate each other's candidate file.
+local yuru_counter = 0
+local function temp_path()
+  if os.tmpname then
+    local name = os.tmpname()
+    if name and name ~= "" then
+      return name
+    end
+  end
+  yuru_counter = yuru_counter + 1
+  local dir = os.getenv("TEMP") or os.getenv("TMP") or "."
+  local pid = (os.getpid and os.getpid()) or 0
+  return dir .. "\\yuru-history-" .. pid .. "-" .. os.time() .. "-" ..
+    yuru_counter .. ".txt"
+end
+
+local function run_yuru(candidate_cmd, args)
+  local cmd
+  if candidate_cmd then
+    cmd = candidate_cmd .. " 2>nul | " .. yuru_bin() .. " " .. args
+  else
+    cmd = yuru_bin() .. " " .. args
+  end
+  local pipe = io.popen(cmd)
+  if not pipe then
+    return nil
+  end
+  local selected = pipe:read("*line")
+  pipe:close()
+  if selected and selected ~= "" then
+    return selected
+  end
+  return nil
+end
+
+-- CTRL-T: insert a file or directory path. Candidates come from yuru's own
+-- walker, so no external fd/dir pipeline is needed; set YURU_CTRL_T_COMMAND
+-- to override with your own generator.
+function yuru_ctrl_t(rl_buffer)
+  local generator = os.getenv("YURU_CTRL_T_COMMAND")
+  local selected
+  if generator then
+    selected = run_yuru(generator, "--scheme path --no-multi --fzf-compat ignore")
+  else
+    selected = run_yuru(nil,
+      "--walker file,follow,hidden --scheme path --no-multi --fzf-compat ignore")
+  end
+  rl_buffer:refreshline()
+  if selected then
+    -- Inserted into the line for the user to run, not executed here. Quoting
+    -- keeps cmd operators literal; a %VAR% in the path expands when the user
+    -- runs the line, exactly as it would for a path they typed themselves.
+    rl_buffer:insert(cmd_quote(selected))
+  end
+end
+
+-- CTRL-R: search command history. Newest first, duplicates removed keeping
+-- the newest copy - the same contract as the bash/zsh/fish/powershell
+-- integrations; recency stays the tiebreak, never the ranking.
+function yuru_ctrl_r(rl_buffer)
+  local lines = {}
+  local pipe = io.popen("clink history 2>nul")
+  if pipe then
+    for line in pipe:lines() do
+      local command = line:gsub("^%s*%d+%s%s?", "")
+      if command ~= "" then
+        table.insert(lines, command)
+      end
+    end
+    pipe:close()
+  end
+  local tmp = temp_path()
+  local file = io.open(tmp, "w")
+  if not file then
+    return
+  end
+  local seen = {}
+  for index = #lines, 1, -1 do
+    if not seen[lines[index]] then
+      seen[lines[index]] = true
+      file:write(lines[index], "\n")
+    end
+  end
+  file:close()
+  local query = safe_query(rl_buffer:getbuffer() or "")
+  local selected = run_yuru(nil,
+    "--scheme history --no-multi --fzf-compat ignore --input " .. cmd_quote(tmp) ..
+    " --query " .. cmd_quote(query))
+  os.remove(tmp)
+  rl_buffer:refreshline()
+  if selected then
+    rl_buffer:beginundogroup()
+    rl_buffer:remove(0, -1)
+    rl_buffer:insert(selected)
+    rl_buffer:endundogroup()
+  end
+end
+
+-- ALT-C: change into a selected directory. The change goes through Clink's
+-- os.chdir rather than a built "cd" command line, so a directory name that
+-- contains a cmd operator or a %VAR% / !VAR! sequence cannot execute or expand
+-- - cmd would act on both even inside double quotes; os.chdir takes the name
+-- as a literal string.
+function yuru_alt_c(rl_buffer)
+  local selected = run_yuru(nil,
+    "--walker dir,follow,hidden --scheme path --no-multi --fzf-compat ignore")
+  rl_buffer:refreshline()
+  if selected and os.chdir then
+    os.chdir(selected)
+    rl_buffer:beginundogroup()
+    rl_buffer:remove(0, -1)
+    rl_buffer:endundogroup()
+    if rl.invokecommand then
+      rl.invokecommand("accept-line")
+    end
+  end
+end
+
+if rl.setbinding then
+  rl.setbinding([["\C-t"]], [["luafunc:yuru_ctrl_t"]])
+  rl.setbinding([["\C-r"]], [["luafunc:yuru_ctrl_r"]])
+  rl.setbinding([["\M-c"]], [["luafunc:yuru_alt_c"]])
+else
+  print("yuru: Clink 1.2.46+ is required for automatic key bindings;")
+  print('yuru: bind manually in .inputrc, e.g. "\\C-t": "luafunc:yuru_ctrl_t"')
+end
+"#;
 
 const BASH: &str = r#"# yuru shell integration for bash
 # Install with: eval "$(yuru --bash)"
@@ -1343,6 +1505,7 @@ fn shell_config_defaults() -> Result<ShellConfigDefaults> {
 
 pub(crate) fn shell_config_prefix(kind: ShellKind, config: &ShellConfigDefaults) -> String {
     match kind {
+        ShellKind::Clink => String::new(),
         ShellKind::Bash | ShellKind::Zsh => format!(
             "# yuru config defaults\n\
              if [ -z \"${{YURU_SHELL_BINDINGS+x}}\" ]; then export YURU_SHELL_BINDINGS={}; fi\n\
@@ -1536,6 +1699,7 @@ alt_c_opts = "--preview 'ls {}'"
             ShellKind::Zsh,
             ShellKind::Fish,
             ShellKind::PowerShell,
+            ShellKind::Clink,
         ] {
             let script = script(kind);
             assert!(
