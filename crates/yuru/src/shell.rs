@@ -1480,6 +1480,50 @@ alt_c_opts = "--preview 'ls {}'"
     }
 
     #[test]
+    fn msys_ctrl_t_buffers_candidates_instead_of_streaming() {
+        // On MSYS2 / Git Bash a shell left alive as the pipe writer competes
+        // with the finder for console input records (issue #11). The bash and
+        // zsh integrations gate on $OSTYPE and buffer the candidate command to
+        // a temp file there, while every other platform keeps the streaming
+        // pipe. Pin all three parts so the gate, the buffering, and the
+        // status handoff cannot regress unnoticed on the platform they target.
+        for kind in [ShellKind::Bash, ShellKind::Zsh] {
+            let script = script(kind);
+            assert!(
+                script.contains("msys*|cygwin*)"),
+                "{kind:?} lost the MSYS/Cygwin gate"
+            );
+            // The buffered branch writes candidates to a temp file, then reads
+            // them back through a bare `cat` so nothing shares the console.
+            assert!(
+                script.contains("yuru-candidates.XXXXXX"),
+                "{kind:?} MSYS branch does not buffer candidates to a temp file"
+            );
+            assert!(
+                script.contains(r#"cat "$tmp" | "${YURU_BIN:-yuru}""#),
+                "{kind:?} MSYS branch does not hand the buffer over through cat"
+            );
+            assert!(
+                script.contains(r#"rm -f "$tmp""#),
+                "{kind:?} MSYS branch leaves its temp file behind"
+            );
+            // The streaming pipe for every other platform stays.
+            assert!(
+                script.contains(r#"eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}""#),
+                "{kind:?} lost the non-MSYS streaming path"
+            );
+        }
+        // Fish and PowerShell were not part of the report and keep streaming
+        // unconditionally - no MSYS gate should have appeared there.
+        for kind in [ShellKind::Fish, ShellKind::PowerShell] {
+            assert!(
+                !script(kind).contains("msys*|cygwin*"),
+                "{kind:?} gained an MSYS gate it should not have"
+            );
+        }
+    }
+
+    #[test]
     fn history_search_ranks_by_match_quality_not_only_recency() {
         // `--no-sort` returns every match in input order and never consults the
         // score, so CTRL-R showed whatever matched most recently rather than
