@@ -28,8 +28,38 @@ const CLINK: &str = r#"-- yuru integration for Clink (cmd.exe)
 --   yuru --clink > "%LOCALAPPDATA%\clink\yuru.lua"   (then restart cmd)
 -- Requires Clink v1.2.46 or newer for rl.setbinding.
 
+-- Wrap a value in double quotes for cmd.exe. Double quotes turn cmd's
+-- operators (& | < > ^ etc.) into literals, and Windows paths and executable
+-- names cannot themselves contain a double quote, so this is lossless for the
+-- binary path and for selected paths.
+local function cmd_quote(value)
+  return '"' .. value .. '"'
+end
+
 local function yuru_bin()
-  return os.getenv("YURU_BIN") or "yuru.exe"
+  return cmd_quote(os.getenv("YURU_BIN") or "yuru.exe")
+end
+
+-- A cmd.exe command line cannot carry an arbitrary argument safely: outside
+-- double quotes cmd acts on & | < > ^ % and friends, and inside them a literal
+-- double quote ends the quoted span, so there is no single escaping that both
+-- protects operators and preserves an embedded quote. The query is only a fuzzy
+-- pre-filter, so drop the characters that would let it break out of its
+-- argument or run as cmd syntax; a slightly shorter query still narrows the
+-- list. Everything a normal query contains survives.
+local function safe_query(query)
+  return (query:gsub('["&|<>%^%%!()]', ""))
+end
+
+-- A per-process, per-call unique temp path, so two sessions pressing CTRL-R in
+-- the same second cannot read or truncate each other's candidate file.
+local yuru_counter = 0
+math.randomseed(os.time() + os.clock() * 1000)
+local function temp_path(tag)
+  yuru_counter = yuru_counter + 1
+  local dir = os.getenv("TEMP") or os.getenv("TMP") or "."
+  return dir .. "\\yuru-" .. tag .. "-" .. os.time() .. "-" ..
+    yuru_counter .. "-" .. math.random(0, 1000000000) .. ".txt"
 end
 
 local function run_yuru(candidate_cmd, args)
@@ -51,13 +81,6 @@ local function run_yuru(candidate_cmd, args)
   return nil
 end
 
-local function quote_path(path)
-  if path:find("[ \t]") then
-    return '"' .. path .. '"'
-  end
-  return path
-end
-
 -- CTRL-T: insert a file or directory path. Candidates come from yuru's own
 -- walker, so no external fd/dir pipeline is needed; set YURU_CTRL_T_COMMAND
 -- to override with your own generator.
@@ -72,7 +95,7 @@ function yuru_ctrl_t(rl_buffer)
   end
   rl_buffer:refreshline()
   if selected then
-    rl_buffer:insert(quote_path(selected))
+    rl_buffer:insert(cmd_quote(selected))
   end
 end
 
@@ -91,7 +114,7 @@ function yuru_ctrl_r(rl_buffer)
     end
     pipe:close()
   end
-  local tmp = os.getenv("TEMP") .. "\\yuru-history-" .. os.time() .. ".txt"
+  local tmp = temp_path("history")
   local file = io.open(tmp, "w")
   if not file then
     return
@@ -104,10 +127,10 @@ function yuru_ctrl_r(rl_buffer)
     end
   end
   file:close()
-  local query = rl_buffer:getbuffer() or ""
+  local query = safe_query(rl_buffer:getbuffer() or "")
   local selected = run_yuru(nil,
-    '--scheme history --no-multi --fzf-compat ignore --input "' .. tmp ..
-    '" --query "' .. query:gsub('"', '\\"') .. '"')
+    "--scheme history --no-multi --fzf-compat ignore --input " .. cmd_quote(tmp) ..
+    " --query " .. cmd_quote(query))
   os.remove(tmp)
   rl_buffer:refreshline()
   if selected then
@@ -126,7 +149,7 @@ function yuru_alt_c(rl_buffer)
   if selected then
     rl_buffer:beginundogroup()
     rl_buffer:remove(0, -1)
-    rl_buffer:insert("cd /d " .. quote_path(selected))
+    rl_buffer:insert("cd /d " .. cmd_quote(selected))
     rl_buffer:endundogroup()
     rl.invokecommand("accept-line")
   end
