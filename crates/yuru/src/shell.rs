@@ -51,15 +51,24 @@ local function safe_query(query)
   return (query:gsub('["&|<>%^%%!()]', ""))
 end
 
--- A per-process, per-call unique temp path, so two sessions pressing CTRL-R in
--- the same second cannot read or truncate each other's candidate file.
+-- A unique temp path. os.tmpname() is purpose-built for this and returns a
+-- fresh name per call; the fallback keys off the OS process id (distinct across
+-- Clink processes, unlike a per-process PRNG seeded from the wall clock) plus a
+-- per-call counter, so two sessions pressing CTRL-R in the same second cannot
+-- read or truncate each other's candidate file.
 local yuru_counter = 0
-math.randomseed(os.time() + os.clock() * 1000)
-local function temp_path(tag)
+local function temp_path()
+  if os.tmpname then
+    local name = os.tmpname()
+    if name and name ~= "" then
+      return name
+    end
+  end
   yuru_counter = yuru_counter + 1
   local dir = os.getenv("TEMP") or os.getenv("TMP") or "."
-  return dir .. "\\yuru-" .. tag .. "-" .. os.time() .. "-" ..
-    yuru_counter .. "-" .. math.random(0, 1000000000) .. ".txt"
+  local pid = (os.getpid and os.getpid()) or 0
+  return dir .. "\\yuru-history-" .. pid .. "-" .. os.time() .. "-" ..
+    yuru_counter .. ".txt"
 end
 
 local function run_yuru(candidate_cmd, args)
@@ -95,6 +104,9 @@ function yuru_ctrl_t(rl_buffer)
   end
   rl_buffer:refreshline()
   if selected then
+    -- Inserted into the line for the user to run, not executed here. Quoting
+    -- keeps cmd operators literal; a %VAR% in the path expands when the user
+    -- runs the line, exactly as it would for a path they typed themselves.
     rl_buffer:insert(cmd_quote(selected))
   end
 end
@@ -114,7 +126,7 @@ function yuru_ctrl_r(rl_buffer)
     end
     pipe:close()
   end
-  local tmp = temp_path("history")
+  local tmp = temp_path()
   local file = io.open(tmp, "w")
   if not file then
     return
@@ -141,17 +153,23 @@ function yuru_ctrl_r(rl_buffer)
   end
 end
 
--- ALT-C: cd into a selected directory.
+-- ALT-C: change into a selected directory. The change goes through Clink's
+-- os.chdir rather than a built "cd" command line, so a directory name that
+-- contains a cmd operator or a %VAR% / !VAR! sequence cannot execute or expand
+-- - cmd would act on both even inside double quotes; os.chdir takes the name
+-- as a literal string.
 function yuru_alt_c(rl_buffer)
   local selected = run_yuru(nil,
     "--walker dir,follow,hidden --scheme path --no-multi --fzf-compat ignore")
   rl_buffer:refreshline()
-  if selected then
+  if selected and os.chdir then
+    os.chdir(selected)
     rl_buffer:beginundogroup()
     rl_buffer:remove(0, -1)
-    rl_buffer:insert("cd /d " .. cmd_quote(selected))
     rl_buffer:endundogroup()
-    rl.invokecommand("accept-line")
+    if rl.invokecommand then
+      rl.invokecommand("accept-line")
+    end
   end
 end
 
