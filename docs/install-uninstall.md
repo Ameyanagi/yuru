@@ -7,14 +7,14 @@ Yuru installers are user-space installers. They do not require `sudo`.
 macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.2/install | sh -s -- --all --version v0.2.2
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.3/install | sh -s -- --all --version v0.2.3
 ```
 
 Windows PowerShell:
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.2/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.2.2"
+$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.3/install.ps1
+Invoke-Expression "& { $script } -All -Version v0.2.3"
 ```
 
 The Unix installer writes the binary to `~/.local/bin` unless `XDG_BIN_HOME`,
@@ -55,7 +55,7 @@ the installer suggests installing `fd`. Yuru still works and falls back to
 Run the pinned installer again with the new version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.2/install | sh -s -- --all --version v0.2.2
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.3/install | sh -s -- --all --version v0.2.3
 ```
 
 ## Checksums

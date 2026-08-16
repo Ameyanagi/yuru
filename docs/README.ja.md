@@ -163,8 +163,8 @@ version tag を push すると、GitHub Actions が macOS、Linux、Windows 向�
 release workflow は tag push のときだけ動き、tag は crate version と一致している必要があります。
 
 ```sh
-git tag v0.2.2
-git push origin v0.2.2
+git tag v0.2.3
+git push origin v0.2.3
 ```
 
 ## ライセンス

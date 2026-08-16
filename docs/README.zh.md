@@ -163,8 +163,8 @@ git hook 会运行 formatter、linter、test 和 benchmark。只有在确实需�
 release workflow 只会在 tag push 时运行，tag 必须和 crate version 一致。
 
 ```sh
-git tag v0.2.2
-git push origin v0.2.2
+git tag v0.2.3
+git push origin v0.2.3
 ```
 
 ## 许可证

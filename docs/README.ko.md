@@ -162,8 +162,8 @@ version tag를 푸시하면 GitHub Actions가 macOS, Linux, Windows용 릴리스
 release workflow는 tag push에서만 실행되며, tag는 crate version과 일치해야 합니다.
 
 ```sh
-git tag v0.2.2
-git push origin v0.2.2
+git tag v0.2.3
+git push origin v0.2.3
 ```
 
 ## 라이선스
