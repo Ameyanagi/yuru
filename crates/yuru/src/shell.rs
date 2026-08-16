@@ -94,9 +94,27 @@ __yuru_read_opts__() {
 }
 
 __yuru_run_with_optional_command__() {
-  local command_set="$1" command_text="$2" status
+  local command_set="$1" command_text="$2" status tmp old_umask
   shift 2
   if [ "$command_set" = 1 ]; then
+    case "$OSTYPE" in
+      msys*|cygwin*)
+        # On MSYS2 and Git Bash, a shell left alive as the pipe writer competes
+        # with a native console application for console input records, and the
+        # finder stops receiving keystrokes (issue #11, reported with the fix
+        # shape by @MapleLuz). Buffer the candidates first so nothing shares
+        # the console while the finder is interactive. Unix keeps streaming.
+        old_umask=$(umask)
+        umask 077
+        tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-candidates.XXXXXX") || { umask "$old_umask"; return 1; }
+        umask "$old_umask"
+        eval "$command_text" 2>/dev/null >"$tmp"
+        cat "$tmp" | "${YURU_BIN:-yuru}" "$@"
+        status=${PIPESTATUS[1]}
+        rm -f "$tmp"
+        return $status
+        ;;
+    esac
     eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}" "$@"
     status=${PIPESTATUS[1]}
     return $status
@@ -365,9 +383,24 @@ __yuru_alt_c_opts__() {
 
 __yuru_run_with_optional_command__() {
   emulate -L zsh
-  local command_set="$1" command_text="$2" yuru_status
+  local command_set="$1" command_text="$2" yuru_status tmp old_umask
   shift 2
   if [[ "$command_set" == 1 ]]; then
+    case "$OSTYPE" in
+      msys*|cygwin*)
+        # See the bash integration: on MSYS2/Cygwin a lingering pipe-writer
+        # shell competes with the finder for console input (issue #11).
+        old_umask=$(umask)
+        umask 077
+        tmp=$(mktemp "${TMPDIR:-/tmp}/yuru-candidates.XXXXXX") || { umask "$old_umask"; return 1 }
+        umask "$old_umask"
+        eval "$command_text" 2>/dev/null >"$tmp"
+        cat "$tmp" | "${YURU_BIN:-yuru}" "$@"
+        yuru_status=${pipestatus[2]}
+        rm -f "$tmp"
+        return $yuru_status
+        ;;
+    esac
     eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}" "$@"
     yuru_status=${pipestatus[2]}
     return $yuru_status
@@ -1443,6 +1476,50 @@ alt_c_opts = "--preview 'ls {}'"
             assert!(!script.contains("eval \"set opts $raw\""));
             assert!(!script.contains("yuru-history.$$"));
             assert!(script.contains("mktemp"));
+        }
+    }
+
+    #[test]
+    fn msys_ctrl_t_buffers_candidates_instead_of_streaming() {
+        // On MSYS2 / Git Bash a shell left alive as the pipe writer competes
+        // with the finder for console input records (issue #11). The bash and
+        // zsh integrations gate on $OSTYPE and buffer the candidate command to
+        // a temp file there, while every other platform keeps the streaming
+        // pipe. Pin all three parts so the gate, the buffering, and the
+        // status handoff cannot regress unnoticed on the platform they target.
+        for kind in [ShellKind::Bash, ShellKind::Zsh] {
+            let script = script(kind);
+            assert!(
+                script.contains("msys*|cygwin*)"),
+                "{kind:?} lost the MSYS/Cygwin gate"
+            );
+            // The buffered branch writes candidates to a temp file, then reads
+            // them back through a bare `cat` so nothing shares the console.
+            assert!(
+                script.contains("yuru-candidates.XXXXXX"),
+                "{kind:?} MSYS branch does not buffer candidates to a temp file"
+            );
+            assert!(
+                script.contains(r#"cat "$tmp" | "${YURU_BIN:-yuru}""#),
+                "{kind:?} MSYS branch does not hand the buffer over through cat"
+            );
+            assert!(
+                script.contains(r#"rm -f "$tmp""#),
+                "{kind:?} MSYS branch leaves its temp file behind"
+            );
+            // The streaming pipe for every other platform stays.
+            assert!(
+                script.contains(r#"eval "$command_text" 2>/dev/null | "${YURU_BIN:-yuru}""#),
+                "{kind:?} lost the non-MSYS streaming path"
+            );
+        }
+        // Fish and PowerShell were not part of the report and keep streaming
+        // unconditionally - no MSYS gate should have appeared there.
+        for kind in [ShellKind::Fish, ShellKind::PowerShell] {
+            assert!(
+                !script(kind).contains("msys*|cygwin*"),
+                "{kind:?} gained an MSYS gate it should not have"
+            );
         }
     }
 
