@@ -53,14 +53,14 @@ Installs into your home directory. No `sudo`.
 **macOS / Linux**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.2/install | sh -s -- --all --version v0.2.2
+curl -fsSL https://raw.githubusercontent.com/Ameyanagi/yuru/main/install | sh -s -- --all
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-$script = Invoke-RestMethod https://raw.githubusercontent.com/Ameyanagi/yuru/v0.2.2/install.ps1
-Invoke-Expression "& { $script } -All -Version v0.2.2"
+$script = irm https://raw.githubusercontent.com/Ameyanagi/yuru/main/install.ps1
+iex "& { $script } -All"
 ```
 
 **Cargo**
@@ -77,7 +77,8 @@ questions any time with `yuru configure`.
 Drop `--all` to install just the binary. Building from source needs a C compiler
 for the Japanese dictionary; the released binaries do not.
 
-For unattended installs, checksums, update, and uninstall, see
+Both install the latest release; release-pinned commands for reproducible setups,
+unattended installs, checksums, update, and uninstall are in
 [install and uninstall](docs/install-uninstall.md).
 
 ## Shell integration
