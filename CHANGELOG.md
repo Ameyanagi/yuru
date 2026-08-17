@@ -2,6 +2,14 @@
 
 All notable user-facing changes are tracked here.
 
+## Unreleased
+
+### Documentation
+
+- Documented that the cmd.exe integration requires [Clink](https://chrisant996.github.io/clink/)
+  to be installed first (`winget install clink`), with the install and setup steps
+  in the README shell-integration section.
+
 ## 0.2.3
 
 ### Added

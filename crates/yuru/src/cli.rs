@@ -820,6 +820,10 @@ pub(crate) struct Args {
     pub(crate) powershell: bool,
 
     /// Print the Clink (cmd.exe) integration script (Lua).
+    ///
+    /// Requires Clink (https://chrisant996.github.io/clink/) v1.2.46+ installed;
+    /// write the output to a Clink scripts directory, e.g.
+    /// `yuru --clink > "%LOCALAPPDATA%\clink\yuru.lua"`.
     #[arg(long)]
     pub(crate) clink: bool,
 }
