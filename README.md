@@ -121,7 +121,8 @@ winget install clink
 or `scoop install clink`, or the installer from
 [Clink's releases](https://github.com/chrisant996/clink/releases). The installer
 offers to start Clink automatically in new cmd windows; after a `winget` or
-`scoop` install, enable that once with `clink autorun install`.
+`scoop` install, open a fresh cmd window (so its PATH picks up Clink) and
+enable that once with `clink autorun install`.
 
 Then generate the yuru script into a Clink scripts directory and open a new cmd
 window:
