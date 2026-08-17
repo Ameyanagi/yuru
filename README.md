@@ -95,10 +95,7 @@ yuru --fish | source       # fish
 Invoke-Expression ((yuru --powershell) -join "`n")   # PowerShell
 ```
 
-```bat
-:: cmd.exe, via Clink (https://chrisant996.github.io/clink/), v1.2.46+
-yuru --clink > "%LOCALAPPDATA%\clink\yuru.lua"
-```
+bash, zsh, fish, and PowerShell need nothing extra. For cmd.exe, see below.
 
 That gives you:
 
@@ -110,6 +107,37 @@ That gives you:
 | `**` then `TAB` | fuzzy path completion |
 
 Same bindings as fzf, so muscle memory carries over.
+
+### cmd.exe (via Clink)
+
+cmd.exe cannot bind keys on its own, so the integration runs through
+[Clink](https://chrisant996.github.io/clink/) (v1.2.46 or newer), which adds a
+line editor to cmd. **Install Clink first** — pick one:
+
+```
+winget install clink
+```
+
+or `scoop install clink`, or the installer from
+[Clink's releases](https://github.com/chrisant996/clink/releases). The installer
+offers to start Clink automatically in new cmd windows; after a `winget` or
+`scoop` install, open a fresh cmd window (so its PATH picks up Clink) and
+enable that once with `clink autorun install`.
+
+Then generate the yuru script into a Clink scripts directory and open a new cmd
+window:
+
+```bat
+if not exist "%LOCALAPPDATA%\clink" mkdir "%LOCALAPPDATA%\clink"
+yuru --clink > "%LOCALAPPDATA%\clink\yuru.lua"
+```
+
+`clink info` confirms Clink is active. `CTRL-T` and `ALT-C` draw candidates from
+Yuru's own walker, so no `fd` is required.
+
+Yuru itself works in cmd without Clink for scripting — `type files.txt | yuru
+--filter foo` — which needs nothing installed. Clink only adds the interactive
+key bindings.
 
 ## Usage
 
